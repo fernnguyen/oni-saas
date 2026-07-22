@@ -4,7 +4,7 @@ import { usePosStore } from '@/stores/pos-store';
 import { useTenantStore } from '@/stores/tenant-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTableStore } from '@/stores/table-store';
-import { syncOrderDirect, createCustomer, getCustomers, updateLocationResource } from '@/services/shop-api';
+import { syncOrderDirect, createCustomer, getCustomers, updateLocationResource, createCashbookEntry } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 import { calculateBilling } from '@/utils/billing';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
@@ -288,9 +288,20 @@ export default function CheckoutModal() {
   const [isEditingDiscount, setIsEditingDiscount] = useState(false);
   const [editingPriceItemId, setEditingPriceItemId] = useState<string | null>(null);
 
+  // ── Old Debt Repayment State ──
+  const [debtRepayInput, setDebtRepayInput] = useState('');
+  const customerDebt = activeCustomer.debt_amount ?? 0;
+  const clampedDebtRepay = Math.min(parseVnd(debtRepayInput), customerDebt > 0 ? customerDebt : 0);
+
+  // Reset debt repayment input when customer changes
+  useEffect(() => {
+    setDebtRepayInput('');
+  }, [activeCustomer.id]);
+
   // ── Totals ──
   const subtotal = cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
   const finalAmount = Math.max(0, subtotal - discountAmount);
+  const effectiveTotal = finalAmount + clampedDebtRepay;
 
   // ── Multiple Payment Rows ──
   const [payments, setPayments] = useState<PaymentRow[]>([]);
@@ -363,26 +374,30 @@ export default function CheckoutModal() {
     return match.find((f) => f.is_default === 'TRUE' || f.is_default === 'true') || match[0];
   };
 
-  // Setup default single payment row matching subtotal
+  // Setup default single payment row matching effectiveTotal
+  const prevEffectiveTotalRef = useRef(effectiveTotal);
   useEffect(() => {
     if (paymentMethods.length === 0) return;
 
-    const defaultMethod = paymentMethods.find((pm) => pm.is_default) || paymentMethods[0];
-    const defaultMethodId = defaultMethod?.id || 'cash';
-    const defaultMethodType = defaultMethod?.type || 'cash';
+    if (payments.length <= 1) {
+      const defaultMethod = paymentMethods.find((pm) => pm.is_default) || paymentMethods[0];
+      const defaultMethodId = defaultMethod?.id || 'cash';
+      const defaultMethodType = defaultMethod?.type || 'cash';
 
-    const matchFunds = paymentFunds.filter((f) => f.type === defaultMethodType);
-    const defaultFund = matchFunds.find((f) => f.is_default === 'TRUE' || f.is_default === 'true') || matchFunds[0];
+      const matchFunds = paymentFunds.filter((f) => f.type === defaultMethodType);
+      const defaultFund = matchFunds.find((f) => f.is_default === 'TRUE' || f.is_default === 'true') || matchFunds[0];
 
-    setPayments([
-      {
-        id: nextId(),
-        method: defaultMethodId,
-        amount: String(finalAmount),
-        fund_id: defaultFund?.id || '',
-      },
-    ]);
-  }, [paymentMethods, paymentFunds, finalAmount]);
+      setPayments([
+        {
+          id: payments[0]?.id || nextId(),
+          method: payments[0]?.method || defaultMethodId,
+          amount: String(effectiveTotal),
+          fund_id: payments[0]?.fund_id || defaultFund?.id || '',
+        },
+      ]);
+    }
+    prevEffectiveTotalRef.current = effectiveTotal;
+  }, [paymentMethods, paymentFunds, effectiveTotal]);
 
   // Handle clicking outside customer dropdown
   useEffect(() => {
@@ -398,7 +413,7 @@ export default function CheckoutModal() {
   // ── Payment Row Actions ──
   const handleAddPayment = () => {
     const totalPaid = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-    const leftover = Math.max(0, finalAmount - totalPaid);
+    const leftover = Math.max(0, effectiveTotal - totalPaid);
 
     // Find next unused method
     const usedMethods = new Set(payments.map((p) => p.method));
@@ -440,7 +455,7 @@ export default function CheckoutModal() {
 
   // Sum of payments set
   const totalReceived = payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-  const remaining = Math.max(0, finalAmount - totalReceived);
+  const remaining = Math.max(0, effectiveTotal - totalReceived);
 
   // Overpayment change due calculation (excluding debt methods)
   const changeDue = useMemo(() => {
@@ -451,8 +466,8 @@ export default function CheckoutModal() {
       })
       .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
 
-    return nonDebtReceived > finalAmount ? nonDebtReceived - finalAmount : 0;
-  }, [payments, paymentMethods, finalAmount]);
+    return nonDebtReceived > effectiveTotal ? nonDebtReceived - effectiveTotal : 0;
+  }, [payments, paymentMethods, effectiveTotal]);
 
   // ── Constraints & Warnings ──
   const checkoutWarning = useMemo(() => {
@@ -615,6 +630,32 @@ export default function CheckoutModal() {
       }
 
       await syncOrderDirect(shopId, orderPayload);
+
+      // If paying old debt along with order, create cashbook debt_collection receipt
+      if (clampedDebtRepay > 0 && activeCustomer.id !== 'C-DEFAULT-RETAIL') {
+        try {
+          const debtPaymentRow = payments.find((p) => {
+            const pm = paymentMethods.find((m) => m.id === p.method);
+            return pm?.type !== 'debt';
+          }) || payments[0];
+          const pmType = paymentMethods.find((m) => m.id === debtPaymentRow?.method)?.type || 'cash';
+
+          await createCashbookEntry(shopId, {
+            type: 'receipt',
+            category: 'debt_collection',
+            amount: clampedDebtRepay,
+            method: pmType,
+            fund_id: debtPaymentRow?.fund_id || undefined,
+            reference_id: activeCustomer.id,
+            reference_name: activeCustomer.name,
+            note: `Thu nợ cũ kèm đơn ${orderId.substring(0, 8).toUpperCase()}`,
+            employee_id: profile?.id || undefined,
+            branch_id: shopId,
+          });
+        } catch (cbErr) {
+          console.error('Lỗi tạo phiếu thu nợ Sổ quỹ:', cbErr);
+        }
+      }
 
       // ── Table-specific post-checkout: mark table cleaning ──
       if (isTableCheckout && cartOwnerTableId) {
@@ -999,6 +1040,73 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
             )}
           </div>
 
+          {/* ══════ SECTION 1.2: Khách đang có nợ cũ (Trả nợ kèm đơn) ══════ */}
+          {activeCustomer.id !== 'C-DEFAULT-RETAIL' && customerDebt > 0 && (
+            <div style={{
+              background: '#fff1f2',
+              border: '1.5px solid #fecdd3',
+              borderRadius: 12,
+              padding: 12,
+              marginBottom: 14,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#9f1239' }}>⚠️ Khách đang có nợ cũ:</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: '#e11d48' }}>
+                    {formatCurrency(customerDebt)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDebtRepayInput(maskVnd(customerDebt))}
+                  style={{
+                    background: '#ffe4e6',
+                    border: '1px solid #f43f5e',
+                    borderRadius: 6,
+                    padding: '2px 8px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: '#e11d48',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Trả hết
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#be123c', whiteSpace: 'nowrap' }}>Trả nợ:</label>
+                <input
+                  type="text"
+                  value={debtRepayInput}
+                  onChange={(e) => {
+                    const val = parseVnd(e.target.value);
+                    if (val > customerDebt) {
+                      setDebtRepayInput(maskVnd(customerDebt));
+                    } else {
+                      setDebtRepayInput(maskVnd(e.target.value));
+                    }
+                  }}
+                  placeholder="Nhập số tiền trả nợ cũ"
+                  style={{
+                    flex: 1,
+                    height: 34,
+                    padding: '0 10px',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    textAlign: 'right',
+                    border: '1.5px solid #fda4af',
+                    borderRadius: 8,
+                    background: '#fff',
+                    color: '#be123c',
+                    outline: 'none'
+                  }}
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
+          )}
+
           {/* ══════ SECTION 1.5: Rent/Stay Time Details (Adjustable) ══════ */}
           {isTableCheckout && billingInfo && (
             <div style={{
@@ -1352,9 +1460,18 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
               )}
             </div>
 
+            {clampedDebtRepay > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <span style={{ color: '#e11d48', fontSize: 13, fontWeight: 600 }}>+ Trả nợ cũ:</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#e11d48' }}>
+                  {formatCurrency(clampedDebtRepay)}
+                </span>
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: '1px dashed #e2e8f0' }}>
-              <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>Tổng cộng:</span>
-              <span style={{ fontWeight: 800, fontSize: 16, color: '#ea580c' }}>{formatCurrency(finalAmount)}</span>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>Tổng cần thu:</span>
+              <span style={{ fontWeight: 800, fontSize: 16, color: '#ea580c' }}>{formatCurrency(effectiveTotal)}</span>
             </div>
           </div>
 
@@ -1590,7 +1707,7 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
-              Lưu & xác nhận ({formatCurrency(finalAmount)})
+              Lưu & xác nhận ({formatCurrency(effectiveTotal)})
             </button>
           </div>
 
@@ -1684,8 +1801,20 @@ Cảm ơn Quý khách và hẹn gặp lại! 🙏`;
               </div>
               
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748b' }}>Tổng tiền thanh toán:</span>
-                <span style={{ fontWeight: 750, color: 'var(--primary)', fontSize: 15 }}>{formatCurrency(finalAmount)}</span>
+                <span style={{ color: '#64748b' }}>Tiền hàng:</span>
+                <span style={{ fontWeight: 700, color: '#1e293b' }}>{formatCurrency(finalAmount)}</span>
+              </div>
+
+              {clampedDebtRepay > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#e11d48', fontWeight: 600 }}>Trả nợ cũ:</span>
+                  <span style={{ fontWeight: 700, color: '#e11d48' }}>+{formatCurrency(clampedDebtRepay)}</span>
+                </div>
+              )}
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #cbd5e1', paddingTop: 6 }}>
+                <span style={{ color: '#64748b', fontWeight: 700 }}>Tổng cần thu:</span>
+                <span style={{ fontWeight: 750, color: 'var(--primary)', fontSize: 15 }}>{formatCurrency(effectiveTotal)}</span>
               </div>
 
               <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 8, marginTop: 4 }}>

@@ -131,7 +131,7 @@ interface ZaloDebtReminderModalProps {
   onClose: () => void;
 }
 
-type ToneType = 'gentle' | 'professional' | 'friendly';
+type ToneType = 'gentle' | 'professional' | 'friendly' | 'viral' | 'firm';
 
 function ZaloDebtReminderModal({ entity, amount, funds, shopName, onClose }: ZaloDebtReminderModalProps) {
   const [tone, setTone] = useState<ToneType>('gentle');
@@ -195,19 +195,28 @@ Kính đề nghị Quý khách hàng tiến hành đối chiếu thông tin và 
 Trân trọng cảm ơn sự hợp tác của Quý khách!${bankInfoText}`;
     }
 
-    return `Alo sếp ${custName} iu dấu ơi! 📣
+    if (tone === 'friendly') {
+      return `Alo sếp ${custName} iu dấu ơi!
 Em gửi sếp số dư công nợ của mình nha: ${amountFormatted}.
-Sếp bớt chút thời gian "ting ting" giải cứu shop nha, shop nhớ tiếng chuông ting ting của sếp lắm rồi á! 🥺 Chúc sếp ngày mới ngập tràn niềm vui! 🎉${bankInfoText}`;
-  }, [tone, entity, amount, selectedFund, shopName]);
+Sếp bớt chút thời gian "ting ting" giải cứu shop nha, shop nhớ tiếng chuông ting ting của sếp lắm rồi á! 🥺 Chúc sếp ngày mới ngập tràn niềm vui! ${bankInfoText}`;
+    }
 
-  const qrImageUrl = useMemo(() => {
-    if (!selectedFund || !selectedFund.account_number) return '';
-    const bankCode = getVietQRBankCode(selectedFund.bank_name);
-    const accNo = selectedFund.account_number;
-    const accName = encodeURIComponent(selectedFund.account_name || selectedFund.account_holder || '');
-    const addInfo = encodeURIComponent(`THANH TOAN CONG NO ${entity.name ? entity.name.toUpperCase() : ''}`);
-    return `https://img.vietqr.io/image/${bankCode}-${accNo}-compact.png?amount=${amount}&addInfo=${addInfo}&accountName=${accName}`;
-  }, [selectedFund, amount, entity.name]);
+    if (tone === 'viral') {
+      return `Alo alo sếp ${custName} ơi!
+Lướt Facebook thấy sếp check-in ăn chơi, du lịch sang chảnh mê thật!
+Mà sếp ôi, còn khoản nợ ${amountFormatted} nhỏ tí ti ở ${shopName} kìa, sếp bớt chút "tiền lẻ" ting-ting cho shop để shop có chi phí đi đu đưa theo sếp với ạ! 🤪
+Ting-ting liền tay - giữ trọn tình anh em sếp nhé! ❤️${bankInfoText}`;
+    }
+
+    if (tone === 'firm') {
+      return `[THÔNG BÁO NHẮC NỢ GẤP] từ ${shopName}:
+Kính gửi ${custName}, hệ thống ghi nhận khoản nợ ${amountFormatted} của Quý khách đã đến/quá hạn thanh toán.
+Rất mong Quý khách vui lòng kiểm tra và hoàn tất chuyển khoản ngay hôm nay để tránh gián đoạn các giao dịch tiếp theo.
+Xin cảm ơn!${bankInfoText}`;
+    }
+
+    return '';
+  }, [tone, entity, amount, selectedFund, shopName]);
 
   const handleSendReminder = async () => {
     try {
@@ -257,26 +266,31 @@ Sếp bớt chút thời gian "ting ting" giải cứu shop nha, shop nhớ ti�
 
         <div className="form-group mb-3">
           <label className="form-label" style={{ fontWeight: 600, fontSize: 12 }}>Giọng điệu lời nhắc</label>
-          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-            {(['gentle', 'professional', 'friendly'] as const).map(t => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: 4 }}>
+            {[
+              { id: 'gentle', label: 'Nhẹ nhàng 😊' },
+              { id: 'professional', label: 'Lịch sự 🫡' },
+              { id: 'friendly', label: 'Hài hước 🤣' },
+              { id: 'viral', label: 'Cà khịa 😏' },
+              { id: 'firm', label: 'Cương quyết 😤' },
+            ].map(t => (
               <button
-                key={t}
+                key={t.id}
                 type="button"
-                onClick={() => setTone(t)}
+                onClick={() => setTone(t.id as ToneType)}
                 style={{
-                  flex: 1,
                   padding: '6px 4px',
                   borderRadius: 8,
                   fontSize: 11,
                   fontWeight: 'bold',
-                  background: tone === t ? '#0068ff' : '#f1f5f9',
-                  color: tone === t ? 'white' : '#64748b',
+                  background: tone === t.id ? '#0068ff' : '#f1f5f9',
+                  color: tone === t.id ? 'white' : '#64748b',
                   border: 'none',
                   cursor: 'pointer',
                   transition: 'all 0.15s'
                 }}
               >
-                {t === 'gentle' ? 'Nhẹ nhàng 😊' : t === 'professional' ? 'Lịch sự 💼' : 'Hài hước 📣'}
+                {t.label}
               </button>
             ))}
           </div>
@@ -304,13 +318,6 @@ Sếp bớt chút thời gian "ting ting" giải cứu shop nha, shop nhớ ti�
           </div>
         )}
 
-        {qrImageUrl && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
-            <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase' }}>Preview Mã VietQR thanh toán nhanh</span>
-            <img src={qrImageUrl} alt="VietQR" style={{ width: 140, height: 140, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }} />
-          </div>
-        )}
-
         <div className="form-group mb-3">
           <label className="form-label" style={{ fontWeight: 600, fontSize: 12 }}>Xem trước tin nhắn</label>
           <div style={{
@@ -318,13 +325,13 @@ Sếp bớt chút thời gian "ting ting" giải cứu shop nha, shop nhớ ti�
             border: '1px solid #cbd5e1',
             borderRadius: 8,
             padding: 10,
-            fontSize: 11,
+            fontSize: 12,
+            lineHeight: 1.5,
             color: '#1e293b',
             whiteSpace: 'pre-wrap',
-            maxHeight: 150,
+            maxHeight: 160,
             overflowY: 'auto',
-            marginTop: 4,
-            fontFamily: 'monospace'
+            marginTop: 4
           }}>
             {messageText}
           </div>
