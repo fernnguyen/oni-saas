@@ -2,8 +2,8 @@
  * Supabase Edge Function: zalo-auth
  *
  * Xử lý Zalo OAuth 2.0 server-side:
- *   1. Nhận oauthCode + codeVerifier từ mobile app
- *   2. Exchange lấy Zalo access_token (PKCE)
+ *   1. Nhận accessToken từ native SDK v5, hoặc oauthCode + codeVerifier từ deep link cũ
+ *   2. Nếu cần, exchange oauthCode lấy Zalo access_token (PKCE)
  *   3. Lấy thông tin user từ Zalo Graph API
  *   4. Tìm hoặc tạo Supabase user tương ứng
  *   5. Tạo magic link session và trả về access_token + refresh_token
@@ -28,58 +28,60 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { oauthCode, codeVerifier, appId } = await req.json();
+    const { oauthCode, codeVerifier, appId, accessToken } = await req.json();
 
-    if (!oauthCode || !appId) {
+    if (!accessToken && (!oauthCode || !appId)) {
       return Response.json(
-        { error: 'Thiếu tham số oauthCode hoặc appId' },
+        { error: 'Thiếu accessToken hoặc cặp oauthCode/appId' },
         { status: 400, headers: CORS_HEADERS }
       );
     }
 
     const ZALO_APP_SECRET = Deno.env.get('ZALO_APP_SECRET');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+    const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
     const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    if (!ZALO_APP_SECRET) {
+    if (!accessToken && !ZALO_APP_SECRET) {
       return Response.json(
         { error: 'ZALO_APP_SECRET chưa được cấu hình trên server' },
         { status: 500, headers: CORS_HEADERS }
       );
     }
 
-    // ── BƯỚC 1: Exchange oauthCode → Zalo access_token ────────────────────────
-    const tokenBody = new URLSearchParams({
-      app_id: appId,
-      grant_type: 'authorization_code',
-      code: oauthCode,
-    });
+    // Native SDK v5 đã hoàn tất PKCE và trả access token. Giữ nhánh oauthCode
+    // để tương thích với deep link cũ oni-pos://oauthcode?success=...
+    let zaloAccessToken: string = accessToken ?? '';
+    if (!zaloAccessToken) {
+      const tokenBody = new URLSearchParams({
+        app_id: appId,
+        grant_type: 'authorization_code',
+        code: oauthCode,
+      });
 
-    // Thêm code_verifier nếu sử dụng PKCE (Zalo SDK v4+)
-    if (codeVerifier) {
-      tokenBody.append('code_verifier', codeVerifier);
+      if (codeVerifier) {
+        tokenBody.append('code_verifier', codeVerifier);
+      }
+
+      const tokenRes = await fetch('https://oauth.zaloapp.com/v4/access_token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'secret_key': ZALO_APP_SECRET!,
+        },
+        body: tokenBody.toString(),
+      });
+
+      const tokenData = await tokenRes.json();
+      if (!tokenData.access_token) {
+        console.error('[zalo-auth] Token exchange thất bại:', tokenData);
+        return Response.json(
+          { error: 'Không lấy được Zalo access_token', detail: tokenData },
+          { status: 401, headers: CORS_HEADERS }
+        );
+      }
+      zaloAccessToken = tokenData.access_token;
     }
-
-    const tokenRes = await fetch('https://oauth.zaloapp.com/v4/access_token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'secret_key': ZALO_APP_SECRET,
-      },
-      body: tokenBody.toString(),
-    });
-
-    const tokenData = await tokenRes.json();
-
-    if (!tokenData.access_token) {
-      console.error('[zalo-auth] Token exchange thất bại:', tokenData);
-      return Response.json(
-        { error: 'Không lấy được Zalo access_token', detail: tokenData },
-        { status: 401, headers: CORS_HEADERS }
-      );
-    }
-
-    const zaloAccessToken: string = tokenData.access_token;
 
     // ── BƯỚC 2: Lấy thông tin user từ Zalo Graph API ──────────────────────────
     const profileRes = await fetch(
@@ -115,11 +117,6 @@ Deno.serve(async (req: Request) => {
 
     // Tìm user theo email placeholder (cách đáng tin cậy nhất)
     let userId: string;
-    const { data: existingUsers } = await adminClient.auth.admin.listUsers({
-      perPage: 1,
-      page: 1,
-    });
-
     // Tìm trong danh sách users có zalo_id khớp
     const allUsersRes = await adminClient.auth.admin.listUsers({ perPage: 1000 });
     const matchedUser = allUsersRes.data?.users?.find(
@@ -180,7 +177,26 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { access_token, refresh_token } = linkData.properties;
+    // generateLink chỉ tạo OTP/link, không trả session token. Xác minh OTP bằng
+    // anon client để Supabase phát hành access_token + refresh_token thật.
+    const sessionClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data: verifyData, error: verifyError } = await sessionClient.auth.verifyOtp({
+      email: placeholderEmail,
+      token: linkData.properties.email_otp,
+      type: 'email',
+    });
+
+    if (verifyError || !verifyData.session) {
+      console.error('[zalo-auth] Xác minh OTP để tạo session thất bại:', verifyError);
+      return Response.json(
+        { error: 'Không thể tạo phiên đăng nhập', detail: verifyError?.message },
+        { status: 500, headers: CORS_HEADERS }
+      );
+    }
+
+    const { access_token, refresh_token } = verifyData.session;
 
     return Response.json(
       {

@@ -9,7 +9,19 @@
  * Android: Thêm Zalo dependency, cấu hình build.gradle + AndroidManifest
  */
 
-const { withInfoPlist, withAppDelegate, withAndroidManifest, withAppBuildGradle, withProjectBuildGradle } = require('@expo/config-plugins');
+const {
+  withInfoPlist,
+  withAppDelegate,
+  withAndroidManifest,
+  withAppBuildGradle,
+  withProjectBuildGradle,
+  withMainActivity,
+  withMainApplication,
+  withStringsXml,
+  withDangerousMod,
+} = require('@expo/config-plugins');
+const fs = require('fs');
+const path = require('path');
 
 // ─── iOS: Info.plist ─────────────────────────────────────────────────────────
 function withZaloIosPlist(config, { appID }) {
@@ -71,15 +83,15 @@ function withZaloAppDelegate(config, { appID }) {
         );
       }
 
-      // 3. Xử lý openURL — PHẢI dùng ZDKApplicationDelegate, không phải ZaloSDK.
-      // QUAN TRỌNG: phải check return value và return true sớm nếu Zalo đã handle URL,
-      // không để RCTLinkingManager (Expo Router) nhận URL đó lần nữa (tránh double-consume oauthCode).
+      // 3. Xử lý openURL theo scheme:
+      // - zalo-{appID} là callback native SDK → ZDKApplicationDelegate
+      // - oni-pos://oauthcode là OAuth callback thực tế của app → Expo Router
       if (!appDelegate.includes('ZDKApplicationDelegate.sharedInstance().application(app, open: url')) {
         // Trường hợp 1: đã có override application(_:open:options:) → thay thế toàn bộ thân hàm
         if (appDelegate.includes('return super.application(app, open: url, options: options)')) {
           appDelegate = appDelegate.replace(
             'return super.application(app, open: url, options: options)',
-            `if ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options) {\n      return true\n    }\n    return super.application(app, open: url, options: options)`
+            `if url.scheme == "zalo-${appID}" && ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options) {\n      return true\n    }\n    return RCTLinkingManager.application(app, open: url, options: options) || super.application(app, open: url, options: options)`
           );
         } else {
           // Trường hợp 2: chưa có override → thêm func mới trước dấu đóng class
@@ -89,16 +101,24 @@ function withZaloAppDelegate(config, { appID }) {
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
-    // Nếu Zalo SDK xử lý URL này, return true ngay — không để Expo Router nhận thêm
-    if ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options) {
+    // Chỉ callback scheme chuẩn của native SDK mới giao cho Zalo.
+    // oni-pos://oauthcode phải đi vào Expo Router.
+    if url.scheme == "zalo-${appID}" && ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options) {
       return true
     }
-    return super.application(app, open: url, options: options)
+    return RCTLinkingManager.application(app, open: url, options: options) || super.application(app, open: url, options: options)
   }
 `;
           appDelegate = appDelegate.replace(/}\s*$/, `${openUrlFunc}\n}`);
         }
       }
+
+      // Nâng cấp AppDelegate đã được plugin phiên bản cũ inject: phiên bản cũ
+      // đưa mọi URL cho ZDK trước, khiến oni-pos://oauthcode có thể bị nuốt.
+      appDelegate = appDelegate.replace(
+        `if ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options) {\n      return true\n    }\n    return super.application(app, open: url, options: options) || RCTLinkingManager.application(app, open: url, options: options)`,
+        `if url.scheme == "zalo-${appID}" && ZDKApplicationDelegate.sharedInstance().application(app, open: url, options: options) {\n      return true\n    }\n    return RCTLinkingManager.application(app, open: url, options: options) || super.application(app, open: url, options: options)`
+      );
     } else {
       // Objective-C (legacy)
       if (!appDelegate.includes('#import <ZaloSDK/ZaloSDK.h>')) {
@@ -136,13 +156,12 @@ function withZaloAndroidBuildGradle(config) {
   return withAppBuildGradle(config, (config) => {
     let gradle = config.modResults.contents;
 
-    // Thêm Maven repository cho Zalo SDK nếu chưa có
-    if (!gradle.includes('zalo-sdk')) {
-      gradle = gradle.replace(
-        'dependencies {',
-        `dependencies {\n    implementation 'com.zing.zalo.zalosdk:core:+'`
-      );
-    }
+    // react-native-zalo-kit v5 tự khai báo các artifact me.zalo:*.
+    // Xoá dependency legacy do phiên bản plugin cũ từng chèn trực tiếp vào app.
+    gradle = gradle.replace(
+      /^\s*implementation\s+['"]com\.zing\.zalo\.zalosdk:core:\+['"]\s*$/gm,
+      ''
+    );
 
     config.modResults.contents = gradle;
     return config;
@@ -154,12 +173,12 @@ function withZaloProjectBuildGradle(config) {
   return withProjectBuildGradle(config, (config) => {
     let gradle = config.modResults.contents;
 
-    // Thêm Zalo Maven repo
-    if (!gradle.includes('https://maven.zaloapp.com/')) {
-      // Tìm allprojects > repositories block
+    // Repo chính thức đang được react-native-zalo-kit v5 dùng cho me.zalo:*.
+    gradle = gradle.replace(/^\s*maven\s*\{\s*url\s+['"]https:\/\/maven\.zaloapp\.com\/?['"]\s*\}\s*$/gm, '');
+    if (!gradle.includes('gitlab.com/api/v4/projects/50747855/packages/maven')) {
       gradle = gradle.replace(
-        'allprojects {\n    repositories {',
-        'allprojects {\n    repositories {\n        maven { url \'https://maven.zaloapp.com/\' }'
+        /(allprojects\s*\{\s*repositories\s*\{)/,
+        `$1\n        maven { url 'https://gitlab.com/api/v4/projects/50747855/packages/maven' }`
       );
     }
 
@@ -178,29 +197,46 @@ function withZaloAndroidManifest(config, { appID }) {
     if (!application['meta-data']) {
       application['meta-data'] = [];
     }
-    const hasZaloMeta = application['meta-data'].some(
+    const zaloMeta = application['meta-data'].find(
       (m) => m.$?.['android:name'] === 'com.zing.zalo.zalosdk.appID'
     );
-    if (!hasZaloMeta) {
+    if (zaloMeta) {
+      zaloMeta.$['android:value'] = '@string/appID';
+    } else {
       application['meta-data'].push({
         $: {
           'android:name': 'com.zing.zalo.zalosdk.appID',
-          'android:value': appID,
+          'android:value': '@string/appID',
         },
       });
     }
 
-    // Thêm activity để nhận callback từ Zalo
+    // Package visibility từ Android 11: SDK cần thấy app Zalo.
+    if (!manifest.manifest.queries) {
+      manifest.manifest.queries = [{ package: [] }];
+    }
+    const queries = manifest.manifest.queries[0];
+    if (!queries.package) queries.package = [];
+    if (!queries.package.some((p) => p.$?.['android:name'] === 'com.zing.zalo')) {
+      queries.package.push({ $: { 'android:name': 'com.zing.zalo' } });
+    }
+
+    // Thêm activity chuẩn của Zalo SDK v4/v5 để nhận browser callback.
     if (!application.activity) {
       application.activity = [];
     }
+    // Xoá activity legacy từng được plugin cũ sinh ra.
+    application.activity = application.activity.filter(
+      (a) => a.$?.['android:name'] !== 'com.zing.zalo.sdk.ZaloSDKActivity'
+    );
+    const browserActivityName = 'com.zing.zalo.zalosdk.oauth.BrowserLoginActivity';
     const hasZaloActivity = application.activity.some(
-      (a) => a.$?.['android:name'] === 'com.zing.zalo.sdk.ZaloSDKActivity'
+      (a) => a.$?.['android:name'] === browserActivityName
     );
     if (!hasZaloActivity) {
       application.activity.push({
         $: {
-          'android:name': 'com.zing.zalo.sdk.ZaloSDKActivity',
+          'android:name': browserActivityName,
           'android:exported': 'true',
         },
         'intent-filter': [
@@ -220,6 +256,109 @@ function withZaloAndroidManifest(config, { appID }) {
   });
 }
 
+function withZaloAndroidStrings(config, { appID }) {
+  return withStringsXml(config, (config) => {
+    const strings = config.modResults.resources.string ?? [];
+    const current = strings.find((item) => item.$?.name === 'appID');
+    if (current) {
+      current._ = appID;
+      current.$.translatable = 'false';
+    } else {
+      strings.push({ _: appID, $: { name: 'appID', translatable: 'false' } });
+    }
+    config.modResults.resources.string = strings;
+    return config;
+  });
+}
+
+function withZaloMainActivity(config) {
+  return withMainActivity(config, (config) => {
+    let source = config.modResults.contents;
+    if (config.modResults.language === 'kt') {
+      if (!source.includes('import android.content.Intent')) {
+        source = source.replace('import android.os.Build', 'import android.content.Intent\nimport android.os.Build');
+      }
+      if (!source.includes('import com.zing.zalo.zalosdk.oauth.ZaloSDK')) {
+        source = source.replace(
+          'import expo.modules.ReactActivityDelegateWrapper',
+          'import expo.modules.ReactActivityDelegateWrapper\nimport com.zing.zalo.zalosdk.oauth.ZaloSDK'
+        );
+      }
+      if (!source.includes('ZaloSDK.Instance.onActivityResult')) {
+        source = source.replace(
+          /\n(\s*override fun getMainComponentName)/,
+          `\n  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {\n    super.onActivityResult(requestCode, resultCode, data)\n    ZaloSDK.Instance.onActivityResult(this, requestCode, resultCode, data)\n  }\n\n$1`
+        );
+      }
+    } else {
+      if (!source.includes('import android.content.Intent;')) {
+        source = source.replace('import android.os.Bundle;', 'import android.os.Bundle;\nimport android.content.Intent;');
+      }
+      if (!source.includes('import com.zing.zalo.zalosdk.oauth.ZaloSDK;')) {
+        source = source.replace(
+          'import com.facebook.react.ReactActivity;',
+          'import com.facebook.react.ReactActivity;\nimport com.zing.zalo.zalosdk.oauth.ZaloSDK;'
+        );
+      }
+      if (!source.includes('ZaloSDK.Instance.onActivityResult')) {
+        source = source.replace(
+          /\n(\s*@Override\s+protected String getMainComponentName)/,
+          `\n  @Override\n  public void onActivityResult(int requestCode, int resultCode, Intent data) {\n    super.onActivityResult(requestCode, resultCode, data);\n    ZaloSDK.Instance.onActivityResult(this, requestCode, resultCode, data);\n  }\n\n$1`
+        );
+      }
+    }
+    config.modResults.contents = source;
+    return config;
+  });
+}
+
+function withZaloMainApplication(config) {
+  return withMainApplication(config, (config) => {
+    let source = config.modResults.contents;
+    if (config.modResults.language === 'kt') {
+      if (!source.includes('import com.zing.zalo.zalosdk.oauth.ZaloSDKApplication')) {
+        source = source.replace(
+          'import expo.modules.ReactNativeHostWrapper',
+          'import expo.modules.ReactNativeHostWrapper\nimport com.zing.zalo.zalosdk.oauth.ZaloSDKApplication'
+        );
+      }
+      if (!source.includes('ZaloSDKApplication.wrap(this)')) {
+        source = source.replace('super.onCreate()', 'super.onCreate()\n    ZaloSDKApplication.wrap(this)');
+      }
+    } else {
+      if (!source.includes('import com.zing.zalo.zalosdk.oauth.ZaloSDKApplication;')) {
+        source = source.replace(
+          'import com.facebook.react.ReactApplication;',
+          'import com.facebook.react.ReactApplication;\nimport com.zing.zalo.zalosdk.oauth.ZaloSDKApplication;'
+        );
+      }
+      if (!source.includes('ZaloSDKApplication.wrap(this);')) {
+        source = source.replace('super.onCreate();', 'super.onCreate();\n    ZaloSDKApplication.wrap(this);');
+      }
+    }
+    config.modResults.contents = source;
+    return config;
+  });
+}
+
+function withZaloProguard(config) {
+  return withDangerousMod(config, ['android', async (config) => {
+    const proguardPath = path.join(config.modRequest.platformProjectRoot, 'app', 'proguard-rules.pro');
+    const rules = [
+      '-keep class com.zing.zalo.** { *; }',
+      '-keep enum com.zing.zalo.** { *; }',
+      '-keep interface com.zing.zalo.** { *; }',
+    ];
+    let content = await fs.promises.readFile(proguardPath, 'utf8');
+    const missing = rules.filter((rule) => !content.includes(rule));
+    if (missing.length > 0) {
+      content = `${content.trimEnd()}\n\n# Zalo SDK\n${missing.join('\n')}\n`;
+      await fs.promises.writeFile(proguardPath, content);
+    }
+    return config;
+  }]);
+}
+
 // ─── Plugin chính — export để dùng trong app.json ────────────────────────────
 const withZaloKit = (config, { appID } = {}) => {
   if (!appID || appID === 'ZALO_APP_ID_PLACEHOLDER') {
@@ -234,7 +373,11 @@ const withZaloKit = (config, { appID } = {}) => {
   config = withZaloAppDelegate(config, { appID });
   config = withZaloProjectBuildGradle(config);
   config = withZaloAndroidBuildGradle(config);
+  config = withZaloAndroidStrings(config, { appID });
   config = withZaloAndroidManifest(config, { appID });
+  config = withZaloMainActivity(config);
+  config = withZaloMainApplication(config);
+  config = withZaloProguard(config);
 
   return config;
 };

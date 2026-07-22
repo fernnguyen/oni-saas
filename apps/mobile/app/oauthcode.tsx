@@ -1,7 +1,7 @@
 /**
  * app/oauthcode.tsx
  *
- * Deep link handler cho Zalo OAuth callback.
+ * Deep link handler chính cho Zalo OAuth callback trên iOS.
  * Zalo SDK sau khi xác thực thành công sẽ redirect về:
  *   oni-pos://oauthcode?success=OAUTH_CODE&code_challenge=XXX
  *
@@ -42,7 +42,8 @@ export default function ZaloOAuthCallback() {
 
       // codeVerifier chỉ có trong SDK Promise, không có trong deep link URL
       // → gửi chuỗi rỗng, Edge Function sẽ bỏ qua nếu không cần PKCE
-      const codeVerifier = (params as any).code_verifier ?? params.code_challenge ?? '';
+      // code_challenge là SHA-256 của verifier, không thể dùng thay code_verifier.
+      const codeVerifier = (params as any).code_verifier ?? '';
 
       if (!oauthCode) {
         const errDetail = (params as any).error ?? params.error ?? 'Không nhận được mã xác thực từ Zalo.';

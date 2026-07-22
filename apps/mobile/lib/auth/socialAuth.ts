@@ -136,19 +136,34 @@ export async function signInWithZalo(): Promise<SocialAuthResult> {
     throw new Error('Zalo SDK chưa được cài đặt đúng cách. Vui lòng build lại app.');
   }
 
-  // Zalo Developer Portal được cấu hình redirect về oni-pos://oauthcode?success=XXX
-  // → ZDKApplicationDelegate KHÔNG nhận URL này (sai scheme), nên Promise của ZaloKit.login()
-  //   sẽ không bao giờ resolve từ SDK.
-  // → RCTLinkingManager nhận URL → Expo Router điều hướng đến app/oauthcode.tsx
-  //   → oauthcode.tsx mới thực sự exchange oauthCode và tạo session.
-  //
-  // Vì vậy: chỉ cần kích hoạt SDK mở Zalo app (fire-and-forget),
-  // KHÔNG await kết quả. Throw ERR_CANCELED để handleSocialLoginSuccess thoát yên lặng.
-  ZaloKit.login('AUTH_VIA_APP_OR_WEB').catch(() => {
-    // Ignore — oauthcode.tsx handles everything
+  // Nhánh callback native chuẩn: SDK v5 hoàn tất PKCE và trả access token.
+  // Trên iOS hiện tại, Zalo cũng có thể redirect oni-pos://oauthcode; Expo Router
+  // xử lý nhánh đó độc lập tại app/oauthcode.tsx khi màn hình login được thay thế.
+  const response = await ZaloKit.login('AUTH_VIA_APP_OR_WEB');
+  const accessToken = response?.accessToken;
+
+  if (!accessToken) {
+    throw new Error('Zalo không trả về access token. Vui lòng thử lại.');
+  }
+
+  return exchangeZaloAccessTokenForSession(accessToken);
+}
+
+/**
+ * Xác minh access token do native Zalo SDK cấp và tạo Supabase session.
+ * Token chỉ được chuyển tới Edge Function qua HTTPS, không lưu ở JS storage.
+ */
+export async function exchangeZaloAccessTokenForSession(
+  accessToken: string
+): Promise<SocialAuthResult> {
+  const { data: fnData, error: fnError } = await supabase.functions.invoke('zalo-auth', {
+    body: {
+      accessToken,
+      appId: ZALO_APP_ID,
+    },
   });
 
-  throw new Error('ERR_CANCELED');
+  return setZaloSession(fnData, fnError);
 }
 
 /**
@@ -168,12 +183,16 @@ export async function exchangeZaloCodeForSession(
     },
   });
 
+  return setZaloSession(fnData, fnError);
+}
+
+async function setZaloSession(fnData: any, fnError: any): Promise<SocialAuthResult> {
   if (fnError) {
     throw new Error(`Lỗi xác thực Zalo: ${fnError.message}`);
   }
 
   if (!fnData?.access_token || !fnData?.refresh_token) {
-    throw new Error('Không nhận được phiên từ máy chủ sau khi xác thực Zalo.');
+    throw new Error(fnData?.error || 'Không nhận được phiên từ máy chủ sau khi xác thực Zalo.');
   }
 
   const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
