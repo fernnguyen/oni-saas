@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import { View, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { exchangeZaloCodeForSession } from '../lib/auth/socialAuth';
 
 export default function ZaloOAuthCallback() {
@@ -51,7 +52,12 @@ export default function ZaloOAuthCallback() {
       }
 
       // Dùng helper dùng chung: exchange oauthCode → Supabase session
-      await exchangeZaloCodeForSession(oauthCode as string, codeVerifier as string);
+      const result = await exchangeZaloCodeForSession(oauthCode as string, codeVerifier as string);
+      await AsyncStorage.setItem('auth_login_type', 'zalo');
+      await AsyncStorage.removeItem('active_tenant_code');
+      if (result.fullName) {
+        await AsyncStorage.setItem('user_name', result.fullName);
+      }
 
       // Thành công → điều hướng đến chọn chi nhánh
       router.replace('/(auth)/select-branch');

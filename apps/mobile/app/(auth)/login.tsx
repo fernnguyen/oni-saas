@@ -1,5 +1,5 @@
-import React, {useState, useEffect} from 'react';
-import {Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, Image, Pressable, KeyboardAvoidingView, ScrollView, Linking} from 'react-native';
+import React, {useState, useEffect, useRef} from 'react';
+import {Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, Image, Pressable, KeyboardAvoidingView, ScrollView, Linking, AppState} from 'react-native';
 import {useRouter} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -40,6 +40,8 @@ export default function LoginScreen() {
  // Social Login states
  const [isSocialLoading, setIsSocialLoading] = useState<'apple' | 'google' | 'zalo' | null>(null);
  const [isAppleAvailable, setIsAppleAvailable] = useState(false);
+ const socialAuthAttemptRef = useRef(0);
+ const zaloWentToBackgroundRef = useRef(false);
 
  // Google auth hook (PKCE flow)
  const [googleRequest, googleResponse, googlePromptAsync] = Google.useAuthRequest({
@@ -52,6 +54,39 @@ export default function LoginScreen() {
  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
  const [customServerUrl, setCustomServerUrl] = useState('');
  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
+
+ // Zalo SDK trên một số phiên bản iOS không settle Promise khi người dùng bấm
+ // Huỷ trong app Zalo. Khi Oni POS trở lại foreground mà sau 3 giây vẫn chưa có
+ // callback, coi attempt đó đã bị huỷ và mở khoá UI.
+ useEffect(() => {
+   if (isSocialLoading !== 'zalo') {
+     zaloWentToBackgroundRef.current = false;
+     return;
+   }
+
+   let foregroundTimer: ReturnType<typeof setTimeout> | null = null;
+   const subscription = AppState.addEventListener('change', (nextState) => {
+     if (nextState === 'inactive' || nextState === 'background') {
+       zaloWentToBackgroundRef.current = true;
+       return;
+     }
+
+     if (nextState === 'active' && zaloWentToBackgroundRef.current) {
+       if (foregroundTimer) clearTimeout(foregroundTimer);
+       foregroundTimer = setTimeout(() => {
+         // Invalidate Promise native còn treo để kết quả muộn không điều hướng sai.
+         socialAuthAttemptRef.current += 1;
+         setIsSocialLoading((current) => current === 'zalo' ? null : current);
+         zaloWentToBackgroundRef.current = false;
+       }, 3000);
+     }
+   });
+
+   return () => {
+     subscription.remove();
+     if (foregroundTimer) clearTimeout(foregroundTimer);
+   };
+ }, [isSocialLoading]);
 
  // 1. Tự động tải dữ liệu & URL Server đã cấu hình
  useEffect(() => {
@@ -203,6 +238,10 @@ export default function LoginScreen() {
    } else if (googleResponse?.type === 'error') {
      setIsSocialLoading(null);
      Alert.alert('Đăng nhập Google thất bại', googleResponse.error?.message || 'Vui lòng thử lại.');
+   } else if (googleResponse) {
+     // Expo trả về cancel/dismiss/locked thay vì error khi người dùng đóng flow.
+     socialAuthAttemptRef.current += 1;
+     setIsSocialLoading(null);
    }
  }, [googleResponse]);
 
@@ -211,32 +250,42 @@ export default function LoginScreen() {
    authFn: () => Promise<any>,
    provider: 'apple' | 'google' | 'zalo'
  ) => {
+   const attemptId = ++socialAuthAttemptRef.current;
    setIsSocialLoading(provider);
    try {
      const result = await authFn();
+     if (attemptId !== socialAuthAttemptRef.current) return;
      // Lưu tên user vào AsyncStorage để Header hiển thị
      if (result?.fullName) {
        await AsyncStorage.setItem('user_name', result.fullName);
      }
+     await AsyncStorage.setItem('auth_login_type', provider);
+     await AsyncStorage.removeItem('active_tenant_code');
      // Social login không cần tenant code thủ công
      // → Điều hướng đến select-branch, API /api/tenants/me sẽ tự resolve tenant
      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
      router.push('/(auth)/select-branch');
    } catch (err: any) {
+     if (attemptId !== socialAuthAttemptRef.current) return;
      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
      // Bỏ qua lỗi user_cancel (user chủ động huỷ)
-     if (
-       err?.code !== '1001' && // Apple cancel code
-       err?.message !== 'The user canceled the sign-in flow.' &&
-       err?.message !== 'ERR_CANCELED'
-     ) {
+     const errorCode = String(err?.code ?? '').toLowerCase();
+     const errorMessage = String(err?.message ?? '').toLowerCase();
+     const isCancelled =
+       errorCode === '1001' ||
+       errorCode.includes('cancel') ||
+       errorMessage.includes('cancel') ||
+       errorMessage.includes('user_cancel');
+     if (!isCancelled) {
        Alert.alert(
          `Đăng nhập ${provider === 'apple' ? 'Apple' : provider === 'google' ? 'Google' : 'Zalo'} thất bại`,
          err?.message || 'Vui lòng thử lại sau.'
        );
      }
    } finally {
-     setIsSocialLoading(null);
+     if (attemptId === socialAuthAttemptRef.current) {
+       setIsSocialLoading(null);
+     }
    }
  };
 
@@ -252,9 +301,17 @@ export default function LoginScreen() {
      Alert.alert('Chưa cấu hình', 'Google Client ID chưa được thiết lập. Vui lòng liên hệ quản trị viên.');
      return;
    }
+   socialAuthAttemptRef.current += 1;
    setIsSocialLoading('google');
-   await googlePromptAsync();
-   // Kết quả được xử lý trong useEffect googleResponse
+   try {
+     await googlePromptAsync();
+     // Kết quả success/error/cancel/dismiss được xử lý trong useEffect.
+   } catch (err: any) {
+     setIsSocialLoading(null);
+     if (!String(err?.message ?? '').toLowerCase().includes('cancel')) {
+       Alert.alert('Đăng nhập Google thất bại', err?.message || 'Vui lòng thử lại.');
+     }
+   }
  };
 
  const handleZaloLogin = () => {
@@ -279,6 +336,7 @@ export default function LoginScreen() {
  await AsyncStorage.setItem('saved_tenant_code', trimmedTenant);
  await AsyncStorage.setItem('saved_email', identifier);
  await AsyncStorage.setItem('active_tenant_code', trimmedTenant);
+ await AsyncStorage.setItem('auth_login_type', 'password');
  setIsTenantCodeSaved(true);
 
  const isEmail = identifier.includes('@');

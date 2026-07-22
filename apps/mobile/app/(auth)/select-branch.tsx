@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Modal, Platform, Pressable, DeviceEventEmitter} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Modal, Platform, Pressable, DeviceEventEmitter, Image} from 'react-native';
 import {useRouter, useLocalSearchParams} from 'expo-router';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -18,6 +18,22 @@ interface Branch {
  phone: string;
  isActive: boolean;
  industry_type: string;
+}
+
+interface SignedInUser {
+ id: string;
+ email: string | null;
+ name: string;
+ avatarUrl: string | null;
+ provider: string | null;
+}
+
+interface TenantMembership {
+ id: string;
+ name: string;
+ slug: string;
+ industryType: string | null;
+ isDefault: boolean;
 }
 
 export default function SelectBranchScreen() {
@@ -57,6 +73,12 @@ export default function SelectBranchScreen() {
  const [syncProgress, setSyncProgress] = useState(0);
  const [tenantId, setTenantId] = useState('');
  const [isOffline, setIsOffline] = useState(false);
+ const [signedInUser, setSignedInUser] = useState<SignedInUser | null>(null);
+ const [hasTenantMembership, setHasTenantMembership] = useState<boolean | null>(null);
+ const [loadError, setLoadError] = useState<string | null>(null);
+ const [tenants, setTenants] = useState<TenantMembership[]>([]);
+ const [selectedTenantId, setSelectedTenantId] = useState('');
+ const [isChoosingTenant, setIsChoosingTenant] = useState(false);
 
  // States quản lý ca làm việc (Shift Management)
  const [showShiftModal, setShowShiftModal] = useState(false);
@@ -111,6 +133,8 @@ export default function SelectBranchScreen() {
       try {
         setIsLoading(true);
         setIsOffline(false);
+        setLoadError(null);
+        setHasTenantMembership(null);
         const currentUrl = await loadApiBaseUrl();
         setApiUrlInput(currentUrl);
 
@@ -122,13 +146,75 @@ export default function SelectBranchScreen() {
           throw new Error(`Không thể xác thực Tenant. Mã lỗi: ${meRes.status}`);
         }
         const meData = await meRes.json();
-        const tId = meData.tenant_id;
-        
-        if (!tId) {
-          throw new Error('Tài khoản này chưa được liên kết với bất kỳ Gian hàng (Tenant) nào.');
+        if (meData.user) {
+          setSignedInUser({
+            id: meData.user.id,
+            email: meData.user.email ?? null,
+            name: meData.user.name || 'Người dùng',
+            avatarUrl: meData.user.avatar_url ?? null,
+            provider: meData.user.provider ?? null,
+          });
         }
+        let availableTenants: TenantMembership[] = Array.isArray(meData.tenants)
+          ? meData.tenants.map((tenant: any) => ({
+              id: tenant.id,
+              name: tenant.name || 'Gian hàng chưa đặt tên',
+              slug: tenant.slug || '',
+              industryType: tenant.industry_type ?? null,
+              isDefault: tenant.is_default === true,
+            }))
+          : [];
+        // Tương thích ngắn hạn khi mobile mới gọi backend chưa deploy field tenants[].
+        if (availableTenants.length === 0 && meData.tenant_id) {
+          availableTenants = [{
+            id: meData.tenant_id,
+            name: 'Gian hàng mặc định',
+            slug: '',
+            industryType: null,
+            isDefault: true,
+          }];
+        }
+        setTenants(availableTenants);
+        
+        if (availableTenants.length === 0) {
+          setBranches([]);
+          setHasTenantMembership(false);
+          setIsChoosingTenant(false);
+          setShowConfig(false);
+          return;
+        }
+        setHasTenantMembership(true);
+        const [loginType, activeTenantCode] = await Promise.all([
+          AsyncStorage.getItem('auth_login_type'),
+          AsyncStorage.getItem('active_tenant_code'),
+        ]);
+
+        let tId = selectedTenantId;
+        if (!tId) {
+          const tenantFromCode = activeTenantCode
+            ? availableTenants.find((tenant) => tenant.slug === activeTenantCode)
+            : undefined;
+          const isSocialLogin = loginType === 'apple' || loginType === 'google' || loginType === 'zalo';
+
+          if (isSocialLogin && availableTenants.length > 1) {
+            setBranches([]);
+            setIsChoosingTenant(true);
+            setShowConfig(false);
+            return;
+          }
+
+          tId = tenantFromCode?.id
+            || availableTenants.find((tenant) => tenant.isDefault)?.id
+            || availableTenants[0].id;
+        }
+
+        const activeTenant = availableTenants.find((tenant) => tenant.id === tId);
+        setIsChoosingTenant(false);
         setTenantId(tId);
         await AsyncStorage.setItem('active_tenant_id', tId);
+        if (activeTenant?.slug) {
+          await AsyncStorage.setItem('active_tenant_code', activeTenant.slug);
+        }
         switchDatabaseScope(tId);
 
         // B. Lấy danh sách shops hoạt động của Tenant qua API
@@ -193,7 +279,7 @@ export default function SelectBranchScreen() {
         
         // Thử khôi phục từ cache
         try {
-          const cachedTId = await AsyncStorage.getItem('active_tenant_id');
+          const cachedTId = selectedTenantId || await AsyncStorage.getItem('active_tenant_id');
           if (cachedTId) {
             setTenantId(cachedTId);
             switchDatabaseScope(cachedTId);
@@ -206,6 +292,7 @@ export default function SelectBranchScreen() {
                 setSelectedBranchId(firstActive ? firstActive.id : parsedBranches[0].id);
                 setIsOffline(true);
                 setShowConfig(false);
+                setHasTenantMembership(true);
                 return; // Kết thúc sớm và không hiện Alert lỗi kết nối
               }
             }
@@ -214,18 +301,18 @@ export default function SelectBranchScreen() {
           console.error('Không thể đọc dữ liệu chi nhánh từ cache:', cacheErr);
         }
 
-        setShowConfig(true); // Hiển thị card cấu hình khi lỗi mạng xảy ra và không có cache
-        Alert.alert(
-          'Lỗi kết nối máy chủ',
-          `Không thể kết nối đến máy chủ REST API và không tìm thấy dữ liệu đã lưu.\n\nChi tiết: ${error.message || 'Lỗi mạng'}\n\nHướng dẫn: Vui lòng kết nối mạng để tải thông tin chi nhánh lần đầu.`
-        );
+        // Hiển thị lỗi ngay trong màn hình; không tự bật modal cấu hình và Alert
+        // chồng lên nhau. Người dùng vẫn có thể mở cấu hình bằng nút bánh răng.
+        setBranches([]);
+        setLoadError(error.message || 'Không thể kết nối đến máy chủ.');
+        setShowConfig(false);
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchBranches();
-  }, [refreshTrigger]);
+  }, [refreshTrigger, selectedTenantId]);
 
   // Lưu địa chỉ API và tải lại
   const handleSaveApiUrl = async () => {
@@ -546,9 +633,13 @@ export default function SelectBranchScreen() {
  </TouchableOpacity>
  </View>
 
-  <Text className="text-xl font-medium text-slate-800">Chọn chi nhánh làm việc</Text>
+  <Text className="text-xl font-medium text-slate-800">
+    {isChoosingTenant ? 'Chọn gian hàng làm việc' : 'Chọn chi nhánh làm việc'}
+  </Text>
   <Text className="text-xs text-slate-450 mt-1 font-semibold leading-relaxed">
-  Vui lòng chọn cơ sở kinh doanh để hệ thống đồng bộ dữ liệu đầu ca làm việc.
+  {isChoosingTenant
+    ? 'Tài khoản của bạn thuộc nhiều gian hàng. Hãy chọn gian hàng trước khi chọn chi nhánh.'
+    : 'Vui lòng chọn cơ sở kinh doanh để hệ thống đồng bộ dữ liệu đầu ca làm việc.'}
   </Text>
   {isOffline && (
     <View className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 mt-3.5 flex-row items-center">
@@ -664,15 +755,108 @@ export default function SelectBranchScreen() {
  <ActivityIndicator size="large" color="#fa5908" />
  <Text className="text-xs text-slate-500 font-medium mt-3">Đang kết nối API tìm chi nhánh...</Text>
  </View>
+ ) : isChoosingTenant ? (
+ <ScrollView className="flex-1 my-5" showsVerticalScrollIndicator={false}>
+   {signedInUser && (
+     <View className="bg-white border border-slate-200 rounded-3xl p-4 mb-5 shadow-sm">
+       <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Bạn đang đăng nhập với</Text>
+       <View className="flex-row items-center">
+         {signedInUser.avatarUrl ? (
+           <Image source={{uri: signedInUser.avatarUrl}} className="w-12 h-12 rounded-full bg-slate-100" />
+         ) : (
+           <View className="w-12 h-12 rounded-full bg-orange-50 items-center justify-center">
+             <Ionicons name="person" size={22} color="#fa5908" />
+           </View>
+         )}
+         <View className="flex-1 ml-3">
+           <Text className="text-sm font-bold text-slate-800">{signedInUser.name}</Text>
+           <Text className="text-xs text-slate-500 mt-1" numberOfLines={1}>{signedInUser.email || 'Không có email'}</Text>
+         </View>
+         {signedInUser.provider === 'zalo' && (
+           <View className="bg-blue-50 px-2 py-1 rounded-full">
+             <Text className="text-[9px] font-bold text-blue-600">ZALO</Text>
+           </View>
+         )}
+       </View>
+     </View>
+   )}
+
+   {tenants.map((tenant) => (
+     <TouchableOpacity
+       key={tenant.id}
+       className="bg-white border border-slate-200 rounded-3xl p-4 mb-3 flex-row items-center shadow-sm active:bg-orange-50"
+       onPress={() => setSelectedTenantId(tenant.id)}
+     >
+       <View className="w-11 h-11 rounded-2xl bg-orange-50 items-center justify-center mr-3">
+         <Ionicons name="business-outline" size={21} color="#fa5908" />
+       </View>
+       <View className="flex-1">
+         <View className="flex-row items-center flex-wrap">
+           <Text className="text-sm font-bold text-slate-800 mr-2">{tenant.name}</Text>
+           {tenant.isDefault && (
+             <View className="bg-emerald-50 px-2 py-0.5 rounded-full">
+               <Text className="text-[9px] font-bold text-emerald-600">MẶC ĐỊNH</Text>
+             </View>
+           )}
+         </View>
+         {!!tenant.slug && <Text className="text-xs text-slate-400 mt-1">{tenant.slug}.oni.vn</Text>}
+       </View>
+       <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+     </TouchableOpacity>
+   ))}
+ </ScrollView>
  ) : branches.length === 0 ? (
- <View className="flex-1 justify-center items-center">
- <Ionicons name="alert-circle-outline" size={56} color="#cbd5e1" />
- <Text className="text-[15px] text-slate-800 font-bold mt-4 text-center">Bạn không có gian hàng nào</Text>
- <Text className="text-[13px] text-slate-500 font-medium mt-2 text-center leading-relaxed px-4">
-   Vui lòng chắc chắn rằng người quản lý cửa hàng đã phân quyền hoặc tạo tài khoản đúng với thông tin mà bạn vừa sử dụng để đăng nhập.
+ <ScrollView className="flex-1" contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: 24}} showsVerticalScrollIndicator={false}>
+ <View className="items-center">
+ <Ionicons name={loadError ? 'cloud-offline-outline' : 'alert-circle-outline'} size={56} color="#cbd5e1" />
+ <Text className="text-[15px] text-slate-800 font-bold mt-4 text-center">
+   {loadError ? 'Không thể tải danh sách gian hàng' : hasTenantMembership === false ? 'Tài khoản chưa có gian hàng' : 'Gian hàng chưa có chi nhánh'}
  </Text>
+ <Text className="text-[13px] text-slate-500 font-medium mt-2 text-center leading-relaxed px-4">
+   {loadError
+     ? loadError
+     : hasTenantMembership === false
+       ? 'Tài khoản bên dưới đã đăng nhập thành công nhưng chưa được liên kết với tenant nào. Hãy đối chiếu thông tin trước khi yêu cầu quản trị viên phân quyền.'
+       : 'Tenant của bạn hiện chưa có chi nhánh hoạt động.'}
+ </Text>
+
+ {signedInUser && (
+   <View className="w-full bg-white border border-slate-200 rounded-3xl p-4 mt-6 shadow-sm">
+     <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Bạn đang đăng nhập với</Text>
+     <View className="flex-row items-center">
+       {signedInUser.avatarUrl ? (
+         <Image source={{uri: signedInUser.avatarUrl}} className="w-12 h-12 rounded-full bg-slate-100" />
+       ) : (
+         <View className="w-12 h-12 rounded-full bg-orange-50 items-center justify-center">
+           <Ionicons name="person" size={22} color="#fa5908" />
+         </View>
+       )}
+       <View className="flex-1 ml-3">
+         <View className="flex-row items-center flex-wrap">
+           <Text className="text-sm font-bold text-slate-800 mr-2">{signedInUser.name}</Text>
+           {signedInUser.provider === 'zalo' && (
+             <View className="bg-blue-50 px-2 py-0.5 rounded-full">
+               <Text className="text-[9px] font-bold text-blue-600">ZALO</Text>
+             </View>
+           )}
+         </View>
+         <Text className="text-xs text-slate-500 mt-1" numberOfLines={1}>{signedInUser.email || 'Không có email'}</Text>
+       </View>
+     </View>
+   </View>
+ )}
+
+ {loadError && (
+   <TouchableOpacity
+     className="mt-5 bg-orange-500 active:bg-orange-600 px-7 py-3 rounded-2xl flex-row items-center"
+     onPress={() => setRefreshTrigger(prev => prev + 1)}
+   >
+     <Ionicons name="refresh" size={17} color="white" style={{marginRight: 6}} />
+     <Text className="text-white text-sm font-semibold">Thử lại</Text>
+   </TouchableOpacity>
+ )}
  <TouchableOpacity 
- className="mt-8 bg-slate-800 active:bg-slate-700 px-8 py-3.5 rounded-2xl flex-row items-center shadow-sm"
+ className="mt-5 bg-slate-800 active:bg-slate-700 px-8 py-3.5 rounded-2xl flex-row items-center shadow-sm"
  onPress={async () => {
     try {
       await supabase.auth.signOut();
@@ -690,6 +874,7 @@ export default function SelectBranchScreen() {
  <Text className="text-white text-sm font-semibold">Đăng xuất</Text>
  </TouchableOpacity>
  </View>
+ </ScrollView>
  ) : (
  <ScrollView className="flex-1 my-6" showsVerticalScrollIndicator={false}>
  {branches.map(branch => {
