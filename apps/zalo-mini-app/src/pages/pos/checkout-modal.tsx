@@ -562,10 +562,47 @@ export default function CheckoutModal() {
       const orderId = isTableCheckout && tableSession?.orderId
         ? tableSession.orderId
         : crypto.randomUUID();
-      const isDebt = payments.some(
-        (p) =>
-          paymentMethods.find((m) => m.id === p.method)?.type === 'debt'
-      );
+      // Separate old debt repayment from order payments to avoid duplicate cashbook entries
+      let debtToDeduct = clampedDebtRepay;
+      const orderPaymentsList: Array<{ method: string; amount: number; fund_id: string | null }> = [];
+
+      for (const p of payments) {
+        const pmType = paymentMethods.find((m) => m.id === p.method)?.type || 'cash';
+        let amountFloat = parseFloat(p.amount) || 0;
+
+        // Deduct old debt repayment amount from non-debt, non-prepaid payment rows
+        if (debtToDeduct > 0 && pmType !== 'debt' && pmType !== 'prepaid') {
+          const deduct = Math.min(amountFloat, debtToDeduct);
+          amountFloat -= deduct;
+          debtToDeduct -= deduct;
+        }
+
+        if (amountFloat > 0 || pmType === 'debt' || pmType === 'prepaid') {
+          orderPaymentsList.push({
+            method: pmType,
+            amount: amountFloat,
+            fund_id: p.fund_id || null,
+          });
+        }
+      }
+
+      if (changeDue > 0) {
+        const cashPaymentRow = payments.find(
+          (p) => paymentMethods.find((m) => m.id === p.method)?.type === 'cash'
+        );
+        orderPaymentsList.push({
+          method: 'cash',
+          amount: -changeDue,
+          fund_id: cashPaymentRow?.fund_id || null,
+        });
+      }
+
+      const orderPaidAmount = orderPaymentsList
+        .filter((p) => p.method !== 'debt')
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      const orderDebtAmount = Math.max(0, finalAmount - orderPaidAmount);
+      const isOrderDebt = orderPaymentsList.some((p) => p.method === 'debt') || orderDebtAmount > 0;
 
       const orderPayload: any = {
         local_order_id: orderId,
@@ -580,8 +617,8 @@ export default function CheckoutModal() {
           discount_amount: discountAmount,
           tax_amount: 0,
           total_amount: finalAmount,
-          paid_amount: totalReceived,
-          debt_amount: isDebt ? remaining : 0,
+          paid_amount: orderPaidAmount,
+          debt_amount: isOrderDebt ? orderDebtAmount : 0,
           payment_method: payments.map((p) => paymentMethods.find((m) => m.id === p.method)?.type || 'cash').join(','),
           note: orderNote || null,
           created_at: new Date().toISOString(),
@@ -595,24 +632,7 @@ export default function CheckoutModal() {
           line_total: item.unit_price * item.quantity,
           discount_amount: 0,
         })),
-        payments: (() => {
-          const list = payments.map((p) => ({
-            method: paymentMethods.find((m) => m.id === p.method)?.type || 'cash',
-            amount: parseFloat(p.amount) || 0,
-            fund_id: p.fund_id || null,
-          }));
-          if (changeDue > 0) {
-            const cashPaymentRow = payments.find(
-              (p) => paymentMethods.find((m) => m.id === p.method)?.type === 'cash'
-            );
-            list.push({
-              method: 'cash',
-              amount: -changeDue,
-              fund_id: cashPaymentRow?.fund_id || null,
-            });
-          }
-          return list;
-        })(),
+        payments: orderPaymentsList,
         stock_movements: [],
         customer: activeCustomer.id === 'C-DEFAULT-RETAIL' ? undefined : {
           name: activeCustomer.name,
@@ -636,7 +656,7 @@ export default function CheckoutModal() {
         try {
           const debtPaymentRow = payments.find((p) => {
             const pm = paymentMethods.find((m) => m.id === p.method);
-            return pm?.type !== 'debt';
+            return pm?.type !== 'debt' && pm?.type !== 'prepaid';
           }) || payments[0];
           const pmType = paymentMethods.find((m) => m.id === debtPaymentRow?.method)?.type || 'cash';
 
