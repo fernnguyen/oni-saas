@@ -942,10 +942,29 @@ export default function PosScreen() {
       finalTotal = Math.max(0, originalTotal - discount + totalTaxAmount);
 
       const debtRepay = debtRepayOpts?.debtRepayAmount || 0;
-      const paidSum = payments.reduce((sum, p) => sum + p.amount, 0);
-      const totalAmountDue = finalTotal + debtRepay;
-      const cashChange = Math.max(0, paidSum - totalAmountDue);
-      let processedPayments = [...payments];
+      const realPaidSum = payments.filter(p => p.method !== 'debt' && !p.method?.startsWith('debt-')).reduce((sum, p) => sum + p.amount, 0);
+      const orderPaidAmt = Math.min(finalTotal, Math.max(0, realPaidSum - debtRepay));
+      const orderDebtAmt = Math.max(0, finalTotal - orderPaidAmt);
+
+      // Deduct old debt repayment from order payments to avoid duplicate cashbook entries
+      let debtToDeduct = debtRepay;
+      const orderPayments: typeof payments = [];
+      for (const p of payments) {
+        const isDebtOrPrepaid = p.method === 'debt' || p.method?.startsWith('debt-') || p.method === 'prepaid' || p.method?.startsWith('prepaid-');
+        let amt = p.amount;
+        if (debtToDeduct > 0 && !isDebtOrPrepaid && amt > 0) {
+          const deduct = Math.min(amt, debtToDeduct);
+          amt -= deduct;
+          debtToDeduct -= deduct;
+        }
+        if (amt > 0 || amt < 0 || isDebtOrPrepaid) {
+          orderPayments.push({ ...p, amount: amt });
+        }
+      }
+
+      const processedPayments = [...orderPayments];
+      const paidSum = processedPayments.reduce((sum, p) => sum + p.amount, 0);
+      const cashChange = Math.max(0, paidSum - finalTotal);
       if (cashChange > 0) {
         const defaultCashFund = paymentFundsList.find(f => f.type === 'cash' && f.is_default === 'TRUE') || paymentFundsList.find(f => f.type === 'cash') || paymentFundsList[0];
         processedPayments.push({
@@ -955,11 +974,6 @@ export default function PosScreen() {
           amount: -cashChange
         });
       }
-      const realPaidSum = processedPayments
-        .filter(p => p.method !== 'debt' && !p.method?.startsWith('debt-'))
-        .reduce((sum, p) => sum + p.amount, 0);
-      const orderPaidAmt = Math.min(finalTotal, Math.max(0, realPaidSum - debtRepay));
-      const orderDebtAmt = Math.max(0, finalTotal - orderPaidAmt);
 
       const paymentMethodString = JSON.stringify(processedPayments.map(p => {
         const fund = paymentFundsList.find(f => f.id === p.fund_id);
