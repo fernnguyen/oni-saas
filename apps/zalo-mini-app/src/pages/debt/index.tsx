@@ -177,11 +177,9 @@ function ZaloDebtReminderModal({ entity, amount, funds, shopName, onClose }: Zal
       qrUrl = `https://img.vietqr.io/image/${bankCode}-${accNo}-compact.png?amount=${amount}&addInfo=${addInfo}&accountName=${accName}`;
       
       bankInfoText = `\n\n📌 Thông tin thanh toán:
-🏦 Ngân hàng: ${selectedFund.bank_name || '—'}
-💳 Số tài khoản: ${selectedFund.account_number}
-👤 Chủ tài khoản: ${selectedFund.account_name || selectedFund.account_holder || '—'}
-🔗 Nhấp vào liên kết để quét mã VietQR chuyển khoản nhanh:
-${qrUrl}`;
+Ngân hàng: ${selectedFund.bank_name || '—'}
+Số tài khoản: ${selectedFund.account_number}
+Chủ tài khoản: ${selectedFund.account_name || selectedFund.account_holder || '—'}`;
     }
 
     if (tone === 'gentle') {

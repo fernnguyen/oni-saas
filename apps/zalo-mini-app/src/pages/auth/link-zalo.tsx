@@ -129,9 +129,9 @@ export default function LinkZaloPage() {
           <img src="/zalo.svg" alt="Zalo" className="w-10 h-10" />
         </div>
 
-        <h2 className="text-xl font-bold mb-2">Liên kết tài khoản Zalo</h2>
+        <h2 className="text-xl font-bold mb-2">Liên kết tài khoản</h2>
         <p className="text-subtitle mb-8 text-sm px-4 leading-relaxed">
-          Liên kết để đăng nhập tự động bằng Zalo cho các lần sau, không cần nhập mật khẩu.
+          Liên kết để đăng nhập tự động cho các lần sau, không cần nhập mật khẩu.
         </p>
 
         <button
@@ -149,10 +149,7 @@ export default function LinkZaloPage() {
               <span>Đang xử lý...</span>
             </>
           ) : (
-            <>
-              <img src="/zalo.svg" alt="" className="w-5 h-5 brightness-0 invert" />
-              <span className="font-semibold">Liên kết tài khoản Zalo</span>
-            </>
+            <span className="font-semibold">Liên kết tài khoản</span>
           )}
         </button>
 

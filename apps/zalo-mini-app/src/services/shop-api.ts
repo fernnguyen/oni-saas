@@ -312,6 +312,10 @@ export function createProduct(shopId: string, data: any) {
   return apiPost<Product>(`/api/shops/${shopId}/products`, data);
 }
 
+export function createQuickProduct(shopId: string, data: any) {
+  return apiPost<{ product: Product }>(`/api/shops/${shopId}/products/quick-create`, data);
+}
+
 export function updateProduct(shopId: string, productId: string, data: any) {
   return apiFetch<Product>(`/api/shops/${shopId}/products/${productId}`, {
     method: 'PUT',

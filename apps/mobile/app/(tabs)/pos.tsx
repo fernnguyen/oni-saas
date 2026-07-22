@@ -1255,8 +1255,8 @@ export default function PosScreen() {
       return;
     }
     if (productsList.length === 0) {
-      showToast('Không có sản phẩm nào trong SQLite để quét.', 'error');
       setIsScannerOpen(false);
+      openQuickCreateProduct('', barcodeData.trim());
       return;
     }
 
@@ -1687,26 +1687,15 @@ export default function PosScreen() {
               <View className="items-center justify-center py-16 bg-white border border-slate-100 rounded-2xl mt-2">
                 <Ionicons name="basket-outline" size={32} color="#cbd5e1" />
                 <Text className="text-xs text-slate-400 font-medium mt-2">Không tìm thấy sản phẩm nào.</Text>
-                {productSearchQuery.trim().length > 0 && (
+                <Text className="mt-1 text-xxs text-slate-400">{productsList.length === 0 ? 'Hãy tạo sản phẩm để bắt đầu bán hàng.' : 'Bạn có thể tạo mới để bán ngay.'}</Text>
+                {(productSearchQuery.trim().length > 0 || productsList.length === 0) && (
                   <TouchableOpacity
                     onPress={() => {
-                      const term = productSearchQuery.trim();
-                      setQuickCreateRequest({ name: term, barcode: '' });
-                      setQuickProductName(term);
-                      setQuickProductBarcode('');
-                      setQuickProductPrice('');
-                      setQuickProductCostPrice('');
-                      setQuickProductMinPrice('');
-                      setQuickProductCategoryId('');
-                      setQuickProductUnit('Cái');
-                      setQuickProductImageUrl('');
-                      setQuickProductLocalImageUri(null);
-                      setShowQuickProductUrlInput(false);
-                      setShowQuickCreateMore(false);
+                      openQuickCreateProduct(productSearchQuery.trim());
                     }}
                     className="mt-4 rounded-xl bg-orange-500 px-4 py-2"
                   >
-                    <Text className="text-xs font-bold text-white">Tạo mới sản phẩm “{productSearchQuery.trim()}”</Text>
+                    <Text className="text-xs font-bold text-white">{productSearchQuery.trim() ? `Tạo mới sản phẩm “${productSearchQuery.trim()}”` : 'Tạo mới sản phẩm'}</Text>
                   </TouchableOpacity>
                 )}
               </View>

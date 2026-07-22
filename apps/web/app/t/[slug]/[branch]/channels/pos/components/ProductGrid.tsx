@@ -370,7 +370,12 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
                 </button>
               </div>
             ) : (
-              <span>Chưa có sản phẩm</span>
+              <div className="flex flex-col items-center gap-3">
+                <span>Chưa có sản phẩm nào. Hãy tạo sản phẩm để bắt đầu bán hàng.</span>
+                <button type="button" onClick={() => setQuickCreateRequest({ name: '', barcode: '' })} className="rounded-lg bg-primary px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-primary/90">
+                  Tạo mới sản phẩm
+                </button>
+              </div>
             )}
           </div>
         ) : (

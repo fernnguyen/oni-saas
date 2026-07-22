@@ -14,12 +14,14 @@ import {
   updateOrderItem,
   getLocationResources,
   getShopSettings,
+  createQuickProduct,
 } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 import CheckoutModal from './checkout-modal';
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import TableMapPage from './TableMapPage';
 import { RetailIcon, TableRoomIcon } from '@/components/vectors';
+import QuickCreateProductModal from './QuickCreateProductModal';
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
@@ -205,6 +207,7 @@ export default function PosPage() {
 
   // Barcode scanner modal state
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
+  const [quickCreateRequest, setQuickCreateRequest] = useState<{ name: string; barcode: string } | null>(null);
 
   // Track image load errors to display fallback watermark
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
@@ -383,7 +386,16 @@ export default function PosPage() {
 
     if (matches.length === 1) {
       handleAddToCart(matches[0]);
+    } else if (matches.length === 0) {
+      setQuickCreateRequest({ name: '', barcode: code });
     }
+  };
+
+  const handleQuickCreate = async (payload: { name: string; barcode: string; sell_price: number; cost_price: number; min_price: number; unit: string; category_id: string; image_url: string }) => {
+    const result = await createQuickProduct(shopId, { ...payload, source: 'pos_quick_web' });
+    const product = result.product;
+    setProducts([product, ...products.filter((item) => item.id !== product.id)]);
+    return product;
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -530,14 +542,22 @@ export default function PosPage() {
               )}
             </div>
             <button
+              onClick={() => setQuickCreateRequest({ name: '', barcode: '' })}
+              className="zaui-btn zaui-btn-tertiary"
+              style={{ padding: 10, minWidth: 'unset', height: 40, width: 40, borderRadius: 10 }}
+              title="Tạo mới sản phẩm"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+            <button
               onClick={handleScanBarcode}
               className="zaui-btn zaui-btn-tertiary"
               style={{ padding: 10, minWidth: 'unset', height: 40, width: 40, borderRadius: 10 }}
               title="Quét mã vạch"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 5v14M21 5v14M7 5v14M17 5v14M12 5v14" />
-              </svg>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M4 16v3a1 1 0 0 0 1 1h3" /><path d="M8 12h8" /></svg>
             </button>
             <button
               style={{ position: 'relative', background: 'none', border: 'none', padding: 8, cursor: 'pointer' }}
@@ -644,8 +664,11 @@ export default function PosPage() {
                   <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
                 </svg>
               </div>
-              <p className="empty-state-title">Không tìm thấy sản phẩm</p>
-              <p className="empty-state-desc">Thử thay đổi bộ lọc hoặc từ khoá tìm kiếm</p>
+              <p className="empty-state-title">{products.length === 0 ? 'Chưa có sản phẩm nào' : 'Không tìm thấy sản phẩm'}</p>
+              <p className="empty-state-desc">{products.length === 0 ? 'Hãy tạo sản phẩm để bắt đầu bán hàng' : 'Thử thay đổi bộ lọc hoặc từ khoá tìm kiếm'}</p>
+              <button className="zaui-btn zaui-btn-primary" style={{ marginTop: 12 }} onClick={() => setQuickCreateRequest({ name: searchQuery.trim(), barcode: '' })}>
+                Tạo mới sản phẩm{searchQuery.trim() ? ` “${searchQuery.trim()}”` : ''}
+              </button>
             </div>
           ) : (
             <div className="pos-products">
@@ -797,6 +820,19 @@ export default function PosPage() {
         visible={isBarcodeScannerOpen}
         onClose={() => setIsBarcodeScannerOpen(false)}
         onScan={handleBarcodeScanned}
+      />
+      <QuickCreateProductModal
+        open={!!quickCreateRequest}
+        initialName={quickCreateRequest?.name}
+        initialBarcode={quickCreateRequest?.barcode}
+        categories={categories}
+        shopId={shopId}
+        onClose={() => setQuickCreateRequest(null)}
+        onSave={handleQuickCreate}
+        onCreated={(product) => {
+          handleAddToCart(product);
+          setSearchQuery('');
+        }}
       />
     </div>
   );
