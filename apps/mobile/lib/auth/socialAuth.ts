@@ -3,7 +3,7 @@
  * Tập hợp helper xử lý đăng nhập mạng xã hội:
  *  - Apple  → expo-apple-authentication + Supabase signInWithIdToken
  *  - Google → expo-auth-session (PKCE) + Supabase signInWithIdToken
- *  - Zalo   → react-native-zalo-kit (native SDK) + Supabase Edge Function
+ *  - Zalo   → react-native-zalo-kit (native SDK) + backend Việt Nam
  *
  * LƯU Ý BẢO MẬT:
  *  - Apple/Google token không bao giờ lưu vào storage — chỉ dùng 1 lần để lấy Supabase session.
@@ -13,8 +13,10 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
+import { fetch } from 'expo/fetch';
 import { Platform } from 'react-native';
 import { supabase } from '../supabase';
+import { getApiBaseUrl } from '../api/config';
 
 // Đảm bảo WebBrowser session đóng đúng khi quay lại app
 WebBrowser.maybeCompleteAuthSession();
@@ -26,9 +28,6 @@ const GOOGLE_ANDROID_CLIENT_ID: string =
   Constants.expoConfig?.extra?.googleAndroidClientId ?? '';
 const GOOGLE_WEB_CLIENT_ID: string =
   Constants.expoConfig?.extra?.googleWebClientId ?? '';
-const ZALO_APP_ID: string =
-  Constants.expoConfig?.extra?.zaloAppId ?? '';
-
 // ─── Kiểu trả về thống nhất ───────────────────────────────────────────────────
 export interface SocialAuthResult {
   userId: string;
@@ -123,8 +122,8 @@ export { GOOGLE_IOS_CLIENT_ID, GOOGLE_ANDROID_CLIENT_ID, GOOGLE_WEB_CLIENT_ID };
  * Flow:
  *   1. Gọi ZaloKit.login() → SDK mở app Zalo hoặc WebView
  *   2. Nhận oauthCode + codeVerifier (PKCE)
- *   3. Gửi lên Supabase Edge Function "zalo-auth"
- *   4. Edge Function trao đổi token với Zalo API và tạo Supabase session
+ *   3. Gửi lên backend Việt Nam /api/auth/zalo/mobile
+ *   4. Backend trao đổi/xác minh token với Zalo API và tạo Supabase session
  *   5. Set session trong supabase client
  */
 export async function signInWithZalo(): Promise<SocialAuthResult> {
@@ -156,41 +155,37 @@ export async function signInWithZalo(): Promise<SocialAuthResult> {
 export async function exchangeZaloAccessTokenForSession(
   accessToken: string
 ): Promise<SocialAuthResult> {
-  const { data: fnData, error: fnError } = await supabase.functions.invoke('zalo-auth', {
-    body: {
-      accessToken,
-      appId: ZALO_APP_ID,
-    },
-  });
-
-  return setZaloSession(fnData, fnError);
+  const data = await requestZaloSession({ accessToken });
+  return setZaloSession(data);
 }
 
 /**
  * Dùng chung cho cả signInWithZalo (SDK Promise) và ZaloOAuthCallback (deep link).
- * Trao đổi oauthCode → Supabase session qua Edge Function zalo-auth.
+ * Trao đổi oauthCode → Supabase session qua backend Việt Nam.
  */
 export async function exchangeZaloCodeForSession(
   oauthCode: string,
   codeVerifier: string
 ): Promise<SocialAuthResult> {
-  // Dùng hằng số module-level ZALO_APP_ID (đã khai báo ở trên, tránh shadow variable)
-  const { data: fnData, error: fnError } = await supabase.functions.invoke('zalo-auth', {
-    body: {
-      oauthCode,
-      codeVerifier,
-      appId: ZALO_APP_ID,
-    },
-  });
-
-  return setZaloSession(fnData, fnError);
+  const data = await requestZaloSession({ oauthCode, codeVerifier });
+  return setZaloSession(data);
 }
 
-async function setZaloSession(fnData: any, fnError: any): Promise<SocialAuthResult> {
-  if (fnError) {
-    throw new Error(`Lỗi xác thực Zalo: ${fnError.message}`);
+async function requestZaloSession(body: Record<string, string>) {
+  const baseUrl = getApiBaseUrl().replace(/\/+$/, '');
+  const response = await fetch(`${baseUrl}/api/auth/zalo/mobile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error || `Máy chủ xác thực Zalo trả về HTTP ${response.status}`);
   }
+  return data;
+}
 
+async function setZaloSession(fnData: any): Promise<SocialAuthResult> {
   if (!fnData?.access_token || !fnData?.refresh_token) {
     throw new Error(fnData?.error || 'Không nhận được phiên từ máy chủ sau khi xác thực Zalo.');
   }

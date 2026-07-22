@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTenantStore } from '@/stores/tenant-store';
 import { logout } from '@/services/auth';
-import { openChat, getAccessToken, authorize } from 'zmp-sdk/apis';
+import { openChat, getAccessToken, authorize, getUserInfo } from 'zmp-sdk/apis';
 import { apiFetch } from '@/services/api';
 import toast from 'react-hot-toast';
 
@@ -94,9 +94,37 @@ export default function SettingsPage() {
         });
       });
 
+      let zaloProfile: { name?: string; avatar?: string } | undefined;
+      try {
+        const userInfoRes = await new Promise<any>((resolve) => {
+          getUserInfo({
+            success: (data) => resolve(data),
+            fail: () => resolve(null),
+          });
+        });
+        const userInfo = userInfoRes?.userInfo || {};
+        if (userInfo.name || userInfo.avatar || userInfo.avatarUrl) {
+          zaloProfile = {
+            name: typeof userInfo.name === 'string' ? userInfo.name.trim() : undefined,
+            avatar:
+              typeof userInfo.avatar === 'string'
+                ? userInfo.avatar.trim()
+                : typeof userInfo.avatarUrl === 'string'
+                  ? userInfo.avatarUrl.trim()
+                  : undefined,
+          };
+        }
+      } catch (e) {
+        console.warn('getUserInfo in handleLinkZalo failed', e);
+      }
+
       await apiFetch('/api/auth/zalo/link', {
         method: 'POST',
-        body: JSON.stringify({ accessToken }),
+        body: JSON.stringify({
+          accessToken,
+          profileName: zaloProfile?.name,
+          profileAvatar: zaloProfile?.avatar,
+        }),
       });
 
       toast.success('Liên kết thành công!');

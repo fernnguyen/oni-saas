@@ -4,7 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 
 export async function POST(req: Request) {
   try {
-    const { accessToken } = await req.json();
+    const body = await req.json();
+    const accessToken = typeof body?.accessToken === 'string' ? body.accessToken : '';
+    const profileName = typeof body?.profileName === 'string' ? body.profileName.trim() : undefined;
+    const profileAvatar = typeof body?.profileAvatar === 'string' ? body.profileAvatar.trim() : undefined;
 
     if (!accessToken) {
       return NextResponse.json(
@@ -61,6 +64,12 @@ export async function POST(req: Request) {
       );
     }
 
+    const graphName = typeof zaloData.name === 'string' && zaloData.name.trim() ? zaloData.name.trim() : null;
+    const graphAvatar = typeof zaloData.picture?.data?.url === 'string' && zaloData.picture.data.url.trim() ? zaloData.picture.data.url.trim() : null;
+
+    const resolvedName = graphName || profileName || null;
+    const resolvedAvatar = graphAvatar || profileAvatar || null;
+
     const admin = getSupabaseAdminClient();
     
     // Check if Zalo ID is already linked to anyone
@@ -78,7 +87,16 @@ export async function POST(req: Request) {
           { status: 409 }
         );
       }
-      // If it's already linked to the CURRENT user, just return success
+
+      // If already linked, update identity record with new name/avatar if available
+      if (resolvedName || resolvedAvatar) {
+        await admin.from('user_identities').update({
+          name: resolvedName || undefined,
+          avatar: resolvedAvatar || undefined,
+          updated_at: new Date().toISOString(),
+        }).eq('provider', 'zalo').eq('provider_id', zaloData.id);
+      }
+
       return NextResponse.json({ success: true, message: 'Already linked' });
     }
 
@@ -88,8 +106,8 @@ export async function POST(req: Request) {
       user_id: user.id,
       provider: 'zalo',
       provider_id: zaloData.id,
-      name: zaloData.name || null,
-      avatar: zaloData.picture?.data?.url || null,
+      name: resolvedName,
+      avatar: resolvedAvatar,
     });
     
     if (insertError) {
@@ -97,6 +115,32 @@ export async function POST(req: Request) {
         { error: 'Failed to link account', details: insertError },
         { status: 500 }
       );
+    }
+
+    // HEAL user_metadata if current name is fallback/empty
+    const existingMetadata = user.user_metadata || {};
+    const currentFullName = typeof existingMetadata.full_name === 'string' ? existingMetadata.full_name.trim() : '';
+    const currentAvatar = typeof existingMetadata.avatar_url === 'string' ? existingMetadata.avatar_url.trim() : '';
+
+    const isFallbackName = !currentFullName || currentFullName === 'Người dùng Zalo' || currentFullName === 'Người dùng';
+
+    let needsMetadataUpdate = false;
+    const updatedMetadata = { ...existingMetadata };
+
+    if (isFallbackName && resolvedName && resolvedName !== 'Người dùng Zalo' && resolvedName !== 'Người dùng') {
+      updatedMetadata.full_name = resolvedName;
+      needsMetadataUpdate = true;
+    }
+
+    if (resolvedAvatar && resolvedAvatar !== currentAvatar) {
+      updatedMetadata.avatar_url = resolvedAvatar;
+      needsMetadataUpdate = true;
+    }
+
+    if (needsMetadataUpdate) {
+      await admin.auth.admin.updateUserById(user.id, {
+        user_metadata: updatedMetadata,
+      });
     }
 
     return NextResponse.json({ success: true });

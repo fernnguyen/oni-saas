@@ -19,7 +19,10 @@ export type LinkedZaloSessionResult =
       zaloProfile: ZaloProfile;
     };
 
-export async function resolveLinkedZaloSession(accessToken: string): Promise<LinkedZaloSessionResult> {
+export async function resolveLinkedZaloSession(
+  accessToken: string,
+  fallbackProfile?: { name?: string | null; avatar?: string | null }
+): Promise<LinkedZaloSessionResult> {
   const zaloRes = await fetch('https://graph.zalo.me/v2.0/me?fields=id,name,picture', {
     headers: {
       access_token: accessToken,
@@ -31,10 +34,19 @@ export async function resolveLinkedZaloSession(accessToken: string): Promise<Lin
     throw new Error('Invalid Zalo access token');
   }
 
+  const graphName = typeof zaloData.name === 'string' && zaloData.name.trim() ? zaloData.name.trim() : null;
+  const graphAvatar = typeof zaloData.picture?.data?.url === 'string' && zaloData.picture.data.url.trim() ? zaloData.picture.data.url.trim() : null;
+
+  const fallbackName = typeof fallbackProfile?.name === 'string' && fallbackProfile.name.trim() ? fallbackProfile.name.trim() : null;
+  const fallbackAvatar = typeof fallbackProfile?.avatar === 'string' && fallbackProfile.avatar.trim() ? fallbackProfile.avatar.trim() : null;
+
+  const resolvedName = graphName || fallbackName;
+  const resolvedAvatar = graphAvatar || fallbackAvatar;
+
   const zaloProfile: ZaloProfile = {
     id: zaloData.id,
-    name: typeof zaloData.name === 'string' ? zaloData.name : null,
-    avatar: typeof zaloData.picture?.data?.url === 'string' ? zaloData.picture.data.url : null,
+    name: resolvedName,
+    avatar: resolvedAvatar,
   };
 
   const admin = getSupabaseAdminClient();
@@ -53,11 +65,61 @@ export async function resolveLinkedZaloSession(accessToken: string): Promise<Lin
   }
 
   const { data: userResponse, error: userError } = await admin.auth.admin.getUserById(identity.user_id);
-  const userEmail = userResponse?.user?.email;
+  const user = userResponse?.user;
+  const userEmail = user?.email;
 
-  if (userError || !userEmail) {
+  if (userError || !user || !userEmail) {
     throw new Error('Failed to retrieve user');
   }
+
+  // --- HEALING & PROFILE SYNC LOGIC ---
+  const existingMetadata = user.user_metadata || {};
+  const currentFullName = typeof existingMetadata.full_name === 'string' ? existingMetadata.full_name.trim() : '';
+  const currentAvatar = typeof existingMetadata.avatar_url === 'string' ? existingMetadata.avatar_url.trim() : '';
+
+  const isFallbackName = !currentFullName || currentFullName === 'Người dùng Zalo' || currentFullName === 'Người dùng';
+
+  let needsMetadataUpdate = false;
+  const updatedMetadata = { ...existingMetadata };
+
+  // Heal name if current full_name is fallback/empty and a valid new name is available
+  if (isFallbackName && resolvedName && resolvedName !== 'Người dùng Zalo' && resolvedName !== 'Người dùng') {
+    updatedMetadata.full_name = resolvedName;
+    needsMetadataUpdate = true;
+  }
+
+  // Heal or update avatar if missing or updated
+  if (resolvedAvatar && resolvedAvatar !== currentAvatar) {
+    updatedMetadata.avatar_url = resolvedAvatar;
+    needsMetadataUpdate = true;
+  }
+
+  if (needsMetadataUpdate) {
+    await admin.auth.admin.updateUserById(user.id, {
+      user_metadata: updatedMetadata,
+    });
+  }
+
+  // Sync user_identities table
+  const identityNameUpdate =
+    (updatedMetadata.full_name && updatedMetadata.full_name !== 'Người dùng Zalo' && updatedMetadata.full_name !== 'Người dùng')
+      ? updatedMetadata.full_name
+      : (resolvedName || currentFullName || null);
+  const identityAvatarUpdate = updatedMetadata.avatar_url || resolvedAvatar || currentAvatar || null;
+
+  await admin
+    .from('user_identities')
+    .update({
+      name: identityNameUpdate,
+      avatar: identityAvatarUpdate,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', user.id)
+    .eq('provider', 'zalo');
+
+  // Update returned zaloProfile with healed values
+  zaloProfile.name = identityNameUpdate;
+  zaloProfile.avatar = identityAvatarUpdate;
 
   const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
     type: 'magiclink',

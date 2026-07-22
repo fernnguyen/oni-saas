@@ -5,7 +5,7 @@
  * Zalo SDK sau khi xác thực thành công sẽ redirect về:
  *   oni-pos://oauthcode?success=OAUTH_CODE&code_challenge=XXX
  *
- * Route này bắt deep link đó, gọi Edge Function zalo-auth để
+ * Route này bắt deep link đó, gọi backend Việt Nam để
  * trao đổi lấy Supabase session rồi điều hướng tiếp.
  */
 

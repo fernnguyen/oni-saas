@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { setTenantCode } from '@/lib/api-config';
 import toast from 'react-hot-toast';
-import { getAccessToken, getSetting } from 'zmp-sdk/apis';
+import { getAccessToken, getSetting, getUserInfo } from 'zmp-sdk/apis';
 import { apiFetch } from '@/services/api';
 
 function buildAuthEmail(identifier: string, tenantSlug: string): string {
@@ -61,9 +61,37 @@ export default function LoginPage() {
         });
       });
 
+      let zaloProfile: { name?: string; avatar?: string } | undefined;
+      try {
+        const userInfoRes = await new Promise<any>((resolve) => {
+          getUserInfo({
+            success: (data) => resolve(data),
+            fail: () => resolve(null),
+          });
+        });
+        const userInfo = userInfoRes?.userInfo || {};
+        if (userInfo.name || userInfo.avatar || userInfo.avatarUrl) {
+          zaloProfile = {
+            name: typeof userInfo.name === 'string' ? userInfo.name.trim() : undefined,
+            avatar:
+              typeof userInfo.avatar === 'string'
+                ? userInfo.avatar.trim()
+                : typeof userInfo.avatarUrl === 'string'
+                  ? userInfo.avatarUrl.trim()
+                  : undefined,
+          };
+        }
+      } catch (e) {
+        console.warn('getUserInfo in checkZaloLinked failed', e);
+      }
+
       const res = await apiFetch<any>('/api/auth/zalo/verify', {
         method: 'POST',
-        body: JSON.stringify({ accessToken }),
+        body: JSON.stringify({
+          accessToken,
+          profileName: zaloProfile?.name,
+          profileAvatar: zaloProfile?.avatar,
+        }),
       });
 
       if (res.status === 'LOGGED_IN' && res.session) {

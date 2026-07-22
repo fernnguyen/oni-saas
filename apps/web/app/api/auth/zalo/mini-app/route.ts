@@ -203,6 +203,24 @@ export async function POST(req: NextRequest) {
       resolvedUserId = createdUser.user.id;
     }
 
+    const { data: existingUserData } = await admin.auth.admin.getUserById(resolvedUserId);
+    const existingMetadata = existingUserData?.user?.user_metadata || {};
+    const currentFullName = typeof existingMetadata.full_name === 'string' ? existingMetadata.full_name.trim() : '';
+    const currentAvatar = typeof existingMetadata.avatar_url === 'string' ? existingMetadata.avatar_url.trim() : '';
+
+    const isFallbackName = !currentFullName || currentFullName === 'Người dùng Zalo' || currentFullName === 'Người dùng';
+
+    let finalFullName = currentFullName;
+    if (isFallbackName && resolvedProfileName && resolvedProfileName !== 'Người dùng Zalo' && resolvedProfileName !== 'Người dùng') {
+      finalFullName = resolvedProfileName;
+    } else if (!isFallbackName) {
+      finalFullName = currentFullName;
+    } else {
+      finalFullName = resolvedProfileName || 'Người dùng Zalo';
+    }
+
+    const finalAvatarUrl = resolvedAvatarUrl || currentAvatar || '';
+
     const updatePayload: {
       phone?: string;
       phone_confirm: boolean;
@@ -213,8 +231,9 @@ export async function POST(req: NextRequest) {
       phone: authPhone,
       phone_confirm: true,
       user_metadata: {
-        full_name: resolvedProfileName,
-        avatar_url: resolvedAvatarUrl,
+        ...existingMetadata,
+        full_name: finalFullName,
+        avatar_url: finalAvatarUrl,
         phone: phoneNumberStr,
         zalo_id: zaloId,
       },
@@ -239,21 +258,27 @@ export async function POST(req: NextRequest) {
       .eq('provider_id', zaloId)
       .maybeSingle();
 
-    if (existingIdentity && existingIdentity.user_id !== resolvedUserId) {
-      return NextResponse.json({
-        error: 'Zalo identity conflicts with resolved user',
-        details: 'Zalo này đã liên kết với tài khoản khác. Vui lòng liên hệ hỗ trợ.',
-      }, { status: 409 });
-    }
+    if (existingIdentity) {
+      if (existingIdentity.user_id !== resolvedUserId) {
+        return NextResponse.json({
+          error: 'Zalo identity conflicts with resolved user',
+          details: 'Zalo này đã liên kết với tài khoản khác. Vui lòng liên hệ hỗ trợ.',
+        }, { status: 409 });
+      }
 
-    if (!existingIdentity) {
+      await admin.from('user_identities').update({
+        name: finalFullName !== 'Người dùng Zalo' ? finalFullName : null,
+        avatar: finalAvatarUrl || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', existingIdentity.id);
+    } else {
       const { error: identityError } = await admin.from('user_identities').insert({
         id: `zalo_${zaloId}`,
         user_id: resolvedUserId,
         provider: 'zalo',
         provider_id: zaloId,
-        name: resolvedProfileName || null,
-        avatar: resolvedAvatarUrl || null,
+        name: finalFullName !== 'Người dùng Zalo' ? finalFullName : null,
+        avatar: finalAvatarUrl || null,
       });
 
       if (identityError) {

@@ -3,7 +3,10 @@ import { resolveLinkedZaloSession } from '../../../../../lib/server/zaloLinkedSe
 
 export async function POST(req: Request) {
   try {
-    const { accessToken } = await req.json();
+    const body = await req.json();
+    const accessToken = typeof body?.accessToken === 'string' ? body.accessToken : '';
+    const profileName = typeof body?.profileName === 'string' ? body.profileName.trim() : undefined;
+    const profileAvatar = typeof body?.profileAvatar === 'string' ? body.profileAvatar.trim() : undefined;
 
     if (!accessToken) {
       return NextResponse.json(
@@ -12,7 +15,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await resolveLinkedZaloSession(accessToken);
+    const result = await resolveLinkedZaloSession(accessToken, { name: profileName, avatar: profileAvatar });
     if (result.status !== 'LOGGED_IN') {
       return NextResponse.json({
         status: 'NOT_LINKED',
