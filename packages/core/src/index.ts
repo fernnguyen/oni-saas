@@ -7,4 +7,4 @@ export * from './utils/tenant';
 export * from './utils/datetime';
 export * from './hotelBillingEngine';
 export * from './utils/business';
-
+export * from './quickCreateProduct';

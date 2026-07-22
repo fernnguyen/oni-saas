@@ -96,6 +96,7 @@ export function usePosData() {
  parent_id: prod.parent_id || null,
  variant_options: typeof prod.variant_options === 'string' ? prod.variant_options : JSON.stringify(prod.variant_options || null),
  modifier_groups: typeof prod.modifier_groups === 'string' ? prod.modifier_groups : JSON.stringify(prod.modifier_groups || null),
+ metadata: typeof prod.metadata === 'object' ? JSON.stringify(prod.metadata) : (prod.metadata || null),
 };
 });
 }

@@ -180,6 +180,7 @@ export function initializeLocalDatabase(customDb?: any) {
         tax_rate TEXT,
         input_tax_rate TEXT,
         tax_group TEXT,
+        metadata TEXT,
         sync_status TEXT NOT NULL DEFAULT 'synced'
       );
 
@@ -383,6 +384,7 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN tax_rate TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN input_tax_rate TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN tax_group TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE products ADD COLUMN metadata TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN tax_amount INTEGER DEFAULT 0;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN tax_rate TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN tax_amount INTEGER DEFAULT 0;`); } catch (e) {}

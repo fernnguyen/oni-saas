@@ -12,8 +12,9 @@ import { SyncManager } from '../../lib/sync/SyncManager';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import { getSystemTaxGroups } from '../../lib/utils/tax';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { formatCurrency, maskCurrencyInput, parseCurrencyToNumber } from '../../lib/utils/format';
-import { calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
+import { allowsProductNegativeStock, buildQuickCreateMetadata, calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
 
 // Import hệ thống component dùng chung
 import { Header } from '../../components/layout/Header';
@@ -211,6 +212,7 @@ export default function PosScreen() {
   };
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isQuickCreateBarcodeScan, setIsQuickCreateBarcodeScan] = useState(false);
 
   useEffect(() => {
     if (params.restore_barcode_scanner === 'true') {
@@ -227,6 +229,20 @@ export default function PosScreen() {
   // Tìm kiếm Nhanh & Phân trang Lazy Load
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [displayLimit, setDisplayLimit] = useState(20);
+  const [quickCreateRequest, setQuickCreateRequest] = useState<{ name: string; barcode: string } | null>(null);
+  const [quickProductName, setQuickProductName] = useState('');
+  const [quickProductBarcode, setQuickProductBarcode] = useState('');
+  const [quickProductPrice, setQuickProductPrice] = useState('');
+  const [quickProductCostPrice, setQuickProductCostPrice] = useState('');
+  const [quickProductMinPrice, setQuickProductMinPrice] = useState('');
+  const [quickProductCategoryId, setQuickProductCategoryId] = useState('');
+  const [quickProductUnit, setQuickProductUnit] = useState('Cái');
+  const [quickProductImageUrl, setQuickProductImageUrl] = useState('');
+  const [quickProductLocalImageUri, setQuickProductLocalImageUri] = useState<string | null>(null);
+  const [showQuickProductUrlInput, setShowQuickProductUrlInput] = useState(false);
+  const [isQuickCreateSaving, setIsQuickCreateSaving] = useState(false);
+  const [quickCreateProgress, setQuickCreateProgress] = useState('');
+  const [showQuickCreateMore, setShowQuickCreateMore] = useState(false);
 
   // Trạng thái bộ lọc sơ đồ phòng/bàn
   const [tableSearchQuery, setTableSearchQuery] = useState('');
@@ -981,7 +997,9 @@ export default function PosScreen() {
 
           const originalProd = productsList.find(p => p.id === it.product_id);
           if (originalProd) {
-            const newStock = Math.max(0, originalProd.stock_qty - it.qty);
+            const newStock = allowsProductNegativeStock(originalProd as any)
+              ? originalProd.stock_qty - it.qty
+              : Math.max(0, originalProd.stock_qty - it.qty);
             await db
               .update(schema.products)
               .set({ stock_qty: newStock })
@@ -1229,6 +1247,13 @@ export default function PosScreen() {
 
   // Quét mã vạch thực tế từ component BarcodeScannerModal
   const handleBarcodeScannedReal = (barcodeData: string) => {
+    if (isQuickCreateBarcodeScan) {
+      setQuickProductBarcode(barcodeData.trim());
+      setIsQuickCreateBarcodeScan(false);
+      setIsScannerOpen(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      return;
+    }
     if (productsList.length === 0) {
       showToast('Không có sản phẩm nào trong SQLite để quét.', 'error');
       setIsScannerOpen(false);
@@ -1251,15 +1276,91 @@ export default function PosScreen() {
       setIsScanSuccessDialogVisible(true);
     } else {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
-      if (Platform.OS === 'web') {
-        alert(`Không tìm thấy sản phẩm có mã vạch hoặc SKU: "${barcodeData}"`);
-      } else {
-        Alert.alert(
-          'Không tìm thấy sản phẩm',
-          `Không tìm thấy sản phẩm nào khớp với mã vạch hoặc SKU: "${barcodeData}"`,
-          [{ text: 'Đóng' }]
-        );
+      setIsScannerOpen(false);
+      setQuickCreateRequest({ name: '', barcode: barcodeData.trim() });
+      setQuickProductName('');
+      setQuickProductBarcode(barcodeData.trim());
+      setQuickProductPrice('');
+      setQuickProductCostPrice('');
+      setQuickProductMinPrice('');
+      setQuickProductCategoryId('');
+      setQuickProductUnit('Cái');
+      setQuickProductImageUrl('');
+      setQuickProductLocalImageUri(null);
+      setShowQuickProductUrlInput(false);
+      setShowQuickCreateMore(false);
+    }
+  };
+
+  const saveQuickProductToCart = async () => {
+    const name = quickProductName.trim();
+    const price = parseCurrencyToNumber(quickProductPrice);
+    if (!name) return showToast('Vui lòng nhập tên sản phẩm.', 'error');
+    if (!Number.isFinite(price) || price < 0) return showToast('Vui lòng nhập giá bán hợp lệ.', 'error');
+    if (!activeShopId || !isOnline) return showToast('Tạo nhanh cần kết nối mạng để dùng mã sản phẩm chính thức.', 'error');
+    setIsQuickCreateSaving(true);
+    setQuickCreateProgress('Đang tạo sản phẩm...');
+    try {
+      const headers = await getApiHeaders();
+      const response = await fetch(`${getApiBaseUrl()}/api/shops/${activeShopId}/products/quick-create`, {
+        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, barcode: quickProductBarcode.trim(), sell_price: price, cost_price: parseCurrencyToNumber(quickProductCostPrice), min_price: parseCurrencyToNumber(quickProductMinPrice), category_id: quickProductCategoryId, unit: quickProductUnit.trim() || 'Cái', image_url: quickProductLocalImageUri ? '' : quickProductImageUrl.trim(), source: 'pos_quick_mobile' }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error === 'BARCODE_EXISTS' ? 'Barcode đã tồn tại. Hãy đồng bộ và chọn sản phẩm có sẵn.' : (payload.error || 'Không thể tạo sản phẩm'));
+      const created = payload.product;
+      let finalImageUrl = created.image_url || quickProductImageUrl || null;
+      if (quickProductLocalImageUri) {
+        setQuickCreateProgress('Đã tạo sản phẩm. Đang tải ảnh lên...');
+        const productId = created.product_id || created.id;
+        const uploadUrlResponse = await fetch(`${getApiBaseUrl()}/api/shops/${activeShopId}/products/${productId}/upload-url`, { headers });
+        if (!uploadUrlResponse.ok) throw new Error('Đã tạo sản phẩm nhưng không lấy được link tải ảnh.');
+        const { uploadUrl, publicUrl } = await uploadUrlResponse.json();
+        const imageResponse = await fetch(quickProductLocalImageUri);
+        const uploadResponse = await fetch(uploadUrl, { method: 'PUT', body: await imageResponse.blob(), headers: { 'Content-Type': 'image/jpeg' } });
+        if (!uploadResponse.ok) throw new Error('Đã tạo sản phẩm nhưng tải ảnh lên thất bại.');
+        const updateResponse = await fetch(`${getApiBaseUrl()}/api/shops/${activeShopId}/products/${productId}`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ image_url: publicUrl }) });
+        if (!updateResponse.ok) throw new Error('Đã tải ảnh nhưng không thể cập nhật sản phẩm.');
+        finalImageUrl = publicUrl;
       }
+      setQuickCreateProgress('Đang hoàn tất và thêm vào đơn...');
+      const product = { id: created.product_id || created.id, name: created.name || name, sku: created.sku || '', barcode: created.barcode || quickProductBarcode.trim(), category_id: created.category_id || quickProductCategoryId || null, unit: created.unit || quickProductUnit || 'Cái', sell_price: Number(created.sell_price || price), cost_price: Number(created.cost_price || parseCurrencyToNumber(quickProductCostPrice)), stock_qty: Number(created.stock_qty || 0), image_url: finalImageUrl, description: created.description || null, product_type: 'simple', parent_id: null, variant_options: null, modifier_groups: null, tax_rate: created.tax_rate || '0', input_tax_rate: created.input_tax_rate || '0', tax_group: created.tax_group || '', metadata: typeof created.metadata === 'string' ? created.metadata : JSON.stringify(created.metadata || buildQuickCreateMetadata('pos_quick_mobile')), active: created.active || 'TRUE', item_class: created.item_class || 'commercial', sync_status: 'synced' };
+      if (Platform.OS !== 'web') await db.insert(schema.products).values(product as any).onConflictDoUpdate({ target: schema.products.id, set: product as any });
+      setProductsList(previous => [product, ...previous.filter(p => p.id !== product.id)]);
+      setCart(previous => ({ ...previous, [String(product.id)]: previous[String(product.id)] ? { ...previous[String(product.id)], quantity: previous[String(product.id)].quantity + 1 } : { productId: product.id, name: product.name, price: product.sell_price, original_price: product.sell_price, quantity: 1, tax_rate: product.tax_rate, input_tax_rate: product.input_tax_rate, tax_group: product.tax_group, modifier_total: 0 } }));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      setQuickCreateRequest(null);
+      showToast('Đã tạo sản phẩm, thêm vào đơn và đánh dấu cần review.', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Không thể tạo sản phẩm.', 'error');
+    } finally { setIsQuickCreateSaving(false); setQuickCreateProgress(''); }
+  };
+
+  const pickQuickProductImage = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== 'granted') return showToast('Cần quyền truy cập thư viện ảnh để chọn ảnh sản phẩm.', 'error');
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+      if (!result.canceled && result.assets[0]?.uri) {
+        setQuickProductLocalImageUri(result.assets[0].uri);
+        setQuickProductImageUrl('');
+      }
+    } catch {
+      showToast('Không thể chọn ảnh từ thiết bị.', 'error');
+    }
+  };
+
+  const takeQuickProductPhoto = async () => {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (permission.status !== 'granted') return showToast('Cần quyền camera để chụp ảnh sản phẩm.', 'error');
+      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+      if (!result.canceled && result.assets[0]?.uri) {
+        setQuickProductLocalImageUri(result.assets[0].uri);
+        setQuickProductImageUrl('');
+      }
+    } catch {
+      showToast('Không thể mở camera.', 'error');
     }
   };
 
@@ -1269,6 +1370,21 @@ export default function PosScreen() {
     }
     setIsScanSuccessDialogVisible(false);
     setScannedProductInfo(null);
+  };
+
+  const openQuickCreateProduct = (name = '', barcode = '') => {
+    setQuickCreateRequest({ name, barcode });
+    setQuickProductName(name);
+    setQuickProductBarcode(barcode);
+    setQuickProductPrice('');
+    setQuickProductCostPrice('');
+    setQuickProductMinPrice('');
+    setQuickProductCategoryId('');
+    setQuickProductUnit('Cái');
+    setQuickProductImageUrl('');
+    setQuickProductLocalImageUri(null);
+    setShowQuickProductUrlInput(false);
+    setShowQuickCreateMore(false);
   };
 
   // Lọc sp
@@ -1287,6 +1403,14 @@ export default function PosScreen() {
   });
 
   const displayedProducts = filteredProducts.slice(0, displayLimit);
+  // Match the proven product-form pattern. Do not force a fixed input height:
+  // NativeWind's custom text line-height otherwise sits at the bottom on Android.
+  const singleLineInputStyle = {
+    paddingVertical: 0,
+    textAlignVertical: 'center' as const,
+    lineHeight: undefined,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {}),
+  };
   if (!isNavReady) {
     return <View style={{ flex: 1, backgroundColor: '#f8fafc' }} />;
   }
@@ -1474,6 +1598,9 @@ export default function PosScreen() {
               </TouchableOpacity>
             )}
             <View className="w-[1px] h-4 bg-slate-200 mx-2" />
+            <TouchableOpacity onPress={() => openQuickCreateProduct()} className="p-1 mr-1" accessibilityLabel="Tạo nhanh sản phẩm">
+              <Ionicons name="add-circle-outline" size={18} color="#fa5908" />
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => setIsScannerOpen(true)} className="p-1">
               <Ionicons name="scan-outline" size={16} color="#fa5908" />
             </TouchableOpacity>
@@ -1560,6 +1687,28 @@ export default function PosScreen() {
               <View className="items-center justify-center py-16 bg-white border border-slate-100 rounded-2xl mt-2">
                 <Ionicons name="basket-outline" size={32} color="#cbd5e1" />
                 <Text className="text-xs text-slate-400 font-medium mt-2">Không tìm thấy sản phẩm nào.</Text>
+                {productSearchQuery.trim().length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      const term = productSearchQuery.trim();
+                      setQuickCreateRequest({ name: term, barcode: '' });
+                      setQuickProductName(term);
+                      setQuickProductBarcode('');
+                      setQuickProductPrice('');
+                      setQuickProductCostPrice('');
+                      setQuickProductMinPrice('');
+                      setQuickProductCategoryId('');
+                      setQuickProductUnit('Cái');
+                      setQuickProductImageUrl('');
+                      setQuickProductLocalImageUri(null);
+                      setShowQuickProductUrlInput(false);
+                      setShowQuickCreateMore(false);
+                    }}
+                    className="mt-4 rounded-xl bg-orange-500 px-4 py-2"
+                  >
+                    <Text className="text-xs font-bold text-white">Tạo mới sản phẩm “{productSearchQuery.trim()}”</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ) : (
               <View className="flex-row flex-wrap justify-between pb-28">
@@ -2601,11 +2750,60 @@ export default function PosScreen() {
       {/* 5. CAMERA SCAN BARCODE POPUP */}
       <BarcodeScannerModal
         visible={isScannerOpen}
-        onClose={() => setIsScannerOpen(false)}
+        onClose={() => { setIsScannerOpen(false); setIsQuickCreateBarcodeScan(false); }}
         onScan={handleBarcodeScannedReal}
         title="Quét mã sản phẩm"
         placeholder="Nhập mã sản phẩm hoặc SKU..."
       />
+
+      <Modal visible={!!quickCreateRequest && !isQuickCreateBarcodeScan} transparent animationType="fade" onRequestClose={() => { if (!isQuickCreateSaving) setQuickCreateRequest(null); }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1 justify-end bg-black/50">
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end' }}>
+          <View className="max-h-[88%] rounded-t-3xl bg-white px-5 pb-8 pt-5">
+            <View className="mb-4 flex-row items-start justify-between">
+              <View><Text className="text-base font-bold text-slate-900">Tạo nhanh sản phẩm</Text><Text className="mt-1 text-xxs text-slate-500">Lưu vào đơn ngay; sản phẩm sẽ được đánh dấu cần review.</Text></View>
+              <TouchableOpacity disabled={isQuickCreateSaving} onPress={() => setQuickCreateRequest(null)}><Ionicons name="close" size={22} color={isQuickCreateSaving ? "#cbd5e1" : "#64748b"} /></TouchableOpacity>
+            </View>
+            {isQuickCreateSaving && <View className="mb-4 flex-row items-center rounded-xl border border-orange-200 bg-orange-50 px-3 py-3"><ActivityIndicator size="small" color="#fa5908" /><View className="ml-3 flex-1"><Text className="text-xs font-bold text-orange-700">Đang xử lý sản phẩm</Text><Text className="mt-0.5 text-xxs text-orange-600">{quickCreateProgress || 'Vui lòng không đóng màn hình này...'}</Text></View></View>}
+            <Text className="mb-1 text-xxs font-bold text-slate-600">Tên sản phẩm *</Text>
+            <TextInput value={quickProductName} onChangeText={setQuickProductName} placeholder="Ví dụ: Mì gói" className="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800" style={singleLineInputStyle} />
+            <View className="mb-3 flex-row gap-3"><View className="flex-1"><Text className="mb-1 text-xxs font-bold text-slate-600">Giá bán *</Text><TextInput value={quickProductPrice} onChangeText={(value) => setQuickProductPrice(maskCurrencyInput(value))} keyboardType="number-pad" placeholder="0" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-right text-sm font-semibold text-slate-800" style={singleLineInputStyle} /></View><View className="flex-1"><Text className="mb-1 text-xxs font-bold text-slate-600">Đơn vị</Text><TextInput value={quickProductUnit} onChangeText={setQuickProductUnit} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800" style={singleLineInputStyle} /></View></View>
+            <Text className="mb-1 text-xxs font-bold text-slate-600">Barcode</Text>
+            <View className="mb-3 flex-row items-center rounded-xl border border-slate-200 bg-slate-50 pl-4">
+              <TextInput value={quickProductBarcode} onChangeText={setQuickProductBarcode} placeholder="Tự điền sau khi quét" className="flex-1 py-2 text-sm font-semibold text-slate-800" style={singleLineInputStyle} />
+              <TouchableOpacity onPress={() => { setIsQuickCreateBarcodeScan(true); setIsScannerOpen(true); }} className="self-stretch justify-center px-3" accessibilityLabel="Quét barcode">
+                <Ionicons name="scan-outline" size={20} color="#fa5908" />
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity onPress={() => setShowQuickCreateMore(value => !value)}><Text className="mb-2 text-xxs font-bold text-orange-500">{showQuickCreateMore ? 'Ẩn thông tin thêm' : 'Thêm ảnh / thông tin mở rộng'}</Text></TouchableOpacity>
+            {showQuickCreateMore && <View className="mb-2 gap-3 rounded-2xl bg-slate-50 p-3">
+              <Text className="text-xxs font-bold text-slate-600">Danh mục</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}><View className="flex-row gap-2"><TouchableOpacity onPress={() => setQuickProductCategoryId('')} className={`rounded-lg border px-3 py-2 ${!quickProductCategoryId ? 'border-orange-500 bg-orange-50' : 'border-slate-200 bg-white'}`}><Text className="text-xxs">Chưa phân loại</Text></TouchableOpacity>{categoriesList.map(category => <TouchableOpacity key={category.id} onPress={() => setQuickProductCategoryId(category.id)} className={`rounded-lg border px-3 py-2 ${quickProductCategoryId === category.id ? 'border-orange-500 bg-orange-50' : 'border-slate-200 bg-white'}`}><Text className="text-xxs">{category.name}</Text></TouchableOpacity>)}</View></ScrollView>
+              <View className="flex-row gap-3"><View className="flex-1"><Text className="mb-1 text-xxs font-bold text-slate-600">Giá vốn</Text><TextInput value={quickProductCostPrice} onChangeText={(value) => setQuickProductCostPrice(maskCurrencyInput(value))} keyboardType="number-pad" placeholder="0" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-right text-sm font-semibold text-slate-800" style={singleLineInputStyle} /></View><View className="flex-1"><Text className="mb-1 text-xxs font-bold text-slate-600">Giá sàn</Text><TextInput value={quickProductMinPrice} onChangeText={(value) => setQuickProductMinPrice(maskCurrencyInput(value))} keyboardType="number-pad" placeholder="0" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-right text-sm font-semibold text-slate-800" style={singleLineInputStyle} /></View></View>
+              <Text className="text-xxs font-bold text-slate-600">Ảnh sản phẩm</Text>
+              <View className="items-center py-1" style={{ overflow: 'visible' }}>
+                <View className="relative" style={{ overflow: 'visible' }}>
+                  {(quickProductLocalImageUri || quickProductImageUrl) ? (
+                    <View className="relative" style={{ overflow: 'visible' }}>
+                      <Image source={{ uri: quickProductLocalImageUri || quickProductImageUrl }} className="h-24 w-24 rounded-3xl border border-slate-200 bg-slate-50" />
+                      <TouchableOpacity className="absolute -right-2.5 -top-2.5 h-7 w-7 items-center justify-center rounded-full border border-white bg-rose-500" onPress={() => { setQuickProductLocalImageUri(null); setQuickProductImageUrl(''); }}><Ionicons name="close" size={14} color="white" /></TouchableOpacity>
+                    </View>
+                  ) : <View className="h-24 w-24 items-center justify-center rounded-3xl border border-orange-200 bg-orange-50"><MaterialIcons name="image" size={34} color="#fa5908" /></View>}
+                  {quickProductLocalImageUri && <View className="absolute -left-2.5 -top-2.5 rounded-full border border-white bg-amber-500 px-2 py-0.5"><Text className="text-[8px] font-bold text-white">Chờ tải</Text></View>}
+                </View>
+                <View className="mt-3.5 flex-row gap-2">
+                  <TouchableOpacity className="flex-row items-center rounded-xl border border-slate-200 bg-slate-100 px-3 py-2" onPress={takeQuickProductPhoto}><Ionicons name="camera-outline" size={14} color="#64748b" /><Text className="ml-1 text-xxs font-bold text-slate-600">Chụp ảnh</Text></TouchableOpacity>
+                  <TouchableOpacity className="flex-row items-center rounded-xl border border-slate-200 bg-slate-100 px-3 py-2" onPress={pickQuickProductImage}><Ionicons name="image-outline" size={14} color="#64748b" /><Text className="ml-1 text-xxs font-bold text-slate-600">Chọn ảnh</Text></TouchableOpacity>
+                  <TouchableOpacity className="flex-row items-center rounded-xl border border-slate-200 bg-slate-100 px-3 py-2" onPress={() => setShowQuickProductUrlInput(value => !value)}><Ionicons name="link-outline" size={14} color="#64748b" /><Text className="ml-1 text-xxs font-bold text-slate-600">URL ảnh</Text></TouchableOpacity>
+                </View>
+                {showQuickProductUrlInput && <View className="mt-3.5 w-full rounded-2xl border border-slate-200 bg-slate-50 p-3"><Text className="mb-1.5 text-xxs font-bold text-slate-500">Đường dẫn hình ảnh (URL):</Text><TextInput value={quickProductImageUrl} onChangeText={(value) => { setQuickProductImageUrl(value); setQuickProductLocalImageUri(null); }} placeholder="https://image-url.com/prod.webp" autoCapitalize="none" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800" style={singleLineInputStyle} /></View>}
+              </View>
+            </View>}
+            <View className="mt-2 flex-row justify-end gap-3"><TouchableOpacity disabled={isQuickCreateSaving} onPress={() => setQuickCreateRequest(null)} className="rounded-xl px-4 py-3"><Text className={`text-xs font-bold ${isQuickCreateSaving ? 'text-slate-300' : 'text-slate-600'}`}>Huỷ</Text></TouchableOpacity><TouchableOpacity disabled={isQuickCreateSaving} onPress={saveQuickProductToCart} className={`rounded-xl px-5 py-3 ${isQuickCreateSaving ? 'bg-orange-300' : 'bg-orange-500'}`}><Text className="text-xs font-bold text-white">{isQuickCreateSaving ? 'Đang xử lý...' : 'Lưu vào đơn'}</Text></TouchableOpacity></View>
+          </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* 6. MODAL XEM CHI TIẾT PHÒNG/BÀN ĐANG HOẠT ĐỘNG */}
       <Modal

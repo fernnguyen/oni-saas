@@ -59,6 +59,8 @@ export const products = sqliteTable('products', {
   tax_rate: text('tax_rate'),
   input_tax_rate: text('input_tax_rate'),
   tax_group: text('tax_group'),
+  // Nullable on purpose: records created before quick-create are confirmed.
+  metadata: text('metadata'),
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending
 });
 
@@ -203,5 +205,4 @@ export const localCaches = sqliteTable('local_caches', {
   cache_value: text('cache_value').notNull(),
   updated_at: integer('updated_at').notNull(),
 });
-
 

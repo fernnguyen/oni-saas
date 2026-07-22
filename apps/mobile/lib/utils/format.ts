@@ -51,39 +51,10 @@ export function formatCurrency(value: number | string | null | undefined, suffix
  * @param text Chuỗi thô nhận được từ TextInput
  */
 export function maskCurrencyInput(text: string): string {
-  if (!text) return '';
-
-  // Thay thế dấu chấm người dùng gõ thành dấu phẩy (vì chúng ta coi dấu phẩy là ngăn thập phân)
-  let cleaned = text.replace(/\./g, ',');
-
-  // Giữ lại chỉ số, dấu âm và dấu phẩy ngăn thập phân
-  cleaned = cleaned.replace(/[^0-9,-]/g, '');
-
-  // Đảm bảo chỉ có tối đa một dấu phẩy
-  const firstCommaIndex = cleaned.indexOf(',');
-  if (firstCommaIndex !== -1) {
-    const beforeComma = cleaned.substring(0, firstCommaIndex).replace(/,/g, '');
-    const afterComma = cleaned.substring(firstCommaIndex + 1).replace(/,/g, '').substring(0, 2);
-    cleaned = `${beforeComma},${afterComma}`;
-  }
-
-  const parts = cleaned.split(',');
-  let integerPart = parts[0];
-
-  // Loại bỏ số 0 vô nghĩa ở đầu nếu có
-  if (integerPart.startsWith('0') && integerPart.length > 1) {
-    integerPart = parseInt(integerPart, 10).toString();
-  }
-
-  // Thêm dấu chấm ngăn cách hàng nghìn vào phần nguyên
-  if (integerPart) {
-    integerPart = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  }
-
-  if (parts.length > 1) {
-    return `${integerPart},${parts[1]}`;
-  }
-  return integerPart;
+  // POS prices are VND integers. Formatting only digits prevents the old
+  // decimal-comma branch from treating each newly formatted dot as input.
+  const digits = text.replace(/\D/g, '');
+  return digits ? Number(digits).toLocaleString('vi-VN') : '';
 }
 
 /**

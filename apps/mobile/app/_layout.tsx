@@ -1,5 +1,5 @@
 import {useEffect} from 'react';
-import {Stack, SplashScreen} from 'expo-router';
+import {Stack} from 'expo-router';
 import {StatusBar} from 'expo-status-bar';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {useColorScheme} from 'nativewind';
@@ -21,11 +21,6 @@ import {initializePushNotifications, addNotificationResponseListener} from '../l
 import {KeepAliveManager} from '../lib/sync/KeepAliveManager';
 import {VersionCheckGuard} from '../components/VersionCheckGuard';
 import '../global.css';
-
-// Ngăn Splash Screen tự động ẩn để đợi load font
-try {
- SplashScreen.preventAutoHideAsync().catch(() => {});
-} catch (e) {}
 
 try {
  (StyleSheet as any).setFlag?.('darkMode', 'class');
@@ -155,12 +150,6 @@ export default function RootLayout() {
       if (typeof cleanup === 'function') cleanup();
     };
   }, []);
-
- useEffect(() => {
- if (fontsLoaded || fontError) {
- SplashScreen.hideAsync().catch(() => {});
-}
-}, [fontsLoaded, fontError]);
 
  if (!fontsLoaded && !fontError) {
  return null;

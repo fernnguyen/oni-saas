@@ -9,8 +9,9 @@ import type { CartItem } from '@/hooks/useCart'
 import { VariantPickerModal } from './VariantPickerModal'
 import { ModifierPickerModal } from './ModifierPickerModal'
 import { CameraScannerModal } from './CameraScannerModal'
+import { QuickCreateProductDialog } from './QuickCreateProductDialog'
 import { cleanSku } from '@/lib/sku'
-import { isSystemTimeChargeProduct } from '@oni/core'
+import { allowsProductNegativeStock, isSystemTimeChargeProduct } from '@oni/core'
 
 interface Props {
   branchId: string
@@ -41,6 +42,8 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
   const [highlightedIndex, setHighlightedIndex] = useState<number>(0)
   const [showOutOfStock, setShowOutOfStock] = useState(false)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
+  const [quickCreateRequest, setQuickCreateRequest] = useState<{ name: string; barcode: string } | null>(null)
+  const [pendingScannedBarcode, setPendingScannedBarcode] = useState('')
 
   const inputRef = useRef<HTMLInputElement>(null)
   const database = localDb
@@ -60,7 +63,8 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
 
   // Helper to check if a product is out of stock
   const isOOS = (p: LocalProduct) => {
-    if (allowNegativeStock) return false
+    // Legacy products have no metadata and remain subject to the existing shop policy.
+    if (allowNegativeStock || allowsProductNegativeStock(p as any)) return false
     const stock = inventory.get(p.product_id) ?? 0
     const type = (p as any).product_type ?? 'simple'
     return type !== 'variant_parent' && type !== 'modifier' && stock <= 0
@@ -163,7 +167,9 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
         setSearch('') // Clear search bar upon successful auto-add
         toast.success(`Đã thêm vào giỏ: ${match.name}`)
       } else {
-        toast.error(`Không tìm thấy sản phẩm với mã: ${barcode}`)
+        setIsCameraOpen(false)
+        setPendingScannedBarcode(barcode)
+        toast.info(`Không tìm thấy sản phẩm với mã: ${barcode}`)
       }
     } catch (e) {
       console.error('Error auto-adding scanned barcode:', e)
@@ -246,7 +252,10 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
             autoFocus
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPendingScannedBarcode('')
+            }}
             onKeyDown={handleKeyDown}
             placeholder="Tìm sản phẩm (F3) - tên, SKU, barcode..."
             className="w-full rounded-lg border border-slate-200 pl-10 pr-11 py-1.5 text-sm placeholder:text-slate-400 focus:border-primary focus:outline-none bg-white shadow-xs"
@@ -275,6 +284,14 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
             </div>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={() => setQuickCreateRequest({ name: '', barcode: '' })}
+          className="shrink-0 rounded-lg border border-primary/20 bg-white px-2.5 py-1.5 text-xs font-bold text-primary shadow-xs transition hover:bg-primary/5"
+        >
+          + Tạo nhanh
+        </button>
 
         <label className="flex items-center gap-2 shrink-0 cursor-pointer select-none text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 hover:bg-slate-50 transition-colors shadow-xs">
           <input
@@ -341,8 +358,19 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
                   Hiển thị
                 </button>
               </div>
+            ) : search ? (
+              <div className="flex flex-col items-center gap-3">
+                <span>Không tìm thấy sản phẩm “{search}”</span>
+                <button
+                  type="button"
+                  onClick={() => setQuickCreateRequest({ name: pendingScannedBarcode ? '' : search, barcode: pendingScannedBarcode })}
+                  className="rounded-lg bg-primary px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-primary/90 active:scale-95"
+                >
+                  Tạo mới sản phẩm {pendingScannedBarcode ? pendingScannedBarcode : 'này'}
+                </button>
+              </div>
             ) : (
-              <span>{search ? 'Không tìm thấy sản phẩm' : 'Chưa có sản phẩm'}</span>
+              <span>Chưa có sản phẩm</span>
             )}
           </div>
         ) : (
@@ -351,7 +379,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
               const stock = inventory.get(product.product_id) ?? 0
               const type = (product as any).product_type ?? 'simple'
               // variant_parent: don't track stock by itself, always show
-              const outOfStock = !allowNegativeStock && type !== 'variant_parent' && type !== 'modifier' && stock <= 0
+              const outOfStock = !allowNegativeStock && !allowsProductNegativeStock(product as any) && type !== 'variant_parent' && type !== 'modifier' && stock <= 0
               const badge = getTypeBadge(product)
               const isHighlighted = index === highlightedIndex
               return (
@@ -480,6 +508,46 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
           open={isCameraOpen}
           onClose={() => setIsCameraOpen(false)}
           onScanSuccess={handleScanSuccess}
+        />
+      )}
+      {quickCreateRequest && (
+        <QuickCreateProductDialog
+          open={!!quickCreateRequest}
+          shopId={branchId}
+          initialName={quickCreateRequest.name}
+          initialBarcode={quickCreateRequest.barcode}
+          categories={categories}
+          onClose={() => setQuickCreateRequest(null)}
+          onUseExisting={async (candidate) => {
+            const product = await database.products.get(candidate.product_id || candidate.id || '')
+            if (!product) {
+              toast.error('Sản phẩm có sẵn chưa được đồng bộ về máy. Vui lòng đồng bộ rồi thử lại.')
+              return
+            }
+            handleProductClick(product)
+          }}
+          onCreated={async (created) => {
+            const product = {
+              ...created,
+              product_id: String(created.product_id || created.id),
+              category_id: String(created.category_id || ''),
+              sku: String(created.sku || ''),
+              barcode: String(created.barcode || ''),
+              name: String(created.name || ''),
+              unit: String(created.unit || 'Cái'),
+              sell_price: Number(created.sell_price || 0),
+              cost_price: Number(created.cost_price || 0),
+              min_price: Number(created.min_price || 0),
+              active: String(created.active || 'TRUE').toUpperCase() !== 'FALSE',
+              product_units: Array.isArray(created.product_units) ? created.product_units : [],
+            } as LocalProduct
+            await database.products.put(product)
+            if (!mutePosSound) playBeep()
+            onAddToCart(product)
+            setSearch('')
+            setPendingScannedBarcode('')
+            inputRef.current?.focus()
+          }}
         />
       )}
     </div>

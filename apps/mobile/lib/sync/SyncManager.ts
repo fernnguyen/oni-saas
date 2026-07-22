@@ -6,6 +6,19 @@ import { eq } from 'drizzle-orm';
 import { formatDateTime } from '../utils/format';
 import { isTimeChargeProduct } from '@oni/core';
 
+function parseProductMetadata(value: string | null | undefined): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined;
+  } catch {
+    // Old or manually edited local rows must not block the sync queue.
+    return undefined;
+  }
+}
+
 export class SyncManager {
   private static cashbookRetries: Record<string, number> = {};
 
@@ -219,6 +232,7 @@ export class SyncManager {
               tax_rate: prod.tax_rate || null,
               input_tax_rate: prod.input_tax_rate || null,
               tax_group: prod.tax_group || null,
+              metadata: typeof prod.metadata === 'object' ? JSON.stringify(prod.metadata) : (prod.metadata || null),
               sync_status: 'synced',
             }).onConflictDoUpdate({
               target: schema.products.id,
@@ -243,6 +257,7 @@ export class SyncManager {
                 tax_rate: prod.tax_rate || null,
                 input_tax_rate: prod.input_tax_rate || null,
                 tax_group: prod.tax_group || null,
+                metadata: typeof prod.metadata === 'object' ? JSON.stringify(prod.metadata) : (prod.metadata || null),
                 sync_status: 'synced',
               }
             });
@@ -1246,6 +1261,7 @@ export class SyncManager {
             image_url: prod.image_url || '',
             variant_options: prod.variant_options || '',
             modifier_groups: prod.modifier_groups || '',
+            metadata: parseProductMetadata(prod.metadata),
           };
 
           const isNewProduct = prod.id.startsWith('PROD-') || prod.id.startsWith('prod-') || prod.id.startsWith('temp-');
