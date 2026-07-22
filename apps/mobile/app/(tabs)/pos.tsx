@@ -2276,10 +2276,12 @@ export default function PosScreen() {
       {getCartCount() > 0 && activeVertical === 'retail' && (
         <View className="absolute bottom-0 left-0 right-0 p-4 border-t bg-white border-slate-100 flex-row justify-between items-center pb-6 rounded-t-2xl" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
           <View className="flex-row items-center">
-            <View className="bg-orange-50 p-2.5 rounded-xl mr-3 relative border border-orange-100">
-              <Ionicons name="cart" size={18} color="#fa5908" />
-              <View className="absolute -top-1 -right-1 items-center justify-center border border-white" style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: '#fa5908' }}>
-                <Text className="text-xxs text-white font-semibold text-center leading-none">{getCartCount()}</Text>
+            <View className="relative mr-3 h-14 w-14" style={{ overflow: 'visible' }}>
+              <View className="absolute bottom-0 left-0 h-12 w-12 items-center justify-center rounded-xl border border-orange-100 bg-orange-50">
+                <Ionicons name="cart" size={18} color="#fa5908" />
+              </View>
+              <View className="absolute top-0 right-0 min-w-[22px] h-[20px] px-1.5 items-center justify-center border border-white rounded-full" style={{ backgroundColor: '#fa5908' }}>
+                <Text className="text-[10px] text-white font-bold text-center leading-none" style={{ fontVariant: ['tabular-nums'] }}>{getCartCount()}</Text>
               </View>
             </View>
             <View>
