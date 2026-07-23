@@ -39,6 +39,28 @@ function canQuickCreate(permissions: string[]) {
   return permissions.includes('products.create') || permissions.includes('orders.create')
 }
 
+async function findExistingBarcode(connector: Awaited<ReturnType<typeof requireShopAccess>>['connector'], barcode: string) {
+  const [productBarcode, productSku, unitBarcode, unitSku] = await Promise.all([
+    connector.list('products', { filters: { barcode }, limit: 10 }),
+    connector.list('products', { filters: { sku: barcode }, limit: 10 }),
+    connector.list('product-units', { filters: { barcode }, limit: 10 }),
+    connector.list('product-units', { filters: { sku: barcode }, limit: 10 }),
+  ])
+  const normalizedBarcode = normalizeProductLookup(barcode)
+  const matchingProduct = [...productBarcode.data, ...productSku.data].find((product: ProductRow) =>
+    normalizeProductLookup(String(product.barcode || '')) === normalizedBarcode ||
+    normalizeProductLookup(String(product.sku || '')) === normalizedBarcode
+  ) as ProductRow | undefined
+  const matchingUnit = [...unitBarcode.data, ...unitSku.data].find((unit: ProductRow) =>
+    normalizeProductLookup(String(unit.barcode || '')) === normalizedBarcode ||
+    normalizeProductLookup(String(unit.sku || '')) === normalizedBarcode
+  ) as ProductRow | undefined
+
+  if (matchingProduct) return matchingProduct
+  if (!matchingUnit?.product_id) return null
+  return await connector.findById('products', String(matchingUnit.product_id)) as ProductRow | null
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
@@ -77,31 +99,14 @@ export async function POST(
     const source = input.source as QuickCreateSource
     const barcode = input.barcode.trim()
 
-    // An exact barcode is never safe to duplicate. Check both base products and units.
+    // Barcode is a shop-wide identifier. Search explicitly (not via product text search,
+    // which intentionally only indexes name/SKU) across base products and unit barcodes.
     if (barcode) {
-      const [products, units] = await Promise.all([
-        connector.list('products', { search: barcode, limit: 25 }),
-        connector.list('product-units', { search: barcode, limit: 25 }),
-      ])
-      const normalizedBarcode = normalizeProductLookup(barcode)
-      const exactProduct = (products.data as ProductRow[]).find((product) =>
-        normalizeProductLookup(String(product.barcode || '')) === normalizedBarcode ||
-        normalizeProductLookup(String(product.sku || '')) === normalizedBarcode
-      )
-      const exactUnit = (units.data as ProductRow[]).find((unit) =>
-        normalizeProductLookup(String(unit.barcode || '')) === normalizedBarcode ||
-        normalizeProductLookup(String(unit.sku || '')) === normalizedBarcode
-      )
-
-      if (exactProduct || exactUnit) {
-        const id = exactProduct ? productId(exactProduct) : String(exactUnit?.product_id || '')
-        let existing: ProductRow | null | undefined = exactProduct
-        if (!existing && id) {
-          existing = await connector.findById('products', id) as ProductRow | null
-        }
+      const existing = await findExistingBarcode(connector, barcode)
+      if (existing) {
         return NextResponse.json({
           error: 'BARCODE_EXISTS',
-          existing_product: existing ? publicProduct(existing) : { product_id: id, id },
+          existing_product: publicProduct(existing),
         }, { status: 409 })
       }
     }

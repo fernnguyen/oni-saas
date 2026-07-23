@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import type { Category, Product } from '@/services/shop-api';
 import { apiFetch } from '@/services/api';
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
+import { supabase } from '@/lib/supabase';
 
 function maskMoney(value: string) {
   const digits = value.replace(/\D/g, '');
@@ -34,6 +35,26 @@ export default function QuickCreateProductModal({ open, initialName = '', initia
   const [localImageUri, setLocalImageUri] = useState<string | null>(null);
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isPioneerPlan, setIsPioneerPlan] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadImageEntitlement = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: member } = await supabase.from('user_tenants').select('tenant_id').eq('user_id', user.id).limit(1).maybeSingle();
+        if (!member?.tenant_id) return;
+        const { data: subscription } = await supabase.from('subscriptions').select('plans (code)').eq('tenant_id', member.tenant_id).maybeSingle();
+        const planCode = (subscription?.plans as { code?: string } | null)?.code;
+        if (!cancelled) setIsPioneerPlan(!planCode || planCode === 'plan_mini');
+      } catch (error) {
+        console.warn('Cannot load quick-create image entitlement:', error);
+      }
+    };
+    void loadImageEntitlement();
+    return () => { cancelled = true; };
+  }, [shopId]);
 
   useEffect(() => {
     if (!open) return;
@@ -56,6 +77,10 @@ export default function QuickCreateProductModal({ open, initialName = '', initia
     const sellPrice = Number(price.replace(/\D/g, '') || 0);
     if (!name.trim()) {
       toast.error('Vui lòng nhập tên sản phẩm');
+      return;
+    }
+    if (isPioneerPlan && localImageUri) {
+      toast.error('Gói Tiên phong chỉ hỗ trợ ảnh từ URL');
       return;
     }
     setSaving(true);
@@ -85,6 +110,10 @@ export default function QuickCreateProductModal({ open, initialName = '', initia
   };
 
   const chooseImage = async () => {
+    if (isPioneerPlan) {
+      toast.error('Gói Tiên phong chỉ hỗ trợ ảnh từ URL');
+      return;
+    }
     try {
       const { openMediaPicker } = await import('zmp-sdk/apis');
       const { data } = await openMediaPicker({ type: 'photo', maxSelectItem: 1 });
@@ -108,7 +137,7 @@ export default function QuickCreateProductModal({ open, initialName = '', initia
       {showMore && <div style={{ marginTop: 10, padding: 12, borderRadius: 12, background: '#f8fafc' }}>
         <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 5 }}>Danh mục</label><select className="form-input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} style={{ width: '100%' }}><option value="">Chưa phân loại</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}><div><label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 5 }}>Giá vốn</label><input inputMode="numeric" className="form-input" value={costPrice} onChange={(e) => setCostPrice(maskMoney(e.target.value))} placeholder="0" style={{ width: '100%', textAlign: 'right' }} /></div><div><label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 5 }}>Giá sàn</label><input inputMode="numeric" className="form-input" value={minPrice} onChange={(e) => setMinPrice(maskMoney(e.target.value))} placeholder="0" style={{ width: '100%', textAlign: 'right' }} /></div></div>
-        <div style={{ marginTop: 12, textAlign: 'center' }}>{localImageUri || imageUrl ? <div style={{ position: 'relative', display: 'inline-block' }}><img src={localImageUri || imageUrl} alt="Ảnh sản phẩm" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 16, border: '1px solid #e2e8f0' }} /><button onClick={() => { setLocalImageUri(null); setImageUrl(''); }} style={{ position: 'absolute', right: -8, top: -8, border: '2px solid white', width: 24, height: 24, borderRadius: 12, background: '#ef4444', color: 'white' }}>×</button></div> : <div style={{ width: 96, height: 96, margin: 'auto', borderRadius: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0' }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg><span style={{ fontSize: 10, marginTop: 4 }}>Thêm ảnh</span></div>}<div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 10 }}><button type="button" onClick={chooseImage} className="zaui-btn zaui-btn-tertiary">Chọn ảnh</button><button type="button" onClick={() => setShowUrlInput((value) => !value)} className="zaui-btn zaui-btn-tertiary">URL ảnh</button></div>{showUrlInput && <input className="form-input" value={imageUrl} onChange={(e) => { setImageUrl(e.target.value); setLocalImageUri(null); }} placeholder="https://..." style={{ width: '100%', marginTop: 10 }} />}</div>
+        <div style={{ marginTop: 12, textAlign: 'center' }}>{localImageUri || imageUrl ? <div style={{ position: 'relative', display: 'inline-block' }}><img src={localImageUri || imageUrl} alt="Ảnh sản phẩm" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 16, border: '1px solid #e2e8f0' }} /><button onClick={() => { setLocalImageUri(null); setImageUrl(''); }} style={{ position: 'absolute', right: -8, top: -8, border: '2px solid white', width: 24, height: 24, borderRadius: 12, background: '#ef4444', color: 'white' }}>×</button></div> : <div style={{ width: 96, height: 96, margin: 'auto', borderRadius: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0' }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg><span style={{ fontSize: 10, marginTop: 4 }}>Thêm ảnh</span></div>}<div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 10 }}>{!isPioneerPlan && <button type="button" onClick={chooseImage} className="zaui-btn zaui-btn-tertiary">Chọn ảnh</button>}<button type="button" onClick={() => setShowUrlInput((value) => !value)} className="zaui-btn zaui-btn-tertiary">URL ảnh</button></div>{isPioneerPlan && <p style={{ margin: '8px 0 0', fontSize: 11, color: '#64748b' }}>Gói Tiên phong chỉ hỗ trợ ảnh từ URL.</p>}{showUrlInput && <input className="form-input" value={imageUrl} onChange={(e) => { setImageUrl(e.target.value); setLocalImageUri(null); }} placeholder="https://..." style={{ width: '100%', marginTop: 10 }} />}</div>
       </div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}><button onClick={close} disabled={saving} className="zaui-btn zaui-btn-tertiary">Huỷ</button><button onClick={save} disabled={saving} className="zaui-btn zaui-btn-primary">{saving ? 'Đang lưu...' : 'Lưu vào đơn'}</button></div>
     </div>

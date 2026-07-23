@@ -30,13 +30,14 @@ interface Props {
   initialName: string
   initialBarcode: string
   categories: Category[]
+  allowLocalImageUpload: boolean
   onClose: () => void
   onCreated: (product: QuickProduct) => void | Promise<void>
   onUseExisting: (product: ProductCandidate) => void | Promise<void>
 }
 
 export function QuickCreateProductDialog({
-  open, shopId, initialName, initialBarcode, categories, onClose, onCreated, onUseExisting,
+  open, shopId, initialName, initialBarcode, categories, allowLocalImageUpload, onClose, onCreated, onUseExisting,
 }: Props) {
   const [name, setName] = useState(initialName)
   const [barcode, setBarcode] = useState(initialBarcode)
@@ -186,8 +187,9 @@ export function QuickCreateProductDialog({
               </label>
             </div>
             <label className="block text-xs font-semibold text-slate-700">Ảnh sản phẩm
-              <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />
-              <div className="mt-1 flex gap-2"><button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">{selectedFile ? selectedFile.name : 'Chọn từ máy'}</button><input value={imageUrl} disabled={!!selectedFile} onChange={(event) => setImageUrl(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-primary disabled:bg-slate-100" placeholder="Hoặc URL ảnh" /></div>
+              {allowLocalImageUpload && <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />}
+              <div className="mt-1 flex gap-2">{allowLocalImageUpload && <button type="button" onClick={() => fileInputRef.current?.click()} className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">{selectedFile ? selectedFile.name : 'Chọn từ máy'}</button>}<input value={imageUrl} disabled={!!selectedFile} onChange={(event) => setImageUrl(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-primary disabled:bg-slate-100" placeholder="URL ảnh" /></div>
+              {!allowLocalImageUpload && <p className="mt-1 text-[11px] font-medium text-slate-500">Gói Tiên phong chỉ hỗ trợ ảnh từ URL.</p>}
             </label>
           </div>}
         </div>

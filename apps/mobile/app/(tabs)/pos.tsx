@@ -239,9 +239,31 @@ export default function PosScreen() {
   const [quickProductUnit, setQuickProductUnit] = useState('Cái');
   const [quickProductImageUrl, setQuickProductImageUrl] = useState('');
   const [quickProductLocalImageUri, setQuickProductLocalImageUri] = useState<string | null>(null);
+  // Start restrictive until the subscription lookup finishes: Tiên phong may use an image URL,
+  // but cannot upload files from the device or camera.
+  const [isPioneerPlan, setIsPioneerPlan] = useState(true);
   const [showQuickProductUrlInput, setShowQuickProductUrlInput] = useState(false);
   const [isQuickCreateSaving, setIsQuickCreateSaving] = useState(false);
   const [quickCreateProgress, setQuickCreateProgress] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadImageEntitlement = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: member } = await supabase.from('user_tenants').select('tenant_id').eq('user_id', user.id).limit(1).maybeSingle();
+        if (!member?.tenant_id) return;
+        const { data: subscription } = await supabase.from('subscriptions').select('plans (code)').eq('tenant_id', member.tenant_id).maybeSingle();
+        const planCode = (subscription?.plans as { code?: string } | null)?.code;
+        if (!cancelled) setIsPioneerPlan(!planCode || planCode === 'plan_mini');
+      } catch (error) {
+        console.warn('[POS] Cannot load image upload entitlement', error);
+      }
+    };
+    void loadImageEntitlement();
+    return () => { cancelled = true; };
+  }, [activeShopId]);
   const [showQuickCreateMore, setShowQuickCreateMore] = useState(false);
 
   // Trạng thái bộ lọc sơ đồ phòng/bàn
@@ -1312,6 +1334,7 @@ export default function PosScreen() {
     if (!name) return showToast('Vui lòng nhập tên sản phẩm.', 'error');
     if (!Number.isFinite(price) || price < 0) return showToast('Vui lòng nhập giá bán hợp lệ.', 'error');
     if (!activeShopId || !isOnline) return showToast('Tạo nhanh cần kết nối mạng để dùng mã sản phẩm chính thức.', 'error');
+    if (isPioneerPlan && quickProductLocalImageUri) return showToast('Gói Tiên phong chỉ hỗ trợ ảnh từ URL.', 'info');
     setIsQuickCreateSaving(true);
     setQuickCreateProgress('Đang tạo sản phẩm...');
     try {
@@ -1351,6 +1374,7 @@ export default function PosScreen() {
   };
 
   const pickQuickProductImage = async () => {
+    if (isPioneerPlan) return showToast('Gói Tiên phong chỉ hỗ trợ ảnh từ URL.', 'info');
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (permission.status !== 'granted') return showToast('Cần quyền truy cập thư viện ảnh để chọn ảnh sản phẩm.', 'error');
@@ -1365,6 +1389,7 @@ export default function PosScreen() {
   };
 
   const takeQuickProductPhoto = async () => {
+    if (isPioneerPlan) return showToast('Gói Tiên phong chỉ hỗ trợ ảnh từ URL.', 'info');
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (permission.status !== 'granted') return showToast('Cần quyền camera để chụp ảnh sản phẩm.', 'error');
@@ -2797,10 +2822,11 @@ export default function PosScreen() {
                   {quickProductLocalImageUri && <View className="absolute -left-2.5 -top-2.5 rounded-full border border-white bg-amber-500 px-2 py-0.5"><Text className="text-[8px] font-bold text-white">Chờ tải</Text></View>}
                 </View>
                 <View className="mt-3.5 flex-row gap-2">
-                  <TouchableOpacity className="flex-row items-center rounded-xl border border-slate-200 bg-slate-100 px-3 py-2" onPress={takeQuickProductPhoto}><Ionicons name="camera-outline" size={14} color="#64748b" /><Text className="ml-1 text-xxs font-bold text-slate-600">Chụp ảnh</Text></TouchableOpacity>
-                  <TouchableOpacity className="flex-row items-center rounded-xl border border-slate-200 bg-slate-100 px-3 py-2" onPress={pickQuickProductImage}><Ionicons name="image-outline" size={14} color="#64748b" /><Text className="ml-1 text-xxs font-bold text-slate-600">Chọn ảnh</Text></TouchableOpacity>
+                  {!isPioneerPlan && <><TouchableOpacity className="flex-row items-center rounded-xl border border-slate-200 bg-slate-100 px-3 py-2" onPress={takeQuickProductPhoto}><Ionicons name="camera-outline" size={14} color="#64748b" /><Text className="ml-1 text-xxs font-bold text-slate-600">Chụp ảnh</Text></TouchableOpacity>
+                  <TouchableOpacity className="flex-row items-center rounded-xl border border-slate-200 bg-slate-100 px-3 py-2" onPress={pickQuickProductImage}><Ionicons name="image-outline" size={14} color="#64748b" /><Text className="ml-1 text-xxs font-bold text-slate-600">Chọn ảnh</Text></TouchableOpacity></>}
                   <TouchableOpacity className="flex-row items-center rounded-xl border border-slate-200 bg-slate-100 px-3 py-2" onPress={() => setShowQuickProductUrlInput(value => !value)}><Ionicons name="link-outline" size={14} color="#64748b" /><Text className="ml-1 text-xxs font-bold text-slate-600">URL ảnh</Text></TouchableOpacity>
                 </View>
+                {isPioneerPlan && <Text className="mt-2 text-center text-[10px] font-medium text-slate-500">Gói Tiên phong chỉ hỗ trợ ảnh từ URL.</Text>}
                 {showQuickProductUrlInput && <View className="mt-3.5 w-full rounded-2xl border border-slate-200 bg-slate-50 p-3"><Text className="mb-1.5 text-xxs font-bold text-slate-500">Đường dẫn hình ảnh (URL):</Text><TextInput value={quickProductImageUrl} onChangeText={(value) => { setQuickProductImageUrl(value); setQuickProductLocalImageUri(null); }} placeholder="https://image-url.com/prod.webp" autoCapitalize="none" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800" style={singleLineInputStyle} /></View>}
               </View>
             </View>}

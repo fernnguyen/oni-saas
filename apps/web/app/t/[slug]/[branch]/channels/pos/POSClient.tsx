@@ -1349,6 +1349,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             branchId={branchId}
             inventory={inventory}
             mutePosSound={mutePosSound ?? false}
+            planCode={planCode}
             onAddToCart={cart.addItem}
             onAddToCartWithOptions={cart.addItemWithOptions}
             allowNegativeStock={allowNegativeStock ?? false}

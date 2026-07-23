@@ -20,6 +20,7 @@ interface Props {
   onAddToCart: (product: LocalProduct) => void
   onAddToCartWithOptions: (item: CartItem) => void
   allowNegativeStock?: boolean
+  planCode?: string
 }
 
 function fmtVND(v: number | string | null | undefined) {
@@ -35,7 +36,7 @@ function playBeep() {
   } catch {}
 }
 
-export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, onAddToCartWithOptions, allowNegativeStock = false }: Props) {
+export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, onAddToCartWithOptions, allowNegativeStock = false, planCode }: Props) {
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState<string | undefined>(undefined)
   const [categories, setCategories] = useState<LocalCategory[]>([])
@@ -522,6 +523,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
           initialName={quickCreateRequest.name}
           initialBarcode={quickCreateRequest.barcode}
           categories={categories}
+          allowLocalImageUpload={planCode !== 'plan_mini'}
           onClose={() => setQuickCreateRequest(null)}
           onUseExisting={async (candidate) => {
             const product = await database.products.get(candidate.product_id || candidate.id || '')
