@@ -1,7 +1,7 @@
 'use server';
 
 import { getSupabaseAdminClient } from '../../../lib/server/supabaseAdmin';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 
 export async function togglePlanPushNotify(planId: number, currentMeta: any, key: string, newValue: boolean) {
   const admin = getSupabaseAdminClient();
@@ -16,7 +16,13 @@ export async function togglePlanPushNotify(planId: number, currentMeta: any, key
     throw new Error(error.message);
   }
 
+  try {
+    revalidateTag('plans', 'max');
+  } catch (e) {
+    // Suppress if outside request context
+  }
   revalidatePath('/super/plans');
+  revalidatePath('/');
 }
 
 export async function updatePlanLimits(planId: number, currentMeta: any, limits: Record<string, number>) {
@@ -32,5 +38,11 @@ export async function updatePlanLimits(planId: number, currentMeta: any, limits:
     throw new Error(error.message);
   }
 
+  try {
+    revalidateTag('plans', 'max');
+  } catch (e) {
+    // Suppress if outside request context
+  }
   revalidatePath('/super/plans');
+  revalidatePath('/');
 }

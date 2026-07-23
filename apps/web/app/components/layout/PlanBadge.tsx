@@ -51,65 +51,121 @@ const PLAN_LEVELS: Record<string, number> = {
   plan_enterprise: 3
 };
 
-// ─── Per-plan metadata defaults & features mapping ──────────────────────────
-const PLAN_FEATURES: Record<string, string[]> = {
-  plan_mini: [
-    '1 chi nhánh hoạt động',
-    'Tối đa 100 sản phẩm',
-    'Tối đa 300 đơn hàng / tháng',
-    '1 nhân viên quản lý',
-    'CSDL dùng chung (Shared PostgreSQL)',
-    'Báo cáo thuế S1a-HKD (tự động)',
-    'Quản lý sổ quỹ, kho, đối tác',
-    'Hỗ trợ qua cộng đồng (Community)',
-  ],
-  plan_pro: [
-    '10 chi nhánh hoạt động',
-    'Không giới hạn sản phẩm & đơn hàng',
-    'Tối đa 20 nhân viên',
-    'Cơ sở dữ liệu riêng (BYOD - 2 Connectors)',
-    'Tên miền tùy chỉnh (3 domains)',
-    'QR Table Ordering (đặt bàn tại chỗ)',
-    'CRM & Thẻ thành viên thông minh',
-    'Zalo & Telegram Alerts tự động',
-    'Báo cáo thuế & AI Insights nâng cao',
-    'Hỗ trợ ưu tiên (Email & Chat 24/7)',
-  ],
-  plan_enterprise: [
-    'Không giới hạn chi nhánh',
-    'Không giới hạn sản phẩm & đơn hàng',
-    'Không giới hạn nhân viên',
-    'Dedicated PostgreSQL / Supabase BYOD',
-    'Không giới hạn tên miền riêng',
-    'Custom Notifications & API/Webhooks',
-    'SLA cam kết ổn định 99.9%',
-    'Onboarding & Đào tạo chuyên biệt 1-1',
-  ],
-};
+// ─── Client-side Memory Cache for Plans ──────────────────────────────────────
+let plansClientCache: { data: PlanRow[]; timestamp: number } | null = null;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes in-memory client cache
 
-const PLAN_LIMITS_SUMMARY: Record<string, Record<string, string>> = {
+// ─── Per-plan metadata defaults & dynamic feature mapping ───────────────────
+const META_DEFAULTS: Record<string, Record<string, any>> = {
   plan_mini: {
-    'Chi nhánh': '1',
-    'Sản phẩm': '100',
-    'Đơn hàng': '300 / tháng',
-    'Nhân viên': '1',
-    'CSDL': 'Shared',
+    create_shop: 1,
+    create_shop_user: 1,
+    max_products: 100,
+    max_orders_per_month: 300,
+    create_connector: 1,
+    create_domain: 0,
+    tax_report: true,
+    qr_table_ordering: false,
+    crm: false,
   },
   plan_pro: {
-    'Chi nhánh': '10',
-    'Sản phẩm': 'Không giới hạn',
-    'Đơn hàng': 'Không giới hạn',
-    'Nhân viên': '20',
-    'CSDL': 'BYOD (Riêng tư)',
+    create_shop: 10,
+    create_shop_user: 20,
+    max_products: -1,
+    max_orders_per_month: -1,
+    create_connector: 2,
+    create_domain: 3,
+    tax_report: true,
+    qr_table_ordering: true,
+    crm: true,
   },
   plan_enterprise: {
-    'Chi nhánh': 'Không giới hạn',
-    'Sản phẩm': 'Không giới hạn',
-    'Đơn hàng': 'Không giới hạn',
-    'Nhân viên': 'Không giới hạn',
-    'CSDL': 'Không giới hạn',
+    create_shop: -1,
+    create_shop_user: -1,
+    max_products: -1,
+    max_orders_per_month: -1,
+    create_connector: -1,
+    create_domain: -1,
+    tax_report: true,
+    qr_table_ordering: true,
+    crm: true,
   },
 };
+
+function getPlanMeta(p: PlanRow): Record<string, any> {
+  const rawMeta = typeof p.metadata === 'string' ? (JSON.parse(p.metadata) || {}) : (p.metadata || {});
+  const defaults = META_DEFAULTS[p.code] || {};
+  return { ...defaults, ...rawMeta };
+}
+
+function formatLimitVal(val: number | undefined | null, suffix: string = ''): string {
+  if (val === undefined || val === null || val === -1) return 'Không giới hạn';
+  if (val === 0) return 'Không hỗ trợ';
+  return `${val.toLocaleString('vi-VN')}${suffix}`;
+}
+
+function getPlanLimitsSummary(meta: Record<string, any>, code: string): Record<string, string> {
+  const shopStr = formatLimitVal(meta.create_shop);
+  const prodStr = formatLimitVal(meta.max_products);
+  const orderStr = (meta.max_orders_per_month === -1 || meta.max_orders_per_month === undefined)
+    ? 'Không giới hạn'
+    : `${meta.max_orders_per_month.toLocaleString('vi-VN')} / tháng`;
+  const userStr = formatLimitVal(meta.create_shop_user);
+
+  let dbStr = 'Shared';
+  if (meta.create_connector === -1) dbStr = 'Không giới hạn';
+  else if (meta.create_connector > 1 || code === 'plan_pro') dbStr = 'BYOD (Riêng tư)';
+  else if (code === 'plan_enterprise') dbStr = 'Dedicated CSDL';
+
+  return {
+    'Chi nhánh': shopStr,
+    'Sản phẩm': prodStr,
+    'Đơn hàng': orderStr,
+    'Nhân viên': userStr,
+    'CSDL': dbStr,
+  };
+}
+
+function getPlanFeaturesList(meta: Record<string, any>, code: string): string[] {
+  const features: string[] = [];
+
+  if (meta.create_shop === -1) features.push('Không giới hạn chi nhánh');
+  else features.push(`${meta.create_shop} chi nhánh hoạt động`);
+
+  if (meta.max_products === -1) features.push('Không giới hạn sản phẩm & đơn hàng');
+  else features.push(`Tối đa ${meta.max_products.toLocaleString('vi-VN')} sản phẩm`);
+
+  if (meta.max_products !== -1) {
+    if (meta.max_orders_per_month === -1) features.push('Không giới hạn đơn hàng / tháng');
+    else features.push(`Tối đa ${meta.max_orders_per_month.toLocaleString('vi-VN')} đơn hàng / tháng`);
+  }
+
+  if (meta.create_shop_user === -1) features.push('Không giới hạn nhân viên');
+  else features.push(`Tối đa ${meta.create_shop_user} nhân viên`);
+
+  if (code === 'plan_mini') {
+    features.push('CSDL dùng chung (Shared PostgreSQL)');
+    features.push('Báo cáo thuế S1a-HKD (tự động)');
+    features.push('Quản lý sổ quỹ, kho, đối tác');
+    features.push('Hỗ trợ qua cộng đồng (Community)');
+  } else if (code === 'plan_pro') {
+    features.push(`Cơ sở dữ liệu riêng (BYOD - ${meta.create_connector ?? 2} Connectors)`);
+    if (meta.create_domain) features.push(`Tên miền tùy chỉnh (${meta.create_domain} domains)`);
+    if (meta.qr_table_ordering) features.push('QR Table Ordering (đặt bàn tại chỗ)');
+    if (meta.crm) features.push('CRM & Thẻ thành viên thông minh');
+    features.push('Zalo & Telegram Alerts tự động');
+    features.push('Báo cáo thuế & AI Insights nâng cao');
+    features.push('Hỗ trợ ưu tiên (Email & Chat 24/7)');
+  } else if (code === 'plan_enterprise') {
+    features.push('Dedicated PostgreSQL / Supabase BYOD');
+    features.push('Không giới hạn tên miền riêng');
+    features.push('Custom Notifications & API/Webhooks');
+    features.push('SLA cam kết ổn định 99.9%');
+    features.push('Onboarding & Đào tạo chuyên biệt 1-1');
+  }
+
+  return features;
+}
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd, canUpgrade = false, collapsed = false, inline = false, iconOnly = false }: PlanBadgeProps) {
@@ -131,20 +187,48 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const supabase = getSupabaseBrowserClient();
 
-  // Fetch plans on mount/open
+  // Fetch plans on mount/open (with client-side in-memory & API caching)
   useEffect(() => {
     if (!isOpen) return;
+
+    const now = Date.now();
+    if (plansClientCache && (now - plansClientCache.timestamp < CACHE_TTL_MS)) {
+      const filtered = plansClientCache.data.filter((p) => {
+        const meta = getPlanMeta(p);
+        return meta?.show_public !== false || p.code === planCode;
+      });
+      setPlans(filtered);
+      setPlansLoading(false);
+      return;
+    }
+
     setPlansLoading(true);
     async function fetchPlans() {
       try {
-        const { data } = await supabase
+        const res = await fetch('/api/plans');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            const rawPlans = data as PlanRow[];
+            plansClientCache = { data: rawPlans, timestamp: Date.now() };
+            const filtered = rawPlans.filter((p) => {
+              const meta = getPlanMeta(p);
+              return meta?.show_public !== false || p.code === planCode;
+            });
+            setPlans(filtered);
+            return;
+          }
+        }
+        // Fallback to direct Supabase query if /api/plans is unreachable
+        const { data: dbData } = await supabase
           .from('plans')
           .select('id, code, name, price_monthly, price_yearly, metadata')
           .order('id', { ascending: true });
-        if (data && data.length > 0) {
-          const rawPlans = data as PlanRow[];
+        if (dbData && dbData.length > 0) {
+          const rawPlans = dbData as PlanRow[];
+          plansClientCache = { data: rawPlans, timestamp: Date.now() };
           const filtered = rawPlans.filter((p) => {
-            const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
+            const meta = getPlanMeta(p);
             return meta?.show_public !== false || p.code === planCode;
           });
           setPlans(filtered);
@@ -156,7 +240,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
       }
     }
     fetchPlans();
-  }, [isOpen, planCode]);
+  }, [isOpen, planCode, supabase]);
 
   // Expiration / Duration details
   let durationText = 'Không giới hạn';
@@ -536,8 +620,9 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
                       const isCurrent = p.code === planCode;
                       const isEnterprisePlan = p.code === 'plan_enterprise';
                       const isMiniPlan = p.code === 'plan_mini';
-                      const features = PLAN_FEATURES[p.code] || [];
-                      const limits = PLAN_LIMITS_SUMMARY[p.code] || {};
+                      const meta = getPlanMeta(p);
+                      const features = getPlanFeaturesList(meta, p.code);
+                      const limits = getPlanLimitsSummary(meta, p.code);
                       
                       const displayPrice = getPlanPriceText(p, billingCycle);
                       const period = isMiniPlan ? null : isEnterprisePlan ? null : billingCycle === 'yearly' ? '/năm' : '/tháng';
@@ -581,7 +666,7 @@ export function PlanBadge({ tenantId, planCode, planName, periodStart, periodEnd
                             {period && <span className="text-xs text-slate-500 font-medium">{period}</span>}
                           </div>
 
-                          {/* Quick statistics summary limits (compact grid) */}
+                          {/* Dynamic statistics summary limits (compact grid) */}
                           <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-2xl p-4 mb-5 border border-slate-100 dark:border-slate-800/80 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                             {Object.entries(limits).map(([key, value]) => (
                               <div key={key} className="flex flex-col">
