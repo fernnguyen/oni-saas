@@ -15,6 +15,7 @@ import {formatCurrency} from '../../lib/utils/format';
 import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
 import Constants from 'expo-constants';
 import {usePermissions} from '../../lib/auth/PermissionsContext';
+import {PlanBadge} from '../layout/PlanBadge';
 
 
 export interface DrawerMenuProps {
@@ -410,9 +411,12 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  {renderMenuItem('settings-outline', 'Cài đặt hệ thống', '/(tabs)/settings')}
  </View>
 
- {/* Footer Drawer */}
- <View className="mb-4 border-t border-slate-100 pt-4">
- <View className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex-row items-center justify-between">
+  {/* Footer Drawer */}
+  <View className="mb-4 border-t border-slate-100 pt-3">
+  {/* Plan Badge component placed before Account Information */}
+  <PlanBadge />
+
+  <View className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex-row items-center justify-between">
  <View className="flex-row items-center flex-1 mr-2">
  <View className="bg-orange-50 w-8 h-8 rounded-full items-center justify-center mr-2.5 border border-orange-100">
  <Ionicons name="person" size={13} color="#fa5908" />
