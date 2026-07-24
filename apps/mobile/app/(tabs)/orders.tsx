@@ -1,5 +1,5 @@
 import React, {useState, useCallback, useEffect} from 'react';
-import {Text, View, ScrollView, TouchableOpacity, TouchableWithoutFeedback, TextInput, Modal, Platform, ActivityIndicator, RefreshControl} from 'react-native';
+import {Text, View, ScrollView, TouchableOpacity, TouchableWithoutFeedback, TextInput, Modal, Platform, ActivityIndicator, RefreshControl, FlatList, Animated} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect, useLocalSearchParams} from 'expo-router';
@@ -68,6 +68,7 @@ import {Skeleton} from '../../components/ui/Skeleton';
 import {DebtCollectionModal} from '../../components/ui/DebtCollectionModal';
 import {DrawerMenu} from '../../components/erp/DrawerMenu';
 import {usePermissions} from '../../lib/auth/PermissionsContext';
+import {usePosToast} from '../../hooks/pos/usePosToast';
 
 const getOrderStatusBadgeProps = (status: string): { label: string; variant: 'primary' | 'secondary' | 'success' | 'warning' | 'danger' | 'info' } => {
   switch (status) {
@@ -163,6 +164,13 @@ export default function OrdersScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [limit, setLimit] = useState(10);
   const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [timeFilter, setTimeFilter] = useState('all');
+  useEffect(() => { const load = async () => { const shopId = await AsyncStorage.getItem('active_shop_id'); if (shopId) fetchOrdersOnline(shopId, 1, timeFilter, true); }; load(); }, [timeFilter, searchQuery]);
+  const [stats, setStats] = useState<any>(null);
+  const { toastMsg, toastOpacity, showToast } = usePosToast();
+  const PosToast = ({toastMsg, toastOpacity}: any) => { if (!toastMsg) return null; return <Animated.View style={{opacity: toastOpacity}} className={`absolute top-10 left-4 right-4 z-50 p-4 rounded-xl flex-row items-center shadow-lg ${toastMsg.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'}`}><Text className="text-white ml-2 font-medium">{toastMsg.message}</Text></Animated.View>; };
   const [isLazyLoading, setIsLazyLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeShiftId, setActiveShiftId] = useState('');
@@ -345,6 +353,74 @@ export default function OrdersScreen() {
  const [isSyncErrorVisible, setIsSyncErrorVisible] = useState(false);
 
   // Tải dữ liệu SQLite hoặc Cloud
+
+  const fetchStats = useCallback(async (activeShopId: string) => {
+    try {
+      const headers = await getApiHeaders();
+      const res = await fetch(`${getApiBaseUrl()}/api/shops/${activeShopId}/orders/stats`, { headers });
+      if (res.ok) {
+        setStats(await res.json());
+      }
+    } catch (e) {
+      console.warn('fetchStats error', e);
+    }
+  }, []);
+
+  const fetchOrdersOnline = useCallback(async (activeShopId: string, pageNum: number, filter: string, isRefresh: boolean = false) => {
+    try {
+      if (pageNum === 1) setIsLoading(true);
+      else setIsLoadingMore(true);
+
+      const headers = await getApiHeaders();
+      let url = `${getApiBaseUrl()}/api/shops/${activeShopId}/orders?limit=20&page=${pageNum}`;
+      if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+      if (filter !== 'all') url += `&time=${filter}`;
+      
+      const res = await fetch(url, { headers });
+      if (res.ok) {
+        const json = await res.json();
+        const cloudOrders = json.data || [];
+        const meta = json.meta || {};
+        
+        setHasMore(cloudOrders.length > 0 && pageNum < (meta.totalPages || Infinity));
+        
+        if (isRefresh || pageNum === 1) {
+          setOrdersList(cloudOrders);
+        } else {
+          setOrdersList(prev => {
+            const existingIds = new Set(prev.map(o => o.id));
+            const newItems = cloudOrders.filter((o: any) => !existingIds.has(o.id));
+            return [...prev, ...newItems];
+          });
+        }
+      } else {
+        throw new Error('fetch error');
+      }
+    } catch (e) {
+      console.warn('fetchOrdersOnline error, fallback to local', e);
+      if (pageNum === 1) {
+        try {
+          const local = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at)).limit(20);
+          setOrdersList(local);
+          setHasMore(false);
+        } catch(e2){}
+      }
+    } finally {
+      setIsLoading(false);
+      setIsLoadingMore(false);
+      setIsRefreshing(false);
+    }
+  }, [searchQuery]);
+
+  const refreshOrders = async () => {
+    const shopId = await AsyncStorage.getItem('active_shop_id');
+    if (shopId) {
+      setPage(1);
+      fetchOrdersOnline(shopId, 1, timeFilter, true);
+      fetchStats(shopId);
+    }
+  };
+
   const loadOrdersData = async (currentLimit = 10, isLoadMore = false, triggerRefresh = false) => {
   try {
    if (!isLoadMore && !triggerRefresh) {
@@ -764,13 +840,13 @@ export default function OrdersScreen() {
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
     setLimit(10);
-    await loadOrdersData(10, false, true);
+    await refreshOrders();
   }, [searchQuery]);
 
   useFocusEffect(
     useCallback(() => {
       setLimit(10);
-      loadOrdersData(10);
+      refreshOrders();
     }, [])
   );
 
@@ -778,7 +854,7 @@ export default function OrdersScreen() {
     const delayDebounceFn = setTimeout(() => {
       if (isLoading) return;
       setLimit(10);
-      loadOrdersData(10, false);
+      refreshOrders();
     }, 500);
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);
@@ -786,7 +862,7 @@ export default function OrdersScreen() {
   useEffect(() => {
     if (isLoading) return;
     setLimit(10);
-    loadOrdersData(10, false);
+    refreshOrders();
   }, [selectedShift, selectedStatus]);
 
   // Xem chi tiết
@@ -889,12 +965,13 @@ export default function OrdersScreen() {
       // 2. Chỉ thực hiện fetch online ngầm nếu đã đồng bộ và có shopId
       if (shopId && order.sync_status !== 'pending') {
         try {
-          const [itemsRes, paymentsRes, returnsRes, settingsRes, cashbookRes] = await Promise.all([
+          const [itemsRes, paymentsRes, returnsRes, settingsRes, cashbookRes, orderRes] = await Promise.all([
             fetch(`${url}/api/shops/${shopId}/order-items?order_id=${order.id}&limit=100`, { headers }),
             fetch(`${url}/api/shops/${shopId}/payments?order_id=${order.id}&limit=50`, { headers }),
             fetch(`${url}/api/shops/${shopId}/returns?order_id=${order.id}&limit=50`, { headers }),
             fetch(`${url}/api/shops/${shopId}/settings`, { headers }),
-            fetch(`${url}/api/shops/${shopId}/cashbook?reference_id=${order.id}&limit=100`, { headers })
+            fetch(`${url}/api/shops/${shopId}/cashbook?reference_id=${order.id}&limit=100`, { headers }),
+            fetch(`${url}/api/shops/${shopId}/orders/${order.id}`, { headers })
           ]);
 
           if (itemsRes.ok && paymentsRes.ok && returnsRes.ok && settingsRes.ok && cashbookRes.ok) {
@@ -903,6 +980,11 @@ export default function OrdersScreen() {
             const returnsJson = await returnsRes.json();
             const settingsJson = await settingsRes.json();
             const cashbookJson = await cashbookRes.json();
+            
+            if (orderRes.ok) {
+              const orderData = await orderRes.json();
+              setSelectedOrder((prev: any) => ({ ...prev, paid_amount: orderData.paid_amount, status: orderData.status, total_amount: orderData.total_amount }));
+            }
 
             const rawReturns = returnsJson.data || [];
             const returnsWithItems = await Promise.all(
@@ -1060,7 +1142,7 @@ export default function OrdersScreen() {
           .where(eq(schema.orders.id, selectedOrder.id));
       }
 
-      await loadOrdersData();
+      await refreshOrders();
       setSelectedOrder((prev: any) => prev ? { ...prev, status: 'cancelled' } : null);
       setShowCancelDialog(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -1185,7 +1267,7 @@ export default function OrdersScreen() {
           .where(eq(schema.orders.id, selectedOrder.id));
       }
 
-      await loadOrdersData();
+      await refreshOrders();
       
       setShowReturnForm(false);
       setShowConfirmReturn(false);
@@ -1225,7 +1307,7 @@ export default function OrdersScreen() {
  const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
  const results = await SyncManager.pushOfflineOrders(shopId);
  
- await loadOrdersData();
+ await refreshOrders();
  
  if (results.successCount > 0) {
  setIsSyncSuccessVisible(true);
@@ -1253,311 +1335,216 @@ export default function OrdersScreen() {
 
 
 
- return (
- <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
- 
- {/* 1. SHARED HEADER - Thống nhất 100% */}
-  <Header onPressMenu={() => setIsDrawerOpen(true)} />
-
- <View className="flex-1">
- 
- {/* 2. THỐNG KÊ DOANH THU NHANH CA - Giảm góc bo về rounded-2xl */}
- <View className="p-4 flex-row justify-between">
- <View className="flex-1 mr-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
- <Text className="text-xxs font-semibold text-slate-400">Tổng doanh số ca</Text>
- {isLoading ? (
-   <Skeleton width="60%" height={16} borderRadius={4} className="mt-1.5" />
- ) : (
-   <Text className="text-orange-500 font-semibold text-xs mt-1.5">{formatCurrency(totalRevenue)}</Text>
- )}
- {isLoading ? (
-   <Skeleton width="40%" height={10} borderRadius={3} className="mt-1" />
- ) : (
-   <Text className="text-xxs text-slate-455 font-medium mt-0.5">{shiftOrdersCount} hóa đơn</Text>
- )}
- </View>
-
- <View className="flex-1 mx-1 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
- <Text className="text-xxs font-semibold text-emerald-600">Đã đồng bộ</Text>
- <Text className="text-emerald-700 font-semibold text-xs mt-1.5">{syncedCount}</Text>
- <Text className="text-xxs text-slate-455 font-medium mt-0.5">Đã lưu trữ</Text>
- </View>
-
- <View className="flex-1 ml-2 p-3 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
- <Text className="text-xxs font-semibold text-amber-600">Chờ đồng bộ</Text>
- <Text className="text-amber-700 font-semibold text-xs mt-1.5">{pendingCount}</Text>
- <Text className="text-xxs text-slate-455 font-medium mt-0.5">Chưa gửi lên</Text>
- </View>
- </View>
-
- {/* 3. TÌM KIẾM & BỘ LỌC */}
- <View className="px-4 pb-3">
-  <View className="flex-row items-center mb-3">
-  <View className="flex-1 flex-row items-center px-3 py-1.5 rounded-xl border bg-white border-slate-200 shadow-sm mr-2.5">
-  <Ionicons name="search-outline" size={16} color="#94a3b8" />
-  <TextInput
-  placeholder="Tìm mã hóa đơn, tên khách hàng..."
-  placeholderTextColor="#94a3b8"
-  className="flex-1 ml-2 text-xs text-slate-800 py-1"
-  value={searchQuery}
-  onChangeText={setSearchQuery}
-  style={{
-    paddingVertical: 0,
-    textAlignVertical: 'center',
-    lineHeight: undefined,
-    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
-  }}
-  />
-  {searchQuery !== '' && (
-  <TouchableOpacity onPress={() => setSearchQuery('')}>
-  <Ionicons name="close-circle" size={16} color="#94a3b8" />
-  </TouchableOpacity>
-  )}
-  </View>
-
-  <TouchableOpacity 
-    activeOpacity={0.7}
-    onPress={onRefresh}
-    disabled={isRefreshing}
-    className="p-2.5 bg-white border border-slate-200 rounded-xl shadow-sm justify-center items-center"
-  >
-    {isRefreshing ? (
-      <ActivityIndicator size="small" color="#fa5908" style={{ width: 16, height: 16 }} />
-    ) : (
-      <Ionicons name="sync-outline" size={16} color="#fa5908" />
-    )}
-  </TouchableOpacity>
-  </View>
-
- {/* Lọc theo Ca */}
-  {shiftsList.length > 1 && (
-  <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row mb-3">
-  {shiftsList.map(shift => (
-  <TouchableOpacity
-  key={shift.id}
-  className="mr-2 px-3 py-1.5 rounded-xl border"
-  style={selectedShift === shift.id ? {
-    backgroundColor: '#fa5908',
-    borderColor: '#fa5908'
-  } : {
-    backgroundColor: '#ffffff',
-    borderColor: '#e2e8f0'
-  }}
-  onPress={() => setSelectedShift(shift.id)}
-  >
- <Text className={`text-xxs font-semibold ${
- selectedShift === shift.id ? 'text-white' : 'text-slate-500'
-}`}>
- {shift.label}
- </Text>
- </TouchableOpacity>
- ))}
- </ScrollView>
- )}
-
- {/* Lọc theo Trạng thái Sync */}
- <View className="flex-row mb-1">
- <TouchableOpacity
- className="mr-2 px-3 py-1.5 rounded-xl border"
- style={selectedStatus === 'all' ? {
-   backgroundColor: '#fa5908',
-   borderColor: '#fa5908'
- } : {
-   backgroundColor: '#ffffff',
-   borderColor: '#e2e8f0'
- }}
- onPress={() => setSelectedStatus('all')}
- >
- <Text className={`text-xxs font-semibold ${
- selectedStatus === 'all' ? 'text-white' : 'text-slate-500'
-}`}>
- Tất cả
- </Text>
- </TouchableOpacity>
-
- <TouchableOpacity
- className="mr-2 px-3 py-1.5 rounded-xl border"
- style={selectedStatus === 'synced' ? {
-   backgroundColor: '#059669',
-   borderColor: '#059669'
- } : {
-   backgroundColor: '#ecfdf5',
-   borderColor: '#a7f3d0'
- }}
- onPress={() => setSelectedStatus('synced')}
- >
- <Text className={`text-xxs font-semibold ${
- selectedStatus === 'synced' ? 'text-white' : 'text-emerald-700'
-}`}>
- Đã đồng bộ ({syncedCount})
- </Text>
- </TouchableOpacity>
-
-   <TouchableOpacity
-  className="px-3 py-1.5 rounded-xl border"
-  style={selectedStatus === 'pending' ? {
-    backgroundColor: '#d97706',
-    borderColor: '#d97706'
-  } : {
-    backgroundColor: '#fffbeb',
-    borderColor: '#fde68a'
-  }}
-  onPress={() => setSelectedStatus('pending')}
-  >
- <Text className={`text-xxs font-semibold ${
- selectedStatus === 'pending' ? 'text-white' : 'text-amber-700'
-}`}>
- Chờ đồng bộ ({pendingCount})
- </Text>
- </TouchableOpacity>
- </View>
- </View>
-
- {/* 4. DANH SÁCH LỚP PHÂN CẤP - Giảm bo card dòng xuống rounded-2xl */}
-  <ScrollView 
-    className="flex-1 px-4" 
-    showsVerticalScrollIndicator={false}
-    refreshControl={
-      <RefreshControl
-        refreshing={isRefreshing}
-        onRefresh={onRefresh}
-        colors={['#fa5908']}
-        tintColor="#fa5908"
-      />
-    }
-  >
-  {isLoading ? (
-    <View className="mt-2">
-      {[1, 2, 3, 4, 5].map((key) => (
-        <View key={key} className="mb-3 p-4 rounded-2xl border bg-white border-slate-100 flex-row justify-between items-center shadow-sm">
-          <View className="flex-1 mr-3">
-            <View className="flex-row items-center mb-1">
-              <View className="w-1.5 h-1.5 rounded-full mr-1.5 bg-slate-200" />
-              <Skeleton width={100} height={12} borderRadius={4} />
-              <View className="mx-1.5 w-1 h-1 bg-slate-200 rounded-full" />
-              <Skeleton width={80} height={10} borderRadius={3} />
-            </View>
-            <Skeleton width={120} height={10} borderRadius={3} className="mt-2" />
-            <View className="flex-row items-center mt-3">
-              <Skeleton width={70} height={10} borderRadius={3} className="mr-2" />
-              <Skeleton width={60} height={14} borderRadius={4} />
-            </View>
+  const renderHeader = () => (
+    <View className="bg-slate-50 pt-3 pb-2">
+      <View className="flex-row justify-between mb-3">
+        <View className="flex-1 mr-1 p-2 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
+          <View className="flex-row justify-between items-center">
+            <Text className="text-xxs font-semibold text-slate-400">Hôm nay</Text>
+            {stats && <Text className="text-[10px] font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">{stats.today?.count || 0} đơn</Text>}
           </View>
-          <View className="items-end">
-            <Skeleton width={70} height={14} borderRadius={4} />
-            <Skeleton width={14} height={14} borderRadius={7} className="mt-3" />
+          {stats ? (
+            <View>
+              <Text className="text-orange-500 font-semibold text-xs mt-1">{formatCurrency(stats.today?.revenue || 0)}</Text>
+              {stats.today?.debt > 0 && <Text className="text-xxs text-rose-600 font-medium mt-0.5">Nợ: {formatCurrency(stats.today?.debt || 0)}</Text>}
+            </View>
+          ) : (
+            <Skeleton width="60%" height={16} borderRadius={4} className="mt-1.5" />
+          )}
+        </View>
+
+        <View className="flex-1 mx-1 p-2 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
+          <View className="flex-row justify-between items-center">
+            <Text className="text-xxs font-semibold text-emerald-600">Hôm qua</Text>
+            {stats && <Text className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">{stats.yesterday?.count || 0} đơn</Text>}
+          </View>
+          {stats ? (
+            <View>
+              <Text className="text-emerald-700 font-semibold text-xs mt-1">{formatCurrency(stats.yesterday?.revenue || 0)}</Text>
+              {stats.yesterday?.debt > 0 && <Text className="text-xxs text-slate-400 font-medium mt-0.5">Nợ: {formatCurrency(stats.yesterday?.debt || 0)}</Text>}
+            </View>
+          ) : (
+            <Skeleton width="60%" height={16} borderRadius={4} className="mt-1.5" />
+          )}
+        </View>
+
+        <View className="flex-1 ml-1 p-2 rounded-2xl border bg-white border-slate-100 shadow-sm justify-between">
+          <View className="flex-row justify-between items-center">
+            <Text className="text-xxs font-semibold text-blue-600">Tháng này</Text>
+            {stats && <Text className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-md">{stats.month?.count || 0} đơn</Text>}
+          </View>
+          {stats ? (
+            <View>
+              <Text className="text-blue-700 font-semibold text-xs mt-1">{formatCurrency(stats.month?.revenue || 0)}</Text>
+              {stats.month?.debt > 0 && <Text className="text-xxs text-slate-400 font-medium mt-0.5">Nợ: {formatCurrency(stats.month?.debt || 0)}</Text>}
+            </View>
+          ) : (
+            <Skeleton width="60%" height={16} borderRadius={4} className="mt-1.5" />
+          )}
+        </View>
+      </View>
+
+      <View>
+        <View className="flex-row items-center mb-3">
+          <View className="flex-1 flex-row items-center bg-white border border-slate-200 rounded-2xl px-3 shadow-sm h-10">
+            <Ionicons name="search" size={16} color="#94a3b8" />
+            <TextInput
+              placeholder="Tìm #HĐ, Khách..."
+              placeholderTextColor="#94a3b8"
+              className="flex-1 ml-2 text-xs text-slate-700 font-medium h-full pb-0.5"
+              value={searchQuery}
+              onChangeText={(txt) => { setSearchQuery(txt); setPage(1); }}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => { setSearchQuery(''); setPage(1); }} className="p-1">
+                <Ionicons name="close-circle" size={16} color="#cbd5e1" />
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
-      ))}
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row mb-3">
+          {[
+            { id: 'all', label: 'Tất cả' },
+            { id: 'today', label: 'Hôm nay' },
+            { id: 'yesterday', label: 'Hôm qua' },
+            { id: 'last7days', label: '7 ngày qua' },
+            { id: 'lastmonth', label: 'Tháng này' }
+          ].map(filter => (
+            <TouchableOpacity
+              key={filter.id}
+              className="mr-2 px-2.5 py-1 rounded-xl border"
+              style={timeFilter === filter.id ? { backgroundColor: '#fa5908', borderColor: '#fa5908' } : { backgroundColor: '#fff', borderColor: '#e2e8f0' }}
+              onPress={() => { 
+                setTimeFilter(filter.id); 
+                setPage(1); 
+                AsyncStorage.getItem('active_shop_id').then(shopId => {
+                  if (shopId) fetchOrdersOnline(shopId, 1, filter.id);
+                });
+              }}
+            >
+              <Text className={`text-xxs font-semibold ${timeFilter === filter.id ? 'text-white' : 'text-slate-500'}`}>{filter.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
     </View>
-  ) : ordersList.length === 0 ? (
- <View className="py-12 items-center justify-center bg-white rounded-2xl border border-slate-100 mt-2 shadow-sm">
- <Ionicons name="receipt-outline" size={36} color="#cbd5e1" />
- <Text className="text-xs text-slate-455 font-medium mt-3">Không tìm thấy hóa đơn nào phù hợp</Text>
- </View>
- ) : (
- ordersList.map(order => {
- const isPending = order.sync_status === 'pending';
+  );
 
- return (
- <TouchableOpacity
- key={order.id}
- activeOpacity={0.8}
- className="mb-3 p-4 rounded-2xl border bg-white border-slate-100 flex-row justify-between items-center"
- style={{shadowColor: '#000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}
- onPress={() => handleViewOrderDetails(order)}
- >
- <View className="flex-1 mr-3">
- <View className="flex-row items-center mb-1">
-   <View className={"w-1.5 h-1.5 rounded-full mr-1.5 " + (isSyncingOrder === order.id ? "bg-amber-500" : (order.sync_status === 'synced' ? "bg-emerald-500" : order.sync_status === 'pending' ? "bg-amber-500" : "bg-rose-500"))} />
-   <Text className="text-xs font-semibold text-slate-800">
-    #{order.order_no && order.order_no !== 'HD' ? order.order_no : order.id.split('-').pop()}
-   </Text>
-   <View className="mx-1.5 w-1 h-1 bg-slate-300 rounded-full" />
-   <Text className="text-tiny text-slate-500 font-medium flex-1" numberOfLines={1}>
-   {order.customer_name || 'Khách lẻ'}
-   </Text>
- </View>
-
- <Text className="text-xxs text-slate-400 font-semibold mt-1">
- ⏱️ {order.created_at ? formatDateTime(order.created_at) : 'Ngoại tuyến'}
- </Text>
-
- <View className="flex-row items-center mt-3">
-   <Text className="text-xxs text-slate-500 font-medium mr-2">
-     💳 {getPaymentMethodDisplay(order.payment_method)}
-   </Text>
-   <Text className="text-xxs text-slate-300 font-medium mr-2">|</Text>
-   {(() => {
-     const { label, variant } = getOrderStatusBadgeProps(order.status);
-     return (
-       <Badge variant={variant} label={label} size="sm" />
-     );
-   })()}
- </View>
- </View>
-
- <View className="flex-row items-center">
-  <View className="items-end mr-3">
-    <Text className="text-slate-800 font-semibold text-xs">
-    {formatCurrency(order.total_amount)}
-    </Text>
-    {Math.max(0, Number(order.total_amount || 0) - Number(order.paid_amount || 0)) > 0 && (
-      <Text className="text-rose-600 font-semibold text-[10px] mt-1">
-        Còn nợ: {formatCurrency(Math.max(0, Number(order.total_amount || 0) - Number(order.paid_amount || 0)))}
-      </Text>
-    )}
-  </View>
-  
-  <View className="items-center justify-center">
-    {isPending ? (
-    <TouchableOpacity
-    activeOpacity={0.7}
-    className="bg-amber-500 p-1.5 rounded-lg flex-row items-center shadow-sm"
-    onPress={(e) => {
-    e.stopPropagation();
-    handleSyncSingleOrder(order.id);
-    }}
-    disabled={isSyncingOrder === order.id}
-    >
-    <Ionicons 
-    name={isSyncingOrder === order.id ? 'sync' : 'cloud-upload-outline'} 
-    size={14} 
-    color="white" 
-    />
-    </TouchableOpacity>
-    ) : (
-    <Ionicons name="chevron-forward-outline" size={16} color="#cbd5e1" />
-    )}
-  </View>
- </View>
- </TouchableOpacity>
- );
-})
- )}
-  {ordersList.length > 0 && hasMore && (
-    <View className="py-4 items-center">
-      {isLazyLoading ? (
-        <ActivityIndicator size="small" color="#fa5908" />
-      ) : (
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => {
-            const nextLimit = limit + 10;
-            setLimit(nextLimit);
-            loadOrdersData(nextLimit, true);
+  return (
+    <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
+      <PosToast toastMsg={toastMsg} toastOpacity={toastOpacity} />
+      <Header onPressMenu={() => setIsDrawerOpen(true)} />
+      <View className="flex-1">
+        <FlatList
+          data={ordersList}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={renderHeader}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={async () => {
+                setIsRefreshing(true);
+                setPage(1);
+                const shopId = await AsyncStorage.getItem('active_shop_id');
+                if (shopId) {
+                  await Promise.all([
+                    fetchOrdersOnline(shopId, 1, timeFilter, true),
+                    fetchStats(shopId)
+                  ]);
+                }
+                setIsRefreshing(false);
+              }}
+              colors={['#fa5908']}
+              tintColor="#fa5908"
+            />
+          }
+          onEndReached={() => {
+            if (hasMore && !isLoadingMore) {
+               const p = page + 1;
+               setPage(p);
+               AsyncStorage.getItem('active_shop_id').then(shopId => {
+                 if (shopId) fetchOrdersOnline(shopId, p, timeFilter);
+               });
+            }
           }}
-          className="px-6 py-2.5 rounded-xl border bg-white shadow-sm flex-row items-center"
-          style={{ borderColor: '#e2e8f0' }}
-        >
-          <Text className="text-xxs font-bold text-slate-600">Xem thêm đơn hàng</Text>
-          <Ionicons name="chevron-down-outline" size={12} color="#475569" className="ml-1.5" />
-        </TouchableOpacity>
-      )}
-    </View>
-  )}
- <View className="h-20" />
- </ScrollView>
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            isLoadingMore ? (
+              <View className="py-4 items-center">
+                <ActivityIndicator size="small" color="#fa5908" />
+              </View>
+            ) : null
+          }
+          ListEmptyComponent={
+            isLoading ? (
+              <View className="mt-2">
+                {[1, 2, 3, 4, 5].map((key) => (
+                  <View key={key} className="mb-3 p-4 rounded-2xl border bg-white border-slate-100 flex-row justify-between items-center shadow-sm">
+                    <View className="flex-1 mr-3">
+                      <View className="flex-row items-center mb-1">
+                        <View className="w-1.5 h-1.5 rounded-full mr-1.5 bg-slate-200" />
+                        <Skeleton width={100} height={12} borderRadius={4} />
+                      </View>
+                      <Skeleton width={120} height={10} borderRadius={3} className="mt-2" />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View className="py-20 items-center justify-center">
+                <Ionicons name="receipt-outline" size={48} color="#cbd5e1" />
+                <Text className="text-slate-400 text-xs font-medium mt-3">Không tìm thấy đơn hàng</Text>
+              </View>
+            )
+          }
+          renderItem={({ item: order }) => (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => {
+                setSelectedOrder(order);
+                handleViewOrderDetails(order);
+              }}
+              className="mb-3 p-4 rounded-2xl border bg-white shadow-sm"
+              style={selectedOrder?.id === order.id ? { borderColor: '#fb923c', borderWidth: 2 } : { borderColor: '#f1f5f9' }}
+            >
+              <View className="flex-row justify-between items-start mb-2">
+                <View className="flex-row items-center flex-wrap">
+                  <Text className="text-slate-900 font-bold text-sm">
+                    {order.order_no && order.order_no !== 'HD' ? '#' + String(order.order_no).split('-').pop() : '#' + String(order.id).split('-').pop()}
+                  </Text>
+                  <Text className="text-slate-500 font-medium text-[10px] ml-1.5 mt-0.5">
+                    {formatDateTime(order.created_at)}
+                  </Text>
+                </View>
+                <Badge variant={getOrderStatusBadgeProps(order.status).variant} label={getOrderStatusBadgeProps(order.status).label} size="sm" />
+              </View>
+
+              <View className="flex-row items-center mt-2 justify-between">
+                <View className="flex-row items-center">
+                  <Ionicons name="person-outline" size={14} color="#64748b" />
+                  <Text className="text-slate-600 text-xs font-medium ml-1.5" numberOfLines={1}>
+                    {order.customer_name || 'Khách lẻ'}
+                  </Text>
+                </View>
+
+                <View className="items-end">
+                  <Text className="text-slate-800 font-semibold text-xs">
+                    {formatCurrency(order.total_amount)}
+                  </Text>
+                  {Math.max(0, Number(order.total_amount || 0) - Number(order.paid_amount || 0)) > 0 && (
+                    <Text className="text-rose-600 font-semibold text-[10px] mt-1">
+                      Còn nợ: {formatCurrency(Math.max(0, Number(order.total_amount || 0) - Number(order.paid_amount || 0)))}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            </TouchableOpacity>
+          )}
+        />
+
 
  {/* 5. MODAL CHI TIẾT HÓA ĐƠN */}
   <Modal
@@ -2097,9 +2084,16 @@ export default function OrdersScreen() {
         customer={debtCustomerData}
         onSuccess={() => {
           setShowDebtModal(false);
-          // Reload the order details
+          showToast('Thu nợ thành công', 'success');
+          AsyncStorage.getItem('active_shop_id').then(shopId => {
+            if (shopId) {
+              setPage(1);
+              fetchOrdersOnline(shopId, 1, timeFilter, true);
+              fetchStats(shopId);
+            }
+          });
           if (selectedOrder) {
-            handleViewOrderDetails(selectedOrder);
+            handleViewOrderDetails(selectedOrder, true);
           }
         }}
       />

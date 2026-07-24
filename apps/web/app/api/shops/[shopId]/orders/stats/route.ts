@@ -12,15 +12,19 @@ function computeStats(rows: Row[]) {
   
   const todayStart = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate())).getTime() - tzOffset
   
+  // Yesterday starts 1 day before today and ends right before todayStart
+  const yesterdayStart = todayStart - 24 * 60 * 60 * 1000
+  
   // Week starts 6 days before today
   const weekStart = todayStart - 6 * 24 * 60 * 60 * 1000
   
   const monthStart = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), 1)).getTime() - tzOffset
 
-  const today   = { count: 0, revenue: 0, debt: 0 }
-  const week    = { count: 0, revenue: 0, debt: 0 }
-  const month   = { count: 0, revenue: 0, debt: 0 }
-  const returns = { count: 0, revenue: 0, debt: 0 }
+  const today     = { count: 0, revenue: 0, debt: 0 }
+  const yesterday = { count: 0, revenue: 0, debt: 0 }
+  const week      = { count: 0, revenue: 0, debt: 0 }
+  const month     = { count: 0, revenue: 0, debt: 0 }
+  const returns   = { count: 0, revenue: 0, debt: 0 }
 
   for (const row of rows) {
     const t = new Date(row.created_at || 0).getTime()
@@ -29,12 +33,14 @@ function computeStats(rows: Row[]) {
     const isReturn = row.is_return === 'TRUE'
 
     if (t >= todayStart) { today.count++;   today.revenue   += amount; today.debt += debtAmount }
+    else if (t >= yesterdayStart && t < todayStart) { yesterday.count++; yesterday.revenue += amount; yesterday.debt += debtAmount }
+    
     if (t >= weekStart)  { week.count++;    week.revenue    += amount; week.debt += debtAmount }
     if (t >= monthStart) { month.count++;   month.revenue   += amount; month.debt += debtAmount }
     if (isReturn)        { returns.count++; returns.revenue += amount; returns.debt += debtAmount }
   }
 
-  return { today, week, month, returns }
+  return { today, yesterday, week, month, returns }
 }
 
 export async function GET(

@@ -428,6 +428,10 @@ export async function POST(
             paid_amount: String(newPaid),
           }
           
+          if (newOrderDebt === 0 && order.status === 'pending') {
+            orderUpdates.status = 'completed'
+          }
+
           // If order is fully paid, update payment_method from 'debt' to actual method
           if (newOrderDebt === 0 && (order.payment_method === 'debt' || order.payment_method?.startsWith('debt-'))) {
             orderUpdates.payment_method = payload.method
@@ -485,6 +489,10 @@ export async function POST(
               paid_amount: String(newPaid),
             }
             
+            if (newOrderDebt === 0 && order.status === 'pending') {
+              orderUpdates.status = 'completed'
+            }
+
             if (newOrderDebt === 0 && (order.payment_method === 'debt' || order.payment_method?.startsWith('debt-'))) {
               orderUpdates.payment_method = payload.method
             }

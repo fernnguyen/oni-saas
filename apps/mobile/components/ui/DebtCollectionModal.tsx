@@ -231,7 +231,7 @@ export function DebtCollectionModal({ visible, onClose, customer, onSuccess }: D
         reference_id: customer.id,
         reference_name: customer.name,
         employee_id: userEmail,
-        note: (note ? note : `Thu nợ khách hàng ${customer.name}`) + ` (Mobile: ${fundName})`,
+        note: (note ? note : `Thu nợ khách hàng ${customer.name}`),
         date: new Date().toISOString(),
         fund_id: fundId || null,
         sync_status: 'pending',
