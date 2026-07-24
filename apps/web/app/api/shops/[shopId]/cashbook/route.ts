@@ -451,7 +451,7 @@ export async function POST(
             method: payload.method,
             amount: String(applied),
             reference_no: parentId,
-            note: `Thu nợ qua sổ quỹ #${parentId}${isMobile ? ' (Mobile)' : ''}`,
+            note: payload.note || `Thu nợ qua sổ quỹ #${parentId}${isMobile ? ' (Mobile)' : ''}`,
             paid_at: getGMT7Time(),
           })
           tx.add(async () => {

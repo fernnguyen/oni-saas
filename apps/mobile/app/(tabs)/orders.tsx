@@ -65,6 +65,7 @@ import {Badge} from '../../components/ui/Badge';
 import {Button} from '../../components/ui/Button';
 import {Dialog} from '../../components/ui/Dialog';
 import {Skeleton} from '../../components/ui/Skeleton';
+import {DebtCollectionModal} from '../../components/ui/DebtCollectionModal';
 import {DrawerMenu} from '../../components/erp/DrawerMenu';
 import {usePermissions} from '../../lib/auth/PermissionsContext';
 
@@ -117,6 +118,8 @@ export default function OrdersScreen() {
   const [returnRefundAmount, setReturnRefundAmount] = useState('');
   const [returnNote, setReturnNote] = useState('');
   const [showConfirmReturn, setShowConfirmReturn] = useState(false);
+  const [showDebtModal, setShowDebtModal] = useState(false);
+  const [debtCustomerData, setDebtCustomerData] = useState<any>(null);
 
   const paymentCbMap = React.useMemo(() => {
    const map = new Map<string, string>();
@@ -448,6 +451,7 @@ export default function OrdersScreen() {
              id: resolvedId,
              order_no: o.order_no || 'HD',
              status: o.status || 'completed',
+             customer_id: o.customer_id,
              customer_name: o.customer_name || 'Khách lẻ',
              total_amount: parseInt(o.total_amount || '0', 10),
              paid_amount: parseInt(o.paid_amount || '0', 10),
@@ -466,6 +470,7 @@ export default function OrdersScreen() {
              id: order.id,
              order_no: order.order_no,
              status: order.status,
+             customer_id: order.customer_id,
              customer_name: order.customer_name,
              total_amount: order.total_amount,
              paid_amount: order.paid_amount,
@@ -481,6 +486,7 @@ export default function OrdersScreen() {
              set: {
                order_no: order.order_no,
                status: order.status,
+               customer_id: order.customer_id,
                customer_name: order.customer_name,
                total_amount: order.total_amount,
                paid_amount: order.paid_amount,
@@ -1465,7 +1471,7 @@ export default function OrdersScreen() {
  <View className="flex-row items-center mb-1">
    <View className={"w-1.5 h-1.5 rounded-full mr-1.5 " + (isSyncingOrder === order.id ? "bg-amber-500" : (order.sync_status === 'synced' ? "bg-emerald-500" : order.sync_status === 'pending' ? "bg-amber-500" : "bg-rose-500"))} />
    <Text className="text-xs font-semibold text-slate-800">
-   {order.id}
+    #{order.order_no && order.order_no !== 'HD' ? order.order_no : order.id.split('-').pop()}
    </Text>
    <View className="mx-1.5 w-1 h-1 bg-slate-300 rounded-full" />
    <Text className="text-tiny text-slate-500 font-medium flex-1" numberOfLines={1}>
@@ -1491,33 +1497,39 @@ export default function OrdersScreen() {
  </View>
  </View>
 
- <View className="items-end">
- <Text className="text-orange-500 font-semibold text-xs">
- {formatCurrency(order.total_amount)}
- </Text>
- 
- {isPending ? (
- <TouchableOpacity
- activeOpacity={0.7}
- className="bg-amber-500 px-3 py-1 rounded-xl mt-2 flex-row items-center shadow-sm"
- onPress={(e) => {
- e.stopPropagation();
- handleSyncSingleOrder(order.id);
-}}
- disabled={isSyncingOrder === order.id}
- >
- <Ionicons 
- name={isSyncingOrder === order.id ? 'sync' : 'cloud-upload-outline'} 
- size={11} 
- color="white" 
- />
- <Text className="text-white text-xxs font-semibold ml-1.5">
- {isSyncingOrder === order.id ? 'Đang gửi...' : 'Đồng bộ'}
- </Text>
- </TouchableOpacity>
- ) : (
- <Ionicons name="chevron-forward-outline" size={14} color="#cbd5e1" className="mt-3" />
- )}
+ <View className="flex-row items-center">
+  <View className="items-end mr-3">
+    <Text className="text-slate-800 font-semibold text-xs">
+    {formatCurrency(order.total_amount)}
+    </Text>
+    {Math.max(0, Number(order.total_amount || 0) - Number(order.paid_amount || 0)) > 0 && (
+      <Text className="text-rose-600 font-semibold text-[10px] mt-1">
+        Còn nợ: {formatCurrency(Math.max(0, Number(order.total_amount || 0) - Number(order.paid_amount || 0)))}
+      </Text>
+    )}
+  </View>
+  
+  <View className="items-center justify-center">
+    {isPending ? (
+    <TouchableOpacity
+    activeOpacity={0.7}
+    className="bg-amber-500 p-1.5 rounded-lg flex-row items-center shadow-sm"
+    onPress={(e) => {
+    e.stopPropagation();
+    handleSyncSingleOrder(order.id);
+    }}
+    disabled={isSyncingOrder === order.id}
+    >
+    <Ionicons 
+    name={isSyncingOrder === order.id ? 'sync' : 'cloud-upload-outline'} 
+    size={14} 
+    color="white" 
+    />
+    </TouchableOpacity>
+    ) : (
+    <Ionicons name="chevron-forward-outline" size={16} color="#cbd5e1" />
+    )}
+  </View>
  </View>
  </TouchableOpacity>
  );
@@ -1634,322 +1646,376 @@ export default function OrdersScreen() {
             </View>
           </View>
 
-          {/* Body Modal */}
+                    {/* Body Modal */}
           <ScrollView className="flex-1 my-4" showsVerticalScrollIndicator={false}>
-            <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thông tin chi tiết</Text>
-            <View className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 mb-4">
-              <View className="flex-row justify-between py-1">
-                <Text className="text-tiny text-slate-500 font-medium">Mốc thời gian:</Text>
-                <Text className="text-tiny font-semibold text-slate-800">
-                  {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Ngoại tuyến'}
-                </Text>
-              </View>
-              <View className="flex-row justify-between py-1 items-center">
-                <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
-                <TouchableOpacity
-                  onPress={() => handleCopyOrderNo(selectedOrder.id)}
-                  className="flex-row items-center active:opacity-75"
-                >
-                  <Text className="text-tiny font-semibold text-slate-700 mr-1">{selectedOrder.id}</Text>
-                  <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={11} color={copiedId ? "#10b981" : "#64748b"} />
-                </TouchableOpacity>
-              </View>
-              <View className="flex-row justify-between py-1">
-                <Text className="text-tiny text-slate-500 font-medium">Khách hàng:</Text>
-                <View className="items-end">
-                  <Text className="text-tiny font-semibold text-slate-800">{selectedOrder.customer_name || 'Khách lẻ'}</Text>
-                  {selectedOrderCustomerPhone && (
-                    <Text className="text-tiny text-slate-500 mt-0.5">📞 {selectedOrderCustomerPhone}</Text>
-                  )}
-                </View>
-              </View>
-              {selectedOrder.note && (
-                <View className="border-t border-slate-200 mt-2 pt-2">
-                  <Text className="text-tiny text-slate-455 font-medium">Ghi chú đơn:</Text>
-                  <Text className="text-xs text-slate-700 mt-1 font-semibold">{selectedOrder.note}</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Thanh toán chi tiết theo từng phương thức + quỹ */}
-            <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thanh toán</Text>
-            <View className="mb-4">
-              {selectedOrderPayments.map((p, i) => {
-                const method = p.method || 'cash';
-                const amount = p.amount;
-                const fund = paymentFundsList.find(f => f.id === p.fund_id);
-                const methodLabel = translateMethod(method);
-                const isDebt = method === 'debt';
-                const isPrepaid = method === 'prepaid';
-                return (
-                  <View key={i} className="flex-row justify-between items-start py-2.5 border-b border-slate-100">
-                    <View className="flex-1">
-                      <View className="flex-row items-center">
-                        <Ionicons 
-                          name={
-                            method === 'cash' ? 'cash-outline' :
-                            method === 'debt' ? 'warning-outline' :
-                            method === 'prepaid' ? 'wallet-outline' : 'card-outline'
-                          } 
-                          size={14} 
-                          color={
-                            method === 'cash' ? '#10b981' :
-                            method === 'debt' ? '#ef4444' :
-                            method === 'prepaid' ? '#047857' : '#4f46e5'
-                          } 
-                        />
-                        <Text className={"text-xs font-semibold ml-1.5 " + (isDebt ? "text-rose-600" : isPrepaid ? "text-emerald-700" : "text-slate-800")}>
-                          {methodLabel}
-                        </Text>
-                        {p.reference_no ? (
-                          <Text className="text-[10px] text-slate-400 ml-2">#{p.reference_no}</Text>
-                        ) : null}
-                      </View>
-                      {fund && (
-                        <View className="flex-row items-center mt-1">
-                          <Ionicons name="business-outline" size={11} color="#f97316" />
-                          <Text className="text-tiny font-medium text-orange-600 ml-1">
-                            {fund.name}{fund.bank_name ? " (" + fund.bank_name + ")" : ''}
-                          </Text>
-                        </View>
-                      )}
-                      {p.note ? (
-                        <Text className="text-[10px] text-slate-400 mt-0.5 italic">— {p.note}</Text>
-                      ) : null}
-                    </View>
-                    {amount != null && (
-                      <Text className={"text-xs font-bold ml-3 " + (isDebt ? "text-rose-600" : isPrepaid ? "text-emerald-700" : "text-slate-800")}>
-                        {formatCurrency(Number(amount))}
+            {(() => {
+              const realPaidAmount = Number(selectedOrder.paid_amount || 0);
+              const calculatedDebt = Math.max(0, Number(selectedOrder.total_amount || 0) - realPaidAmount);
+              
+              return (
+                <>
+                  <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Thông tin chi tiết</Text>
+                  <View className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 mb-4">
+                    <View className="flex-row justify-between py-1">
+                      <Text className="text-tiny text-slate-500 font-medium">Mốc thời gian:</Text>
+                      <Text className="text-tiny font-semibold text-slate-800">
+                        {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Ngoại tuyến'}
                       </Text>
+                    </View>
+                    <View className="flex-row justify-between py-1 items-center">
+                      <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
+                      <TouchableOpacity
+                        onPress={() => handleCopyOrderNo(selectedOrder.id)}
+                        className="flex-row items-center active:opacity-75"
+                      >
+                        <Text className="text-tiny font-semibold text-slate-700 mr-1">{selectedOrder.id}</Text>
+                        <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={11} color={copiedId ? "#10b981" : "#64748b"} />
+                      </TouchableOpacity>
+                    </View>
+                    <View className="flex-row justify-between py-1">
+                      <Text className="text-tiny text-slate-500 font-medium">Khách hàng:</Text>
+                      <View className="items-end">
+                        <Text className="text-tiny font-semibold text-slate-800">{selectedOrder.customer_name || 'Khách lẻ'}</Text>
+                        {selectedOrderCustomerPhone && (
+                          <Text className="text-tiny text-slate-500 mt-0.5">📞 {selectedOrderCustomerPhone}</Text>
+                        )}
+                      </View>
+                    </View>
+
+                    {selectedOrder.note && (
+                      <View className="border-t border-slate-200 mt-2 pt-2">
+                        <Text className="text-tiny text-slate-455 font-medium">Ghi chú đơn:</Text>
+                        <Text className="text-xs text-slate-700 mt-1 font-semibold">{selectedOrder.note}</Text>
+                      </View>
                     )}
                   </View>
-                );
-              })}
-              
-              {/* Hiển thị các giao dịch Sổ quỹ khác (ví dụ: Phiếu chi hoàn tiền) */}
-              {isDetailLoading && selectedOrderCashbook.length === 0 ? (
-                <View className="flex-row items-center py-2.5 px-2 gap-2 mt-1">
-                  <Text className="text-[10px] text-slate-400 font-semibold">Đang cập nhật dòng tiền...</Text>
-                  <ActivityIndicator size="small" color="#fa5908" style={{ transform: [{ scale: 0.7 }] }} />
-                </View>
-              ) : (
-                selectedOrderCashbook
-                  .filter(cb => !Array.from(paymentCbMap.values()).includes(cb.id || cb.transaction_id))
-                  .map((cb, idx) => {
-                    const cbId = cb.id || cb.transaction_id;
-                    const isRefund = cb.category === 'refund';
+
+                  {/* Mặt hàng đã mua */}
+                  <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Mặt hàng đã mua</Text>
+                  {isDetailLoading && selectedOrderItems.length === 0 ? (
+                    <View className="mb-4">
+                      <Skeleton.Text lines={3} gap={12} height={20} />
+                    </View>
+                  ) : (
+                    <View className="mb-4">
+                      {selectedOrderItems.map((item, idx) => {
+                        const parsedModifiers = typeof item.modifiers === 'string' && item.modifiers.startsWith('[') 
+                          ? (() => { try { return JSON.parse(item.modifiers); } catch { return []; } })() 
+                          : (item.modifiers || []);
+                        const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0);
+                        const itemReturned = alreadyReturnedQty[item.item_id || item.product_id] || 0;
+
+                        return (
+                          <View key={idx} className="py-3 border-b border-slate-100">
+                            <View className="flex-row justify-between items-start">
+                              <View className="flex-1 mr-3">
+                                <Text className="text-xs font-medium text-slate-800">{item.product_name}</Text>
+                                {item.variant_label && parsedModifiers.length === 0 ? (
+                                  <Text className="text-[10px] text-violet-600 font-medium mt-0.5">{item.variant_label}</Text>
+                                ) : null}
+                                {parsedModifiers.length > 0 ? (
+                                  <Text className="text-[10px] text-amber-600 mt-0.5">
+                                    {parsedModifiers.map((m: any) => m.option).join(' · ')}
+                                    {Number(item.modifier_total || 0) > 0 ? (
+                                      <Text className="text-emerald-600 font-medium ml-1">+{formatCurrency(Number(item.modifier_total))}</Text>
+                                    ) : null}
+                                  </Text>
+                                ) : null}
+                                <Text className="text-tiny text-slate-500 font-medium mt-1">
+                                  SL: {item.qty} x {formatCurrency(effPrice)}
+                                  {item.tax_rate && parseFloat(item.tax_rate) > 0 ? ` · VAT ${item.tax_rate}%` : ''}
+                                </Text>
+                                {(() => {
+                                  const originalPrice = (item as any).original_price;
+                                  const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
+                                  const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
+                                  const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
+                                  const isPriceEdited = (hasOriginalPrice && Number(item.unit_price) !== Number(originalPrice)) || discountAmt > 0;
+                                  return isPriceEdited ? (
+                                    <View className="self-start mt-0.5 px-1 py-0.5 rounded bg-orange-50">
+                                      <Text className="text-[10px] text-orange-600">Đã điều chỉnh</Text>
+                                    </View>
+                                  ) : null;
+                                })()}
+                                {itemReturned > 0 ? (
+                                  <Text className="text-xxs text-orange-600 font-semibold mt-0.5">
+                                    (Đã trả {itemReturned})
+                                  </Text>
+                                ) : null}
+                              </View>
+                              <View className="items-end">
+                                <Text className="text-xs font-semibold text-slate-800">
+                                  {formatCurrency(item.line_total)}
+                                </Text>
+                                {(() => {
+                                  const originalPrice = (item as any).original_price;
+                                  const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
+                                  const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
+                                  const priceDiff = basePrice - Number(item.unit_price);
+                                  const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
+                                  const totalReduction = Math.max(priceDiff, discountAmt);
+                                  if (totalReduction > 0) {
+                                    return (
+                                      <Text className="text-[11px] text-orange-500 italic mt-0.5">
+                                        Giảm: -{formatCurrency(totalReduction * Number(item.qty || 1))}
+                                      </Text>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+                                {item.tax_amount && Number(item.tax_amount) > 0 ? (
+                                  <Text className="text-[10px] text-slate-400 mt-0.5">
+                                    + VAT: {formatCurrency(Number(item.tax_amount))}
+                                  </Text>
+                                ) : null}
+                              </View>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* Tạm tính / Tổng thanh toán */}
+                  {(() => {
+                    const discountAmount = Number(selectedOrder.discount_amount || 0);
+                    const taxAmount = Number(selectedOrder.tax_amount || 0);
+                    const hasBreakdown = discountAmount > 0 || taxAmount > 0;
+                    
                     return (
-                      <View key={"cb-" + idx} className="flex-row justify-between items-start py-2.5 border-b border-slate-100 bg-slate-50/50 px-2 rounded-lg mt-1">
-                        <View className="flex-1">
-                          <View className="flex-row items-center">
-                            <Ionicons 
-                              name={cb.type === 'payment' ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'} 
-                              size={14} 
-                              color={cb.type === 'payment' ? '#ef4444' : '#10b981'} 
-                            />
-                            <Text className="text-xs font-semibold text-slate-800 ml-1.5">
-                              {translateMethod(cb.method)}
-                            </Text>
-                            {isRefund && (
-                              <View className="ml-2 border border-red-200 bg-red-50 px-1 py-0.2 rounded">
-                                <Text className="text-[8px] text-red-600 font-bold uppercase tracking-wider">Hoàn tiền</Text>
+                      <View className="border-t border-slate-200 mt-2 pt-2">
+                        {hasBreakdown && (
+                          <>
+                            <View className="flex-row justify-between py-2 items-center">
+                              <Text className="text-xs text-slate-500 font-medium">Tạm tính</Text>
+                              <Text className="text-xs font-semibold text-slate-800">
+                                {formatCurrency(selectedOrder.total_amount - taxAmount + discountAmount)}
+                              </Text>
+                            </View>
+                            {discountAmount > 0 && (
+                              <View className="flex-row justify-between py-2 items-center">
+                                <Text className="text-xs text-slate-500 font-medium">Giảm giá</Text>
+                                <Text className="text-xs font-semibold text-rose-600">
+                                  -{formatCurrency(discountAmount)}
+                                </Text>
                               </View>
                             )}
-                          </View>
-                          {(() => {
-                            const displayCbId = cbId.startsWith('CB') ? cbId : (cbId.length > 15 && cbId.includes('-') ? cbId.substring(0, 8) : cbId);
-                            return (
-                              <TouchableOpacity
-                                onPress={() => handleCopyCbNo(cbId)}
-                                className="flex-row items-center active:opacity-75 mt-0.5"
-                              >
-                                <Text className="text-[10px] text-slate-400 font-mono mr-1.5">#{displayCbId}</Text>
-                                <Ionicons 
-                                  name={copiedCbId === cbId ? "checkmark" : "copy-outline"} 
-                                  size={10} 
-                                  color={copiedCbId === cbId ? "#10b981" : "#94a3b8"} 
-                                />
-                              </TouchableOpacity>
-                            );
-                          })()}
-                          {cb.note ? (
-                            <Text className="text-[10px] text-slate-400 mt-0.5 italic">— {cb.note}</Text>
-                          ) : null}
+                            {taxAmount > 0 && (
+                              <View className="flex-row justify-between py-2 items-center">
+                                <Text className="text-xs text-slate-500 font-medium">Thuế (VAT)</Text>
+                                <Text className="text-xs font-semibold text-slate-800">
+                                  {formatCurrency(taxAmount)}
+                                </Text>
+                              </View>
+                            )}
+                          </>
+                        )}
+                        <View className={`flex-row justify-between py-3 ${hasBreakdown ? 'border-t border-slate-200 mt-2' : ''} items-center`}>
+                          <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
+                          <Text className="text-slate-800 text-xs font-bold">
+                            {formatCurrency(selectedOrder.total_amount)}
+                          </Text>
                         </View>
-                        <Text className={"text-xs font-bold ml-3 " + (cb.type === 'payment' ? "text-rose-600" : "text-emerald-700")}>
-                          {cb.type === 'payment' ? '-' : '+'}{formatCurrency(cb.amount)}
-                        </Text>
+                        {calculatedDebt > 0 && (
+                          <>
+                            <View className="w-full h-[1px] bg-slate-200 border-dashed border-t" />
+                            <View className="flex-row justify-between py-3 items-center">
+                              <Text className="text-xs font-semibold text-emerald-700">Đã thanh toán</Text>
+                              <Text className="text-emerald-700 text-xs font-bold">
+                                {formatCurrency(realPaidAmount)}
+                              </Text>
+                            </View>
+                            <View className="flex-row justify-between pb-4 items-center">
+                              <View className="flex-row items-center">
+                                <Text className="text-xs font-semibold text-rose-600">Còn nợ</Text>
+                                {selectedOrder.customer_id && !selectedOrder.customer_id.startsWith('virtual:') && (
+                                  <TouchableOpacity 
+                                    onPress={() => {
+                                      setDebtCustomerData({
+                                        id: selectedOrder.customer_id || 'retail',
+                                        name: selectedOrder.customer_name || 'Khách lẻ',
+                                        debt_amount: calculatedDebt
+                                      });
+                                      setShowDebtModal(true);
+                                    }}
+                                    className="bg-orange-500 px-2 py-1 rounded active:bg-orange-600 ml-2"
+                                  >
+                                    <Text className="text-[10px] font-bold text-white">Thu nợ</Text>
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                              <Text className="text-rose-600 text-xs font-bold">
+                                {formatCurrency(calculatedDebt)}
+                              </Text>
+                            </View>
+                          </>
+                        )}
                       </View>
                     );
-                  })
-              )}
-            </View>
+                  })()}
 
-            {/* Lịch sử trả hàng */}
-            {isDetailLoading && selectedOrderReturns.length === 0 ? (
-              <View className="mb-4 px-1 flex-row items-center gap-2">
-                <Text className="text-xxs font-semibold text-slate-400">Đang tải lịch sử trả hàng...</Text>
-                <ActivityIndicator size="small" color="#fa5908" style={{ transform: [{ scale: 0.7 }] }} />
-              </View>
-            ) : selectedOrderReturns.length > 0 ? (
-              <View className="mb-4">
-                <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Lịch sử trả hàng</Text>
-                {selectedOrderReturns.map((ret, rIdx) => {
-                  const isApproved = ret.status === 'processed' || ret.status === 'completed';
-                  return (
-                    <View key={rIdx} className="p-3 mb-2.5 rounded-xl border border-orange-100 bg-orange-50/20">
-                      <View className="flex-row justify-between items-center mb-1">
-                        <Text className="text-xs font-semibold text-slate-800">{ret.return_no || ret.return_id}</Text>
-                        <Text className="text-xs font-bold text-orange-700">-{formatCurrency(ret.total_refund)}</Text>
-                      </View>
-                      <View className="flex-row items-center gap-1.5 mb-2">
-                        <Badge
-                          variant={isApproved ? 'success' : 'warning'}
-                          label={isApproved ? 'Đã duyệt' : 'Chờ duyệt'}
-                          size="sm"
-                        />
-                        <Text className="text-[10px] text-slate-400 font-semibold">
-                          {ret.created_at ? formatDateTime(ret.created_at) : ''}
-                        </Text>
-                      </View>
-                      {ret.note ? (
-                        <Text className="text-[10px] text-slate-500 mb-2 italic">Ghi chú: {ret.note}</Text>
-                      ) : null}
-                      {Array.isArray(ret.items) && ret.items.map((it: any, iIdx: number) => (
-                        <View key={iIdx} className="flex-row justify-between py-1 border-t border-slate-100/60 items-center">
-                          <Text className="text-xxs text-slate-600">{it.product_name}</Text>
-                          <Text className="text-xxs font-semibold text-slate-800">SL: {it.qty_returned}</Text>
-                        </View>
-                      ))}
+                  {/* Lịch sử trả hàng */}
+                  {isDetailLoading && selectedOrderReturns.length === 0 ? (
+                    <View className="mb-4">
+                      <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Lịch sử trả hàng</Text>
+                      <Skeleton.Text lines={2} gap={8} height={40} />
                     </View>
-                  );
-                })}
-              </View>
-            ) : null}
-
-            <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Mặt hàng đã mua</Text>
-            {selectedOrderItems.map((item, idx) => {
-              const parsedModifiers = typeof item.modifiers === 'string' && item.modifiers.startsWith('[') 
-                ? (() => { try { return JSON.parse(item.modifiers); } catch { return []; } })() 
-                : (item.modifiers || []);
-              const effPrice = Number(item.unit_price) + Number(item.modifier_total || 0);
-              const itemReturned = alreadyReturnedQty[item.item_id || item.product_id] || 0;
-
-              return (
-                <View key={idx} className="py-3 border-b border-slate-100">
-                  <View className="flex-row justify-between items-start">
-                    <View className="flex-1 mr-3">
-                      <Text className="text-xs font-medium text-slate-800">{item.product_name}</Text>
-                      {item.variant_label && parsedModifiers.length === 0 ? (
-                        <Text className="text-[10px] text-violet-600 font-medium mt-0.5">{item.variant_label}</Text>
-                      ) : null}
-                      {parsedModifiers.length > 0 ? (
-                        <Text className="text-[10px] text-amber-600 mt-0.5">
-                          {parsedModifiers.map((m: any) => m.option).join(' · ')}
-                          {Number(item.modifier_total || 0) > 0 ? (
-                            <Text className="text-emerald-600 font-medium ml-1">+{formatCurrency(Number(item.modifier_total))}</Text>
-                          ) : null}
-                        </Text>
-                      ) : null}
-                      <Text className="text-tiny text-slate-500 font-medium mt-1">
-                        SL: {item.qty} x {formatCurrency(effPrice)}
-                        {item.tax_rate && parseFloat(item.tax_rate) > 0 ? ` · VAT ${item.tax_rate}%` : ''}
-                      </Text>
-                      {(() => {
-                        const originalPrice = (item as any).original_price;
-                        const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
-                        const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
-                        const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
-                        const isPriceEdited = (hasOriginalPrice && Number(item.unit_price) !== Number(originalPrice)) || discountAmt > 0;
-                        return isPriceEdited ? (
-                          <View className="self-start mt-0.5 px-1 py-0.5 rounded bg-orange-50">
-                            <Text className="text-[10px] text-orange-600">Đã điều chỉnh</Text>
+                  ) : selectedOrderReturns.length > 0 ? (
+                    <View className="mb-4">
+                      <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1">Lịch sử trả hàng</Text>
+                      {selectedOrderReturns.map((ret, rIdx) => {
+                        const isApproved = ret.status === 'processed' || ret.status === 'completed';
+                        return (
+                          <View key={rIdx} className="p-3 mb-2.5 rounded-xl border border-orange-100 bg-orange-50/20">
+                            <View className="flex-row justify-between items-center mb-1">
+                              <Text className="text-xs font-semibold text-slate-800">{ret.return_no || ret.return_id}</Text>
+                              <Text className="text-xs font-bold text-orange-700">-{formatCurrency(ret.total_refund)}</Text>
+                            </View>
+                            <View className="flex-row items-center gap-1.5 mb-2">
+                              <Badge
+                                variant={isApproved ? 'success' : 'warning'}
+                                label={isApproved ? 'Đã duyệt' : 'Chờ duyệt'}
+                                size="sm"
+                              />
+                              <Text className="text-[10px] text-slate-400 font-semibold">
+                                {ret.created_at ? formatDateTime(ret.created_at) : ''}
+                              </Text>
+                            </View>
+                            {ret.note ? (
+                              <Text className="text-[10px] text-slate-500 mb-2 italic">Ghi chú: {ret.note}</Text>
+                            ) : null}
+                            {Array.isArray(ret.items) && ret.items.map((it: any, iIdx: number) => (
+                              <View key={iIdx} className="flex-row justify-between py-1 border-t border-slate-100/60 items-center">
+                                <Text className="text-xxs text-slate-600">{it.product_name}</Text>
+                                <Text className="text-xxs font-semibold text-slate-800">SL: {it.qty_returned}</Text>
+                              </View>
+                            ))}
                           </View>
-                        ) : null;
-                      })()}
-                      {itemReturned > 0 ? (
-                        <Text className="text-xxs text-orange-600 font-semibold mt-0.5">
-                          (Đã trả {itemReturned})
-                        </Text>
-                      ) : null}
+                        );
+                      })}
                     </View>
-                    <View className="items-end">
-                      <Text className="text-xs font-semibold text-slate-800">
-                        {formatCurrency(item.line_total)}
-                      </Text>
-                      {(() => {
-                        const originalPrice = (item as any).original_price;
-                        const hasOriginalPrice = originalPrice !== null && originalPrice !== undefined && originalPrice !== '';
-                        const basePrice = hasOriginalPrice ? Number(originalPrice) : Number(item.unit_price);
-                        const priceDiff = basePrice - Number(item.unit_price);
-                        const discountAmt = Number((item as any).line_discount || (item as any).discount_amount || 0);
-                        const totalReduction = Math.max(priceDiff, discountAmt);
-                        if (totalReduction > 0) {
+                  ) : null}
+
+                  {/* Thanh toán - Đưa xuống cuối cùng */}
+                  <Text className="text-xxs font-semibold text-slate-400 mb-2.5 px-1 mt-2">Thanh toán</Text>
+                  {isDetailLoading && selectedOrderPayments.length === 0 && selectedOrderCashbook.length === 0 ? (
+                    <View className="mb-4">
+                      <Skeleton.Text lines={2} gap={10} height={50} />
+                    </View>
+                  ) : (
+                    <View className="mb-4">
+                      {selectedOrderPayments.map((p, i) => {
+                        const method = p.method || 'cash';
+                        const amount = p.amount;
+                        const fund = paymentFundsList.find(f => f.id === p.fund_id);
+                        const methodLabel = translateMethod(method);
+                        const isDebt = method === 'debt' || method?.includes('debt') || method === 'store_credit';
+                        const isPrepaid = method === 'prepaid';
+                        return (
+                          <View key={i} className="flex-row justify-between items-start py-2.5 border-b border-slate-100">
+                            <View className="flex-1 pr-2">
+                              <View className="flex-row items-center flex-wrap gap-1">
+                                <Ionicons 
+                                  name={
+                                    method === 'cash' ? 'cash-outline' :
+                                    method === 'debt' ? 'warning-outline' :
+                                    method === 'prepaid' ? 'wallet-outline' : 'card-outline'
+                                  } 
+                                  size={14} 
+                                  color={
+                                    method === 'cash' ? '#10b981' :
+                                    method === 'debt' ? '#ef4444' :
+                                    method === 'prepaid' ? '#047857' : '#4f46e5'
+                                  } 
+                                />
+                                <Text className={"text-xs font-semibold " + (isDebt ? "text-rose-600" : isPrepaid ? "text-emerald-700" : "text-slate-800")}>
+                                  {methodLabel}
+                                </Text>
+                                {p.reference_no ? (
+                                  <Text className="text-[10px] text-slate-400">#{p.reference_no}</Text>
+                                ) : null}
+                              </View>
+                              {fund && (
+                                <View className="flex-row items-center mt-1">
+                                  <Ionicons name="business-outline" size={11} color="#f97316" />
+                                  <Text className="text-tiny font-medium text-orange-600 ml-1">
+                                    {fund.name}{fund.bank_name ? " (" + fund.bank_name + ")" : ''}
+                                  </Text>
+                                </View>
+                              )}
+                              {(p.note || p.paid_at || p.created_at) ? (
+                                <Text className="text-[10px] text-slate-400 mt-1">
+                                  {(p.paid_at || p.created_at) ? formatDateTime(p.paid_at || p.created_at).replace(',', '') + (p.note ? ' - ' : '') : ''}{p.note || ''}
+                                </Text>
+                              ) : null}
+                            </View>
+                            {amount != null && (
+                              <Text className={"text-xs font-bold " + (isDebt || Number(amount) < 0 ? "text-rose-600" : "text-emerald-700")}>
+                                {formatCurrency(Number(amount))}
+                              </Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                      
+                      {/* Hiển thị các giao dịch Sổ quỹ khác (ví dụ: Phiếu chi hoàn tiền, trả nợ) */}
+                      {selectedOrderCashbook
+                        .filter(cb => !Array.from(paymentCbMap.values()).includes(cb.id || cb.transaction_id))
+                        .map((cb, idx) => {
+                          const cbId = cb.id || cb.transaction_id;
+                          const isRefund = cb.category === 'refund';
+                          const isReceipt = cb.type === 'receipt';
+                          const cbIsDebt = cb.method === 'debt' || cb.method?.includes('debt') || cb.method === 'store_credit';
                           return (
-                            <Text className="text-[11px] text-orange-500 italic mt-0.5">
-                              Giảm: -{formatCurrency(totalReduction * Number(item.qty || 1))}
-                            </Text>
+                            <View key={"cb-" + idx} className="flex-row justify-between items-start py-2.5 border-b border-slate-100 bg-slate-50/50 px-2 rounded-lg mt-1">
+                              <View className="flex-1 pr-2">
+                                <View className="flex-row items-center flex-wrap gap-1">
+                                  <Ionicons 
+                                    name={!isReceipt ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'} 
+                                    size={14} 
+                                    color={!isReceipt ? '#ef4444' : '#10b981'} 
+                                  />
+                                  <Text className={"text-xs font-semibold " + (cbIsDebt || !isReceipt ? "text-rose-600" : "text-slate-800")}>
+                                    {translateMethod(cb.method)}
+                                  </Text>
+                                  {isRefund && (
+                                    <View className="border border-red-200 bg-red-50 px-1 rounded">
+                                      <Text className="text-[8px] text-red-600 font-bold uppercase tracking-wider">Hoàn tiền</Text>
+                                    </View>
+                                  )}
+                                  {(() => {
+                                    const displayCbId = cbId.startsWith('CB') ? cbId : (cbId.length > 15 && cbId.includes('-') ? cbId.substring(0, 8) : cbId);
+                                    return (
+                                      <TouchableOpacity
+                                        onPress={() => handleCopyCbNo(cbId)}
+                                        className="flex-row items-center active:opacity-75"
+                                      >
+                                        <Text className="text-[10px] text-slate-400 font-mono ml-1">#{displayCbId}</Text>
+                                        <Ionicons 
+                                          name={copiedCbId === cbId ? "checkmark" : "copy-outline"} 
+                                          size={10} 
+                                          color={copiedCbId === cbId ? "#10b981" : "#94a3b8"} 
+                                          style={{marginLeft: 2}}
+                                        />
+                                      </TouchableOpacity>
+                                    );
+                                  })()}
+                                </View>
+                                {(cb.note || cb.paid_at || cb.created_at) ? (
+                                  <Text className="text-[10px] text-slate-400 mt-1">
+                                    {(cb.paid_at || cb.created_at) ? formatDateTime(cb.paid_at || cb.created_at).replace(',', '') + (cb.note ? ' - ' : '') : ''}{cb.note || ''}
+                                  </Text>
+                                ) : null}
+                              </View>
+                              <Text className={"text-xs font-bold " + (cbIsDebt || !isReceipt ? "text-rose-600" : "text-emerald-700")}>
+                                {(!isReceipt || cbIsDebt) ? '-' : '+'}{formatCurrency(cb.amount)}
+                              </Text>
+                            </View>
                           );
-                        }
-                        return null;
-                      })()}
-                      {item.tax_amount && Number(item.tax_amount) > 0 ? (
-                        <Text className="text-[10px] text-slate-400 mt-0.5">
-                          + VAT: {formatCurrency(Number(item.tax_amount))}
-                        </Text>
-                      ) : null}
+                        })}
                     </View>
-                  </View>
-                </View>
-              );
-            })}
-            
-            {(() => {
-              const discountAmount = Number(selectedOrder.discount_amount || 0);
-              const taxAmount = Number(selectedOrder.tax_amount || 0);
-              const hasBreakdown = discountAmount > 0 || taxAmount > 0;
-              
-              if (hasBreakdown) {
-                return (
-                  <View className="border-t border-slate-200 mt-4 pt-2">
-                    <View className="flex-row justify-between py-2 items-center">
-                      <Text className="text-xs text-slate-500 font-medium">Tạm tính</Text>
-                      <Text className="text-xs font-semibold text-slate-800">
-                        {formatCurrency(selectedOrder.total_amount - taxAmount + discountAmount)}
-                      </Text>
-                    </View>
-                    {discountAmount > 0 && (
-                      <View className="flex-row justify-between py-2 items-center">
-                        <Text className="text-xs text-slate-500 font-medium">Giảm giá</Text>
-                        <Text className="text-xs font-semibold text-rose-600">
-                          -{formatCurrency(discountAmount)}
-                        </Text>
-                      </View>
-                    )}
-                    {taxAmount > 0 && (
-                      <View className="flex-row justify-between py-2 items-center">
-                        <Text className="text-xs text-slate-500 font-medium">Thuế (VAT)</Text>
-                        <Text className="text-xs font-semibold text-slate-800">
-                          {formatCurrency(taxAmount)}
-                        </Text>
-                      </View>
-                    )}
-                    <View className="flex-row justify-between py-4 border-t border-slate-200 mt-2 items-center">
-                      <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
-                      <Text className="text-orange-500 text-base font-semibold">
-                        {formatCurrency(selectedOrder.total_amount)}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              }
-              return (
-                <View className="flex-row justify-between py-4 border-t border-slate-200 mt-4 items-center">
-                  <Text className="text-xs font-semibold text-slate-800">Tổng thanh toán</Text>
-                  <Text className="text-orange-500 text-base font-semibold">
-                    {formatCurrency(selectedOrder.total_amount)}
-                  </Text>
-                </View>
+                  )}
+                </>
               );
             })()}
           </ScrollView>
@@ -1970,21 +2036,21 @@ export default function OrdersScreen() {
             )}
 
             {/* Hàng 3 nút: In, Đổi trả, Hủy */}
-            <View className="flex-row gap-2">
-              <Button
-                variant="outline"
-                title="In"
-                icon={<Ionicons name="print-outline" size={14} color="#475569" />}
+            <View className="flex-row justify-around gap-2 pb-1">
+              <TouchableOpacity
                 onPress={handleReprint}
-                loading={isReprinting}
-                className="flex-1 py-2.5 rounded-xl border-slate-200"
-                textClassName="text-slate-700 text-xxs font-bold"
-              />
+                disabled={isReprinting}
+                className="flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-slate-50 active:bg-slate-100"
+              >
+                {isReprinting ? (
+                  <ActivityIndicator size="small" color="#475569" style={{ transform: [{ scale: 0.7 }] }} />
+                ) : (
+                  <Ionicons name="print-outline" size={16} color="#475569" />
+                )}
+                <Text className="text-slate-700 text-xs font-semibold ml-1.5">In</Text>
+              </TouchableOpacity>
 
-              <Button
-                variant="outline"
-                title="Đổi trả"
-                icon={<Ionicons name="refresh-outline" size={14} color={canReturn ? '#7c3aed' : '#cbd5e1'} />}
+              <TouchableOpacity
                 onPress={() => {
                   if (!canReturn) return;
                   setReturnItems({});
@@ -1995,15 +2061,13 @@ export default function OrdersScreen() {
                   setShowReturnForm(true);
                 }}
                 disabled={!canReturn}
-                className={"flex-1 py-2.5 rounded-xl " + (canReturn ? "border-violet-500 bg-white" : "border-slate-100 bg-slate-50")}
-                textClassName={"text-xxs font-bold " + (canReturn ? "text-violet-600" : "text-slate-300")}
-                style={canReturn ? { borderColor: '#7c3aed' } : { borderColor: '#e2e8f0' }}
-              />
+                className={"flex-1 flex-row items-center justify-center py-2.5 rounded-lg " + (canReturn ? "bg-slate-50 active:bg-slate-100" : "bg-slate-50 opacity-50")}
+              >
+                <Ionicons name="refresh-outline" size={16} color={canReturn ? '#7c3aed' : '#cbd5e1'} />
+                <Text className={"text-xs font-semibold ml-1.5 " + (canReturn ? "text-violet-600" : "text-slate-400")}>Đổi trả</Text>
+              </TouchableOpacity>
 
-              <Button
-                variant={canCancel ? 'danger' : 'outline'}
-                title={selectedOrder.status === 'in_progress' ? 'Gỡ kẹt' : 'Hủy'}
-                icon={<Ionicons name="ban-outline" size={14} color={canCancel ? 'white' : '#cbd5e1'} />}
+              <TouchableOpacity
                 onPress={() => {
                   if (!canCancel) return;
                   setCancelReason('Sai sót hệ thống');
@@ -2011,16 +2075,34 @@ export default function OrdersScreen() {
                   setShowCancelDialog(true);
                 }}
                 disabled={!canCancel}
-                className={"flex-1 py-2.5 rounded-xl " + (canCancel ? "" : "border-slate-100 bg-slate-50")}
-                textClassName={"text-xxs font-bold " + (canCancel ? "text-white" : "text-slate-300")}
-                style={canCancel ? undefined : { borderColor: '#e2e8f0' }}
-              />
+                className={"flex-1 flex-row items-center justify-center py-2.5 rounded-lg " + (canCancel ? "bg-slate-50 active:bg-slate-100" : "bg-slate-50 opacity-50")}
+              >
+                <Ionicons name="ban-outline" size={16} color={canCancel ? '#ef4444' : '#cbd5e1'} />
+                <Text className={"text-xs font-semibold ml-1.5 " + (canCancel ? "text-rose-600" : "text-slate-400")}>
+                  {selectedOrder.status === 'in_progress' ? 'Gỡ kẹt' : 'Hủy'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
       )}
 
       {/* CÁC DIALOG / MODAL ĐƯỢC CHUYỂN THÀNH ABSOLUTE VIEWS ĐỂ TRÁNH LỖI ĐƠ UI TRÊN IOS */}
+
+      
+      {/* 4. MODAL THU NỢ TOÀN CỤC */}
+      <DebtCollectionModal
+        visible={showDebtModal}
+        onClose={() => setShowDebtModal(false)}
+        customer={debtCustomerData}
+        onSuccess={() => {
+          setShowDebtModal(false);
+          // Reload the order details
+          if (selectedOrder) {
+            handleViewOrderDetails(selectedOrder);
+          }
+        }}
+      />
 
       {/* 1. DIALOG HỦY ĐƠN HÀNG */}
       {showCancelDialog && (

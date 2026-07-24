@@ -243,6 +243,18 @@ export function DebtCollectionModal({ visible, onClose, customer, onSuccess }: D
         .set({ debt_amount: Math.max(0, customerDebt - numericAmount) })
         .where(eq(schema.customers.id, customer.id));
 
+      // Cập nhật paid_amount cho các đơn hàng được gạch nợ
+      for (const alloc of allocations) {
+        const order = selectedOrdersData.find(o => o.id === alloc.order_id);
+        if (order) {
+          await db.update(schema.orders)
+            .set({ 
+              paid_amount: String(Number(order.paid_amount || 0) + alloc.amount)
+            })
+            .where(eq(schema.orders.id, alloc.order_id));
+        }
+      }
+
       // Trigger sync ngầm
       KeepAliveManager.triggerSyncIfNeeded(true).catch(() => {});
 
