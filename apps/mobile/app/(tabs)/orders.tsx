@@ -114,9 +114,10 @@ export default function OrdersScreen() {
   const [isReturning, setIsReturning] = useState(false);
   const [returnItems, setReturnItems] = useState<Record<string, number>>({});
   const [returnReason, setReturnReason] = useState('other');
-  const [returnRefundMethod, setReturnRefundMethod] = useState('cash');
   const [returnFundId, setReturnFundId] = useState('');
   const [returnRefundAmount, setReturnRefundAmount] = useState('');
+  const [isLoadingReturnFunds, setIsLoadingReturnFunds] = useState(false);
+  const [showReturnFundSelector, setShowReturnFundSelector] = useState(false);
   const [returnNote, setReturnNote] = useState('');
   const [showConfirmReturn, setShowConfirmReturn] = useState(false);
   const [showDebtModal, setShowDebtModal] = useState(false);
@@ -174,6 +175,7 @@ export default function OrdersScreen() {
   const statsRequestRef = useRef<AbortController | null>(null);
   const detailRequestRef = useRef<AbortController | null>(null);
   const financialRequestRef = useRef<AbortController | null>(null);
+  const returnFundsRequestRef = useRef<AbortController | null>(null);
   const refreshOrdersRef = useRef<(includeStats?: boolean) => Promise<void>>(async () => {});
   const hasMountedFiltersRef = useRef(false);
  const [selectedOrder, setSelectedOrder] = useState<any>(null);
@@ -317,6 +319,7 @@ export default function OrdersScreen() {
         statsRequestRef.current?.abort();
         detailRequestRef.current?.abort();
         financialRequestRef.current?.abort();
+        returnFundsRequestRef.current?.abort();
       };
     }, [])
   );
@@ -583,22 +586,63 @@ export default function OrdersScreen() {
     }
   };
 
-  // Tự động pre-select tài khoản quỹ tương ứng với phương thức hoàn tiền trả hàng
-  useEffect(() => {
-    if (['cash', 'bank_transfer'].includes(returnRefundMethod)) {
-      const matching = paymentFundsList.filter(f => returnRefundMethod === 'cash' ? f.type === 'cash' : f.type !== 'cash');
-      if (matching.length > 0) {
-        const exists = matching.some(f => f.id === returnFundId);
-        if (!exists) {
-          setReturnFundId(matching[0].id);
-        }
-      } else {
-        setReturnFundId('');
+  const loadReturnFunds = useCallback(async () => {
+    returnFundsRequestRef.current?.abort();
+    const controller = new AbortController();
+    returnFundsRequestRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    setIsLoadingReturnFunds(true);
+
+    let funds: any[] = [];
+    try {
+      const shopId = await AsyncStorage.getItem('active_shop_id') || '';
+      if (!shopId) throw new Error('Không tìm thấy chi nhánh đang hoạt động');
+
+      const headers = await getApiHeaders();
+      const response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/payment-funds?active=TRUE`, {
+        headers,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Không thể tải danh sách quỹ');
       }
-    } else {
-      setReturnFundId('');
+
+      const payload = await response.json();
+      funds = Array.isArray(payload) ? payload : (payload.data || []);
+    } catch (error: any) {
+      if (controller.signal.aborted && returnFundsRequestRef.current !== controller) return;
+
+      if (Platform.OS !== 'web') {
+        try {
+          funds = await db.select().from(schema.paymentFunds);
+        } catch (localError) {
+          console.warn('Không thể tải quỹ dự phòng từ local:', localError);
+        }
+      }
+
+      if (error?.name !== 'AbortError') {
+        console.warn('Không thể tải quỹ từ server, sử dụng local fallback:', error);
+      }
+    } finally {
+      clearTimeout(timeoutId);
     }
-  }, [returnRefundMethod, paymentFundsList]);
+
+    if (returnFundsRequestRef.current !== controller) return;
+
+    setPaymentFundsList(funds);
+    setReturnFundId(currentFundId => {
+      if (funds.some(fund => fund.id === currentFundId)) return currentFundId;
+
+      const defaultFunds = funds.filter(fund =>
+        fund.is_default === true || fund.is_default === 1 || fund.is_default === '1' || fund.is_default === 'TRUE'
+      );
+      const defaultCashFund = defaultFunds.find(fund => fund.type === 'cash');
+      return (defaultCashFund || defaultFunds[0] || funds[0])?.id || '';
+    });
+    returnFundsRequestRef.current = null;
+    setIsLoadingReturnFunds(false);
+  }, []);
 
   // Tự động mở chi tiết đơn hàng khi nhận được orderIdParam từ Deep Link / Push Notification
   useEffect(() => {
@@ -711,10 +755,13 @@ export default function OrdersScreen() {
       return;
     }
 
-    if (['cash', 'bank_transfer'].includes(returnRefundMethod) && !returnFundId) {
-      alert('Vui lòng chọn tài khoản quỹ chi tiền hoàn');
+    const selectedReturnFund = paymentFundsList.find(fund => fund.id === returnFundId);
+    if (!selectedReturnFund) {
+      alert('Vui lòng chọn quỹ xuất tiền hoàn');
       return;
     }
+
+    const refundMethod = selectedReturnFund.type === 'cash' ? 'cash' : 'bank_transfer';
 
     setIsReturning(true);
     const returnController = new AbortController();
@@ -742,11 +789,11 @@ export default function OrdersScreen() {
           customer_id:   selectedOrder.customer_id || '',
           customer_name: selectedOrder.customer_name || '',
           reason:        returnReason,
-          refund_method: returnRefundMethod,
+          refund_method: refundMethod,
           total_refund:  String(totalRefund),
           status:        'pending',
           note:          returnNote,
-          fund_id:       ['cash', 'bank_transfer'].includes(returnRefundMethod) ? returnFundId : '',
+          fund_id:       selectedReturnFund.id,
         }),
       });
 
@@ -1094,7 +1141,9 @@ export default function OrdersScreen() {
     animationType="slide"
     transparent={true}
     onRequestClose={() => {
-      if (showConfirmReturn) {
+      if (showReturnFundSelector) {
+        setShowReturnFundSelector(false);
+      } else if (showConfirmReturn) {
         setShowConfirmReturn(false);
       } else if (showReturnForm) {
         setShowReturnForm(false);
@@ -1584,10 +1633,12 @@ export default function OrdersScreen() {
                   if (!canReturn) return;
                   setReturnItems({});
                   setReturnReason('wrong_item');
-                  setReturnRefundMethod('cash');
+                  setReturnFundId('');
                   setReturnRefundAmount('');
                   setReturnNote('');
+                  setShowReturnFundSelector(false);
                   setShowReturnForm(true);
+                  void loadReturnFunds();
                 }}
                 disabled={!canReturn}
                 className={"flex-1 flex-row items-center justify-center py-2.5 rounded-lg " + (canReturn ? "bg-slate-50 active:bg-slate-100" : "bg-slate-50 opacity-50")}
@@ -1825,70 +1876,50 @@ export default function OrdersScreen() {
                   </View>
                 </View>
 
-                {/* Phương thức hoàn tiền */}
+                {/* Quỹ xuất tiền hoàn */}
                 <View>
-                  <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Phương thức hoàn tiền</Text>
-                  <View className="flex-row flex-wrap gap-2">
-                    {[
-                      { value: 'cash', label: 'Tiền mặt', icon: 'cash-outline' },
-                      { value: 'bank_transfer', label: 'Chuyển khoản', icon: 'card-outline' },
-                      { value: 'store_credit', label: 'Ghi nợ', icon: 'sync-outline' },
-                      { value: 'none', label: 'Không hoàn tiền', icon: 'close-circle-outline' }
-                    ].map((item) => {
-                      const isSelected = returnRefundMethod === item.value;
-                      return (
-                        <TouchableOpacity
-                          key={item.value}
-                          activeOpacity={0.7}
-                          className={"px-3 py-2 rounded-xl border items-center flex-row justify-center gap-1.5 " + (
-                            isSelected ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200/60'
-                          )}
-                          onPress={() => setReturnRefundMethod(item.value)}
-                        >
-                          <Ionicons name={item.icon as any} size={13} color={isSelected ? '#f97316' : '#64748b'} />
-                          <Text className={"text-[10px] font-bold " + (isSelected ? 'text-orange-600' : 'text-slate-600')}>
-                            {item.label}
+                  <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Quỹ xuất tiền hoàn *</Text>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => setShowReturnFundSelector(true)}
+                    disabled={isLoadingReturnFunds || paymentFundsList.length === 0}
+                    className={`p-3 rounded-xl border flex-row items-center justify-between ${
+                      returnFundId ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200/60'
+                    }`}
+                  >
+                    <View className="flex-row items-center flex-1 mr-3">
+                      {isLoadingReturnFunds ? (
+                        <ActivityIndicator size="small" color="#f97316" />
+                      ) : (
+                        <Ionicons name="wallet-outline" size={18} color={returnFundId ? '#f97316' : '#64748b'} />
+                      )}
+                      <View className="ml-2 flex-1">
+                        <Text className={`text-xs font-bold ${returnFundId ? 'text-orange-600' : 'text-slate-500'}`}>
+                          {isLoadingReturnFunds
+                            ? 'Đang tải danh sách quỹ...'
+                            : paymentFundsList.find(fund => fund.id === returnFundId)?.name || 'Chọn quỹ xuất tiền'}
+                        </Text>
+                        {!isLoadingReturnFunds && returnFundId ? (
+                          <Text className="text-[10px] text-slate-500 mt-0.5">
+                            {paymentFundsList.find(fund => fund.id === returnFundId)?.type === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'}
                           </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                {/* Sổ quỹ/Tài khoản chi */}
-                {['cash', 'bank_transfer'].includes(returnRefundMethod) && (() => {
-                  const matchingFunds = paymentFundsList.filter(f => returnRefundMethod === 'cash' ? f.type === 'cash' : f.type !== 'cash');
-                  if (matchingFunds.length === 0) return null;
-                  return (
-                    <View>
-                      <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">Tài khoản quỹ chi</Text>
-                      <View className="flex-row flex-wrap gap-2">
-                        {matchingFunds.map((fund) => {
-                          const isSelected = returnFundId === fund.id;
-                          return (
-                            <TouchableOpacity
-                              key={fund.id}
-                              activeOpacity={0.7}
-                              className={"px-3 py-2 rounded-xl border flex-row items-center gap-1.5 " + (
-                                isSelected ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200/60'
-                              )}
-                              onPress={() => setReturnFundId(fund.id)}
-                            >
-                              <Ionicons name="wallet-outline" size={12} color={isSelected ? '#2563eb' : '#64748b'} />
-                              <Text className={"text-[10px] font-semibold " + (isSelected ? 'text-blue-600' : 'text-slate-600')}>
-                                {fund.name} ({formatCurrency(Number(fund.current_balance || 0))})
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
+                        ) : null}
                       </View>
                     </View>
-                  );
-                })()}
+                    <Ionicons name="chevron-down" size={18} color="#64748b" />
+                  </TouchableOpacity>
+                  {!isLoadingReturnFunds && paymentFundsList.length === 0 ? (
+                    <View className="mt-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 flex-row items-center">
+                      <Ionicons name="warning-outline" size={14} color="#d97706" />
+                      <Text className="text-[10px] text-amber-700 font-semibold ml-1.5 flex-1">
+                        Không có quỹ khả dụng. Hãy kiểm tra cấu hình quỹ hoặc kết nối mạng.
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
 
                 {/* Số tiền hoàn lại */}
-                {returnRefundMethod !== 'none' && (
-                  <View>
+                <View>
                     <Text className="text-xxs font-semibold text-slate-400 mb-2 px-1">
                       Số tiền hoàn (để trống = tự động tính: {
                         (() => {
@@ -1907,8 +1938,7 @@ export default function OrdersScreen() {
                       value={returnRefundAmount}
                       onChangeText={setReturnRefundAmount}
                     />
-                  </View>
-                )}
+                </View>
 
                 {/* Ghi chú */}
                 <View>
@@ -1939,10 +1969,71 @@ export default function OrdersScreen() {
                 onPress={() => setShowConfirmReturn(true)}
                 className="flex-1 py-3 rounded-xl"
                 disabled={
-                  Object.values(returnItems).reduce((sum, q) => sum + q, 0) === 0
+                  Object.values(returnItems).reduce((sum, q) => sum + q, 0) === 0 ||
+                  !returnFundId ||
+                  isLoadingReturnFunds
                 }
               />
             </View>
+
+            {/* Bộ chọn quỹ xuất tiền hoàn */}
+            {showReturnFundSelector && (
+              <View className="absolute inset-0 bg-black/50 z-50 justify-end">
+                <TouchableWithoutFeedback onPress={() => setShowReturnFundSelector(false)}>
+                  <View className="absolute inset-0" />
+                </TouchableWithoutFeedback>
+                <View className="bg-white rounded-t-3xl p-6 max-h-[70%]">
+                  <View className="flex-row justify-between items-center mb-4">
+                    <View>
+                      <Text className="text-lg font-bold text-slate-800">Chọn quỹ xuất tiền hoàn</Text>
+                      <Text className="text-[10px] text-slate-500 mt-1">Tiền hoàn sẽ được ghi chi từ quỹ này</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setShowReturnFundSelector(false)} className="p-1">
+                      <Ionicons name="close" size={24} color="#64748b" />
+                    </TouchableOpacity>
+                  </View>
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    {paymentFundsList.map(fund => {
+                      const isSelected = returnFundId === fund.id;
+                      const fundTypeLabel = fund.type === 'cash' ? 'Tiền mặt' : fund.type === 'wallet' ? 'Ví điện tử' : 'Ngân hàng';
+                      return (
+                        <TouchableOpacity
+                          key={fund.id}
+                          activeOpacity={0.7}
+                          onPress={() => {
+                            setReturnFundId(fund.id);
+                            setShowReturnFundSelector(false);
+                          }}
+                          className="py-4 border-b border-slate-100 flex-row justify-between items-center"
+                        >
+                          <View className="flex-row items-center flex-1 mr-3">
+                            <View className={`w-9 h-9 rounded-full items-center justify-center ${isSelected ? 'bg-orange-100' : 'bg-slate-100'}`}>
+                              <Ionicons
+                                name={fund.type === 'cash' ? 'cash-outline' : 'card-outline'}
+                                size={18}
+                                color={isSelected ? '#f97316' : '#64748b'}
+                              />
+                            </View>
+                            <View className="ml-3 flex-1">
+                              <Text className={`text-sm ${isSelected ? 'font-bold text-orange-600' : 'text-slate-700 font-semibold'}`}>
+                                {fund.name}
+                              </Text>
+                              <Text className="text-[10px] text-slate-500 mt-0.5">
+                                {fundTypeLabel}
+                                {fund.current_balance !== undefined && fund.current_balance !== null
+                                  ? ` · Số dư ${formatCurrency(Number(fund.current_balance || 0))}`
+                                  : ''}
+                              </Text>
+                            </View>
+                          </View>
+                          {isSelected ? <Ionicons name="checkmark-circle" size={22} color="#f97316" /> : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              </View>
+            )}
           </View>
         </View>
       )}
@@ -1967,6 +2058,12 @@ export default function OrdersScreen() {
                   : formatCurrency(selectedOrderItems.map(i => ({ ...i, retQty: returnItems[i.item_id || i.product_id] || 0 })).filter(i => i.retQty > 0).reduce((s, i) => s + (Number(i.unit_price) + Number(i.modifier_total || 0)) * i.retQty, 0))
               ) + "?"}
             </Text>
+            <View className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 mb-4 flex-row items-center">
+              <Ionicons name="wallet-outline" size={15} color="#64748b" />
+              <Text className="text-[10px] text-slate-600 font-semibold ml-2 flex-1">
+                Quỹ xuất tiền: {paymentFundsList.find(fund => fund.id === returnFundId)?.name || 'Chưa chọn'}
+              </Text>
+            </View>
             <View className="flex-row justify-between w-full mt-2 gap-3">
               <Button
                 variant="outline"
