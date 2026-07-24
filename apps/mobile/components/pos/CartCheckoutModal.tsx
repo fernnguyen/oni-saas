@@ -10,6 +10,7 @@ import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
 import { PosItemEditModal } from './PosItemEditModal';
+import { getCheckoutSessionLabels } from '../../lib/utils/resource-billing-presentation';
 
 interface CartCheckoutModalProps {
   visible: boolean;
@@ -89,6 +90,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     shopVertical,
     onEditItemSave
   } = props;
+  const checkoutSessionLabels = getCheckoutSessionLabels(shopVertical);
 
   const resolvedMethods = React.useMemo(() => {
     const list = paymentMethodsList && paymentMethodsList.length > 0
@@ -1090,14 +1092,14 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               {billingInfo && (
                 <View className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
                   <View className="flex-row justify-between items-center mb-2.5">
-                    <Text className="text-xxs font-semibold text-slate-400">CHI TIẾT THỜI GIAN THUÊ</Text>
+                    <Text className="text-xxs font-semibold text-slate-400">{checkoutSessionLabels.sectionTitle}</Text>
                     {!isEditingCheckoutTime && (
                       <TouchableOpacity 
                         onPress={handleStartEditCheckoutTime}
                         className="flex-row items-center bg-orange-50 border border-orange-200 px-2 py-1 rounded-lg"
                       >
                         <Ionicons name="create-outline" size={12} color="#fa5908" />
-                        <Text className="text-[10px] font-semibold text-orange-500 ml-1">Sửa giờ ra</Text>
+                        <Text className="text-[10px] font-semibold text-orange-500 ml-1">{checkoutSessionLabels.editTimeLabel}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -1179,7 +1181,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   
                   {isEditingCheckoutTime ? (
                     <View className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3">
-                      <Text className="text-xxs font-bold text-slate-500">NHẬP GIỜ CHECKOUT MỚI</Text>
+                      <Text className="text-xxs font-bold text-slate-500">{checkoutSessionLabels.editFormTitle}</Text>
                       
                       {/* Cảnh báo ghi log đảm bảo tính minh bạch */}
                       <View className="flex-row items-start bg-amber-50 border border-amber-200 rounded-lg p-2 mb-[5px]">

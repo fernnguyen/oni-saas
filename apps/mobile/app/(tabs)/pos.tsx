@@ -14,6 +14,7 @@ import { getSystemTaxGroups } from '../../lib/utils/tax';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { formatCurrency, maskCurrencyInput, parseCurrencyToNumber } from '../../lib/utils/format';
+import { formatResourceStartTime, getResourceBillingPresentationForResource } from '../../lib/utils/resource-billing-presentation';
 import { allowsProductNegativeStock, buildQuickCreateMetadata, calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
 
 // Import hệ thống component dùng chung
@@ -2098,6 +2099,11 @@ export default function PosScreen() {
                         const isActive = t.status === 'playing' || t.status === 'occupied';
                         const isDirty = t.status === 'dirty' || t.status === 'cleaning';
                         const billing = calculateBilling(t);
+                        const tableBillingPresentation = getResourceBillingPresentationForResource(shopVertical, t);
+                        const tableRateLabel = tableBillingPresentation.rateBadgeLabel ||
+                          (tableBillingPresentation.rate > 0 && tableBillingPresentation.rateUnit
+                            ? `${formatCurrency(tableBillingPresentation.rate)}/${tableBillingPresentation.rateUnit}`
+                            : 'Chưa cấu hình đơn giá');
                         const cartItemsCount = tableCarts[t.id] ? Object.values(tableCarts[t.id]).reduce((sum, item) => sum + item.quantity, 0) : 0;
                         const guestName = tableCustomers[t.id]?.name || t.customerName || 'Khách lẻ';
 
@@ -2118,7 +2124,7 @@ export default function PosScreen() {
                                     {isActive && (
                                       <View className="flex-row items-center">
                                         <Ionicons name="time-outline" size={12} color="#94a3b8" />
-                                        <Text className="text-xs text-slate-500 ml-1">{billing.hours}h {billing.minutes}m</Text>
+                                        <Text className="text-xs text-slate-500 ml-1">{billing.label}</Text>
                                       </View>
                                     )}
                                   </View>
@@ -2130,7 +2136,7 @@ export default function PosScreen() {
                                     {isActive ? 'Đang sử dụng' : isDirty ? 'Chưa dọn' : 'Trống'}
                                   </Text>
                                 </View>
-                                {isActive && (
+                                {isActive && tableBillingPresentation.showCost && (
                                   <Text className="text-rose-600 font-semibold text-sm mt-1.5">{formatCurrency(billing.cost)}</Text>
                                 )}
                               </View>
@@ -2185,18 +2191,9 @@ export default function PosScreen() {
                               <View className="flex-row items-center mb-0.5">
                                 <Ionicons name="time-outline" size={10} color="#94a3b8" />
                                 <Text className="text-xxs text-slate-455 font-medium ml-1">
-                                  {formatCurrency(t.hourly_rate)}/h
+                                  {tableRateLabel}
                                 </Text>
                               </View>
-
-                              {shopVertical === 'lodging' && (
-                                <View className="flex-row items-center">
-                                  <Ionicons name="moon-outline" size={10} color="#94a3b8" />
-                                  <Text className="text-xxs text-slate-455 font-medium ml-1">
-                                    {formatCurrency(t.hourly_rate * 3 || 200000)}/đêm
-                                  </Text>
-                                </View>
-                              )}
                             </View>
 
                             {/* Tiện ích tags */}
@@ -2222,11 +2219,13 @@ export default function PosScreen() {
                                 }}
                               >
                                 <Text className="text-[8.5px] text-rose-700 font-semibold">
-                                  ⏱️ Đã dùng: {billing.hours}h {billing.minutes}m
+                                  ⏱️ Đã dùng: {billing.label}
                                 </Text>
-                                <Text className="text-xxs text-rose-700 font-semibold mt-0.5">
-                                  💵 Tiền giờ: {formatCurrency(billing.cost)}
-                                </Text>
+                                {tableBillingPresentation.showCost && (
+                                  <Text className="text-xxs text-rose-700 font-semibold mt-0.5">
+                                    💵 Tạm tính: {formatCurrency(billing.cost)}
+                                  </Text>
+                                )}
                                 {cartItemsCount > 0 && (
                                   <Text
                                     className="text-xxs text-slate-550 font-semibold mt-0.5 pt-0.5 border-t"
@@ -2960,34 +2959,65 @@ export default function PosScreen() {
                           ? (typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : activeTable.metadata)
                           : {};
                       } catch (e) {}
-                      const activeRentalType = activeMeta.rental_type || 'hourly';
-                      const activeHourlyRate = Number(activeTable.hourly_rate) || 0;
-                      const activeOvernightRate = Number(activeMeta.overnight_rate) || (activeHourlyRate * 3) || 200000;
-                      const isLodging = shopVertical === 'lodging';
-
-                      const rateLabel = isLodging && activeRentalType === 'daily'
-                        ? `${formatCurrency(activeOvernightRate)}/ngày`
-                        : `${formatCurrency(activeHourlyRate)}/giờ`;
-
-                      const timeLabel = isLodging && activeRentalType === 'daily'
-                        ? `Nhận lúc: ${new Date(activeTable.startTime).toLocaleDateString()} ${new Date(activeTable.startTime).toLocaleTimeString()}`
-                        : `Nhận lúc: ${new Date(activeTable.startTime).toLocaleTimeString()}`;
+                      const billingPresentation = getResourceBillingPresentationForResource(
+                        shopVertical,
+                        { ...activeTable, metadata: activeMeta }
+                      );
+                      const rateLabel = billingPresentation.rateBadgeLabel ||
+                        (billingPresentation.rate > 0 && billingPresentation.rateUnit
+                          ? `${formatCurrency(billingPresentation.rate)}/${billingPresentation.rateUnit}`
+                          : 'Chưa cấu hình đơn giá');
 
                       return (
                         <View className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4">
                           <View className="flex-row justify-between items-center">
                             <Text className="text-xxs text-slate-455 font-semibold">
-                              {isLodging && activeRentalType === 'daily' ? 'Phí phòng theo ngày:' : 'Phí dịch vụ giờ lẻ:'}
+                              {billingPresentation.title}
                             </Text>
                             <Badge variant="primary" label={rateLabel} size="sm" />
                           </View>
-                          <Text className="text-orange-500 text-3xl font-semibold mt-1.5">
-                            {formatCurrency(billing.cost)}
+                          <Text
+                            selectable
+                            className="text-orange-500 text-3xl font-semibold mt-1.5"
+                            style={{ fontVariant: ['tabular-nums'] }}
+                          >
+                            {billingPresentation.showCost ? formatCurrency(billing.cost) : billing.label}
                           </Text>
-                          <Text className="text-[9.5px] text-slate-500 mt-3 font-semibold leading-relaxed">
-                            ⏱️ {timeLabel} ({billing.label})
+                          <Text className="text-[9px] text-orange-700/70 font-semibold mt-0.5">
+                            {billingPresentation.showCost ? 'Tạm tính đến hiện tại' : 'Thời gian sử dụng'}
                           </Text>
-                          {billing.details ? (
+
+                          <View className="mt-3 pt-3 border-t border-orange-100 gap-2">
+                            <View className="flex-row justify-between items-start gap-3">
+                              <Text className="text-[9.5px] text-slate-500 font-semibold">Giờ vào</Text>
+                              <Text
+                                selectable
+                                className="text-[9.5px] text-slate-700 font-semibold text-right flex-1"
+                                style={{ fontVariant: ['tabular-nums'] }}
+                              >
+                                {formatResourceStartTime(activeTable.startTime)}
+                              </Text>
+                            </View>
+                            {billingPresentation.showCost && (
+                              <View className="flex-row justify-between items-start gap-3">
+                                <Text className="text-[9.5px] text-slate-500 font-semibold">Thời gian tính</Text>
+                                <Text
+                                  selectable
+                                  className="text-[9.5px] text-slate-700 font-semibold text-right flex-1"
+                                  style={{ fontVariant: ['tabular-nums'] }}
+                                >
+                                  {billing.label}
+                                </Text>
+                              </View>
+                            )}
+                            <View className="flex-row justify-between items-start gap-3">
+                              <Text className="text-[9.5px] text-slate-500 font-semibold">Hình thức</Text>
+                              <Text className="text-[9.5px] text-slate-700 font-semibold text-right flex-1">
+                                {billingPresentation.methodLabel}
+                              </Text>
+                            </View>
+                          </View>
+                          {billingPresentation.showCost && billing.details ? (
                             <Text className="text-[9px] text-slate-400 mt-1 italic font-medium">
                               {billing.details}
                             </Text>
@@ -3458,26 +3488,34 @@ export default function PosScreen() {
 
                     return (
                       <View className="flex-row flex-wrap gap-2.5 pt-1">
-                        {targets.map(t => (
-                          <TouchableOpacity
-                            key={t.id}
-                            onPress={() => {
-                              setConfirmTransferMerge({
-                                visible: true,
-                                type: 'transfer',
-                                sourceTable: activeTable,
-                                targetTable: t,
-                                includeStayCost: true,
-                                loading: false,
-                              });
-                            }}
-                            className="w-[48%] bg-slate-50 border border-slate-200 p-3.5 rounded-2xl items-center active:bg-orange-50 active:border-orange-200"
-                          >
-                            <Ionicons name={shopVertical === 'lodging' ? "bed-outline" : "ellipse-outline"} size={20} color="#64748b" />
-                            <Text className="text-xs font-bold text-slate-800 mt-1.5">{t.name}</Text>
-                            <Text className="text-[9px] text-slate-450 mt-0.5">{t.hourly_rate ? `${formatCurrency(t.hourly_rate)}/h` : 'Tính giờ lẻ'}</Text>
-                          </TouchableOpacity>
-                        ))}
+                        {targets.map(t => {
+                          const targetBillingPresentation = getResourceBillingPresentationForResource(shopVertical, t);
+                          const targetRateLabel = targetBillingPresentation.rateBadgeLabel ||
+                            (targetBillingPresentation.rate > 0 && targetBillingPresentation.rateUnit
+                              ? `${formatCurrency(targetBillingPresentation.rate)}/${targetBillingPresentation.rateUnit}`
+                              : 'Chưa cấu hình đơn giá');
+
+                          return (
+                            <TouchableOpacity
+                              key={t.id}
+                              onPress={() => {
+                                setConfirmTransferMerge({
+                                  visible: true,
+                                  type: 'transfer',
+                                  sourceTable: activeTable,
+                                  targetTable: t,
+                                  includeStayCost: true,
+                                  loading: false,
+                                });
+                              }}
+                              className="w-[48%] bg-slate-50 border border-slate-200 p-3.5 rounded-2xl items-center active:bg-orange-50 active:border-orange-200"
+                            >
+                              <Ionicons name={shopVertical === 'lodging' ? "bed-outline" : "ellipse-outline"} size={20} color="#64748b" />
+                              <Text className="text-xs font-bold text-slate-800 mt-1.5">{t.name}</Text>
+                              <Text className="text-[9px] text-slate-450 mt-0.5">{targetRateLabel}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
                       </View>
                     );
                   })()}
