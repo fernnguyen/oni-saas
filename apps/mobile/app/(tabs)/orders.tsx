@@ -1,4 +1,4 @@
-import React, {useState, useCallback, useEffect} from 'react';
+import React, {useState, useCallback, useEffect, useRef} from 'react';
 import {Text, View, ScrollView, TouchableOpacity, TouchableWithoutFeedback, TextInput, Modal, Platform, ActivityIndicator, RefreshControl, FlatList, Animated} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -160,165 +160,22 @@ export default function OrdersScreen() {
   }, [selectedOrderReturns]);
 
   const [ordersList, setOrdersList] = useState<any[]>([]);
-  const [shiftsList, setShiftsList] = useState<any[]>([{id: 'all', label: 'Tất cả ca'}]);
   const [isLoading, setIsLoading] = useState(true);
-  const [limit, setLimit] = useState(10);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [timeFilter, setTimeFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  useEffect(() => { const load = async () => { const shopId = await AsyncStorage.getItem('active_shop_id'); if (shopId) fetchOrdersOnline(shopId, 1, timeFilter, true); }; load(); }, [timeFilter, searchQuery]);
   const [stats, setStats] = useState<any>(null);
   const { toastMsg, toastOpacity, showToast } = usePosToast();
   const PosToast = ({toastMsg, toastOpacity}: any) => { if (!toastMsg) return null; return <Animated.View style={{opacity: toastOpacity}} className={`absolute top-10 left-4 right-4 z-50 p-4 rounded-xl flex-row items-center shadow-lg ${toastMsg.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'}`}><Text className="text-white ml-2 font-medium">{toastMsg.message}</Text></Animated.View>; };
-  const [isLazyLoading, setIsLazyLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeShiftId, setActiveShiftId] = useState('');
-
-  const [selectedShift, setSelectedShift] = useState('all');
-  const [selectedStatus, setSelectedStatus] = useState('all'); // all, synced, pending
-
-  const [totalRevenue, setTotalRevenue] = useState(0);
-  const [shiftOrdersCount, setShiftOrdersCount] = useState(0);
-  const [syncedCount, setSyncedCount] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
-
-  const getActiveShiftStats = async (activeShopId: string, activeShiftId: string, forceRefresh = false) => {
-    const cacheKey = `shift_revenue_${activeShopId}_${activeShiftId}`;
-    
-    // 1. Kiểm tra cache nếu không phải forceRefresh
-    if (!forceRefresh) {
-      try {
-        const cached = await db.select()
-          .from(schema.localCaches)
-          .where(eq(schema.localCaches.cache_key, cacheKey))
-          .limit(1);
-        if (cached.length > 0) {
-          const ageMs = Date.now() - cached[0].updated_at;
-          if (ageMs < 600000) { // 10 phút
-            const parsed = JSON.parse(cached[0].cache_value);
-            return {
-              revenue: parsed.revenue,
-              count: parsed.count,
-              source: 'cache'
-            };
-          }
-        }
-      } catch (e) {
-        console.warn('Lỗi đọc cache shift revenue:', e);
-      }
-    }
-
-    // Lấy thông tin khoảng thời gian của ca (opened_at -> closed_at) từ SQLite hoặc Server
-    let openTime = 0;
-    let closeTime = Infinity;
-
-    if (Platform.OS !== 'web') {
-      try {
-        const shiftRows = await db.select().from(schema.shop_shifts).where(eq(schema.shop_shifts.id, activeShiftId)).limit(1);
-        if (shiftRows.length > 0) {
-          openTime = new Date(shiftRows[0].opened_at).getTime();
-          closeTime = shiftRows[0].closed_at ? new Date(shiftRows[0].closed_at).getTime() : Infinity;
-        }
-      } catch (err) {
-        console.warn('Lỗi truy vấn ca từ SQLite trong stats:', err);
-      }
-    }
-
-    const currentUrl = getApiBaseUrl();
-    const headers = await getApiHeaders();
-
-    if (openTime === 0) {
-      try {
-        const shiftRes = await fetch(`${currentUrl}/api/shops/${activeShopId}/shifts?limit=50`, { headers });
-        if (shiftRes.ok) {
-          const shiftJson = await shiftRes.json();
-          const serverShift = (shiftJson.data || []).find((s: any) => s.id === activeShiftId);
-          if (serverShift) {
-            openTime = new Date(serverShift.opened_at).getTime();
-            closeTime = serverShift.closed_at ? new Date(serverShift.closed_at).getTime() : Infinity;
-          }
-        }
-      } catch (e) {
-        console.warn('Lỗi fetch thông tin ca từ server trong stats:', e);
-      }
-    }
-
-    // 2. Fetch từ server API
-    try {
-      const ordersRes = await fetch(`${currentUrl}/api/shops/${activeShopId}/orders?limit=200`, { headers });
-      if (ordersRes.ok) {
-        const ordersJson = await ordersRes.json();
-        const shiftOrders = (ordersJson.data || []).filter((o: any) => {
-          if (o.shift_id === activeShiftId) return true;
-          if (o.created_at && openTime > 0) {
-            const orderTime = new Date(o.created_at).getTime();
-            return orderTime >= openTime && orderTime <= closeTime;
-          }
-          return false;
-        });
-
-        const revenue = shiftOrders.reduce((sum: number, o: any) => sum + parseInt(o.total_amount || '0', 10), 0);
-        const count = shiftOrders.length;
-        
-        const stats = { revenue, count };
-        // Lưu vào cache
-        await db.insert(schema.localCaches).values({
-          cache_key: cacheKey,
-          cache_value: JSON.stringify(stats),
-          updated_at: Date.now()
-        }).onConflictDoUpdate({
-          target: schema.localCaches.cache_key,
-          set: {
-            cache_value: JSON.stringify(stats),
-            updated_at: Date.now()
-          }
-        });
-
-        return { revenue, count, source: 'server' };
-      }
-    } catch (e) {
-      console.warn('Lỗi fetch shift revenue từ server:', e);
-    }
-
-    // 3. Fallback: Lấy cache hết hạn
-    try {
-      const cached = await db.select()
-        .from(schema.localCaches)
-        .where(eq(schema.localCaches.cache_key, cacheKey))
-        .limit(1);
-      if (cached.length > 0) {
-        const parsed = JSON.parse(cached[0].cache_value);
-        return {
-          revenue: parsed.revenue,
-          count: parsed.count,
-          source: 'expired_cache'
-        };
-      }
-    } catch (e) {}
-
-    // 4. Fallback: Truy vấn SQLite
-    try {
-      const allLocalOrders = await db.select().from(schema.orders);
-      const shiftOrders = allLocalOrders.filter((o: any) => {
-        if (o.shift_id === activeShiftId) return true;
-        if (o.created_at && openTime > 0) {
-          const orderTime = new Date(o.created_at).getTime();
-          return orderTime >= openTime && orderTime <= closeTime;
-        }
-        return false;
-      });
-      const revenue = shiftOrders.reduce((sum: number, o: any) => sum + o.total_amount, 0);
-      const count = shiftOrders.length;
-      return { revenue, count, source: 'sqlite' };
-    } catch (e) {
-      console.warn('Lỗi tính shift revenue từ SQLite:', e);
-    }
-
-    return { revenue: 0, count: 0, source: 'default' };
-  };
-
+  const ordersRequestRef = useRef<AbortController | null>(null);
+  const statsRequestRef = useRef<AbortController | null>(null);
+  const detailRequestRef = useRef<AbortController | null>(null);
+  const financialRequestRef = useRef<AbortController | null>(null);
+  const refreshOrdersRef = useRef<(includeStats?: boolean) => Promise<void>>(async () => {});
+  const hasMountedFiltersRef = useRef(false);
  const [selectedOrder, setSelectedOrder] = useState<any>(null);
  const [selectedOrderItems, setSelectedOrderItems] = useState<any[]>([]);
  const [selectedOrderCustomerPhone, setSelectedOrderCustomerPhone] = useState<string | null>(null);
@@ -355,18 +212,36 @@ export default function OrdersScreen() {
   // Tải dữ liệu SQLite hoặc Cloud
 
   const fetchStats = useCallback(async (activeShopId: string) => {
+    statsRequestRef.current?.abort();
+    const controller = new AbortController();
+    statsRequestRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     try {
       const headers = await getApiHeaders();
-      const res = await fetch(`${getApiBaseUrl()}/api/shops/${activeShopId}/orders/stats`, { headers });
-      if (res.ok) {
-        setStats(await res.json());
-      }
-    } catch (e) {
-      console.warn('fetchStats error', e);
+      const res = await fetch(`${getApiBaseUrl()}/api/shops/${activeShopId}/orders/stats`, {
+        headers,
+        signal: controller.signal,
+      });
+      if (res.ok) setStats(await res.json());
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') console.warn('fetchStats error', e);
+    } finally {
+      clearTimeout(timeoutId);
+      if (statsRequestRef.current === controller) statsRequestRef.current = null;
     }
   }, []);
 
   const fetchOrdersOnline = useCallback(async (activeShopId: string, pageNum: number, filter: string, isRefresh: boolean = false) => {
+    ordersRequestRef.current?.abort();
+    const controller = new AbortController();
+    ordersRequestRef.current = controller;
+    let didTimeout = false;
+    const timeoutId = setTimeout(() => {
+      didTimeout = true;
+      controller.abort();
+    }, 8000);
+
     try {
       if (pageNum === 1) setIsLoading(true);
       else setIsLoadingMore(true);
@@ -375,499 +250,140 @@ export default function OrdersScreen() {
       let url = `${getApiBaseUrl()}/api/shops/${activeShopId}/orders?limit=20&page=${pageNum}`;
       if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
       if (filter !== 'all') url += `&time=${filter}`;
-      
-      const res = await fetch(url, { headers });
-      if (res.ok) {
-        const json = await res.json();
-        const cloudOrders = (json.data || []).map((order: any) => ({
-          ...order,
-          // Đơn vừa đọc từ server luôn là bản đã đồng bộ. API không trả field này.
-          sync_status: order.sync_status || 'synced',
-        }));
-        const meta = json.meta || {};
-        
-        setHasMore(cloudOrders.length > 0 && pageNum < (meta.totalPages || Infinity));
-        
-        if (isRefresh || pageNum === 1) {
-          setOrdersList(cloudOrders);
-        } else {
-          setOrdersList(prev => {
-            const existingIds = new Set(prev.map(o => o.id));
-            const newItems = cloudOrders.filter((o: any) => !existingIds.has(o.id));
-            return [...prev, ...newItems];
-          });
-        }
+
+      const res = await fetch(url, { headers, signal: controller.signal });
+      if (!res.ok) throw new Error(`Orders API ${res.status}`);
+
+      const json = await res.json();
+      const cloudOrders = (json.data || []).map((order: any) => ({
+        ...order,
+        sync_status: order.sync_status || 'synced',
+      }));
+      const meta = json.meta || {};
+
+      setHasMore(cloudOrders.length > 0 && pageNum < (meta.totalPages || Infinity));
+      if (isRefresh || pageNum === 1) {
+        setOrdersList(cloudOrders);
       } else {
-        throw new Error('fetch error');
+        setOrdersList(prev => {
+          const existingIds = new Set(prev.map(o => o.id));
+          return [...prev, ...cloudOrders.filter((o: any) => !existingIds.has(o.id))];
+        });
       }
-    } catch (e) {
+    } catch (e: any) {
+      const wasSuperseded = e?.name === 'AbortError' && !didTimeout;
+      if (wasSuperseded) return;
+
       console.warn('fetchOrdersOnline error, fallback to local', e);
-      if (pageNum === 1) {
+      if (pageNum === 1 && Platform.OS !== 'web') {
         try {
           const local = await db.select().from(schema.orders).orderBy(desc(schema.orders.created_at)).limit(20);
-          setOrdersList(local);
-          setHasMore(false);
-        } catch(e2){}
+          if (ordersRequestRef.current === controller) {
+            setOrdersList(local);
+            setHasMore(false);
+          }
+        } catch (localError) {
+          console.warn('Không thể đọc orders fallback từ SQLite:', localError);
+        }
       }
     } finally {
-      setIsLoading(false);
-      setIsLoadingMore(false);
-      setIsRefreshing(false);
+      clearTimeout(timeoutId);
+      if (ordersRequestRef.current === controller) {
+        ordersRequestRef.current = null;
+        setIsLoading(false);
+        setIsLoadingMore(false);
+        setIsRefreshing(false);
+      }
     }
   }, [searchQuery]);
 
-  const refreshOrders = async () => {
+  const refreshOrders = useCallback(async (includeStats = true) => {
     const shopId = await AsyncStorage.getItem('active_shop_id');
-    if (shopId) {
-      setPage(1);
-      fetchOrdersOnline(shopId, 1, timeFilter, true);
-      fetchStats(shopId);
-    }
-  };
+    if (!shopId) return;
 
-  const loadOrdersData = async (currentLimit = 10, isLoadMore = false, triggerRefresh = false) => {
-  try {
-   if (!isLoadMore && !triggerRefresh) {
-     setIsLoading(true);
-   } else if (isLoadMore) {
-     setIsLazyLoading(true);
-   }
-
-   const activeShopId = await AsyncStorage.getItem('active_shop_id') || '';
-   const activeShiftId = await AsyncStorage.getItem('active_shift_id') || '';
-   setActiveShiftId(activeShiftId);
-   const isShiftEnabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
-
-   let shiftsData: any[] = [];
-   if (Platform.OS !== 'web') {
-     const allShifts = await db.select().from(schema.shop_shifts);
-     shiftsData = allShifts.filter((s: any) => {
-       const isLocalShift = s.id && s.id.startsWith(`shift-${activeShopId}-`);
-       const isActiveShift = activeShiftId && s.id === activeShiftId;
-       return isLocalShift || isActiveShift;
-     });
-   }
-
-   const localShiftIdMap = new Map();
-   if (Platform.OS !== 'web') {
-     const localOrders = await db.select().from(schema.orders);
-     localOrders.forEach((o: any) => {
-       if (o.id && o.shift_id) {
-         localShiftIdMap.set(o.id, o.shift_id);
-       }
-     });
-   }
-
-   // A. HÀM ĐỒNG BỘ MỚI (Dùng chung cho cả sync chặn và sync nền)
-   const runSync = async () => {
-     try {
-       const headers = await getApiHeaders();
-       const url = getApiBaseUrl();
-
-       // 1. Đồng bộ ca làm việc từ server trước
-       try {
-         const shiftsRes = await fetch(`${url}/api/shops/${activeShopId}/shifts?limit=50`, { headers });
-         if (shiftsRes.ok) {
-           const shiftsJson = await shiftsRes.json();
-           const serverShifts = shiftsJson.data || [];
-           for (const s of serverShifts) {
-             await db.insert(schema.shop_shifts).values({
-               id: s.id,
-               opened_at: s.opened_at,
-               closed_at: s.closed_at || null,
-               status: s.status || 'open',
-               opening_cash: parseInt(s.opening_cash || '0', 10),
-               actual_closing_cash: parseInt(s.actual_closing_cash || '0', 10),
-               employee_name: s.employee_name || s.user_id || 'Thu ngân',
-               sync_status: 'synced',
-             }).onConflictDoUpdate({
-               target: schema.shop_shifts.id,
-               set: {
-                 opened_at: s.opened_at,
-                 closed_at: s.closed_at || null,
-                 status: s.status || 'open',
-                 opening_cash: parseInt(s.opening_cash || '0', 10),
-                 actual_closing_cash: parseInt(s.actual_closing_cash || '0', 10),
-                 employee_name: s.employee_name || s.user_id || 'Thu ngân',
-                 sync_status: 'synced',
-               }
-             });
-           }
-         }
-       } catch (e) {
-         console.warn('Lỗi đồng bộ ca ngầm:', e);
-       }
-
-       // 2. Tải 10 đơn hàng mới nhất từ server
-       const res = await fetch(`${url}/api/shops/${activeShopId}/orders?limit=10&page=1`, { headers });
-       if (res.ok) {
-         const resJson = await res.json();
-         const cloudOrders = resJson.data || [];
-
-         const allShiftsAfter = await db.select().from(schema.shop_shifts);
-         const shiftsDataAfter = allShiftsAfter.filter((s: any) => {
-           const isLocalShift = s.id && s.id.startsWith(`shift-${activeShopId}-`);
-           const isActiveShift = activeShiftId && s.id === activeShiftId;
-           return isLocalShift || isActiveShift;
-         });
-
-         const cloudMapped = cloudOrders.map((o: any) => {
-           const resolvedId = o.id || o.order_id;
-           let resolvedShiftId = localShiftIdMap.get(resolvedId);
-
-           if (!resolvedShiftId && o.created_at) {
-             const orderTime = new Date(o.created_at).getTime();
-             const matchedShift = shiftsDataAfter.find((s: any) => {
-               const openTime = new Date(s.opened_at).getTime();
-               const closeTime = s.closed_at ? new Date(s.closed_at).getTime() : Infinity;
-               return orderTime >= openTime && orderTime <= closeTime;
-             });
-             if (matchedShift) {
-               resolvedShiftId = matchedShift.id;
-             }
-           }
-
-           return {
-             id: resolvedId,
-             order_no: o.order_no || 'HD',
-             status: o.status || 'completed',
-             customer_id: o.customer_id,
-             customer_name: o.customer_name || 'Khách lẻ',
-             total_amount: parseInt(o.total_amount || '0', 10),
-             paid_amount: parseInt(o.paid_amount || '0', 10),
-             payment_method: o.payment_method || 'Tiền mặt',
-             created_at: o.created_at || new Date().toISOString(),
-             updated_at: o.updated_at || o.created_at || new Date().toISOString(),
-             shift_id: resolvedShiftId || 'default-shift',
-             sync_status: 'synced',
-             discount_amount: parseInt(o.discount_amount || '0', 10),
-             note: o.note || '',
-           };
-         });
-
-         for (const order of cloudMapped) {
-           await db.insert(schema.orders).values({
-             id: order.id,
-             order_no: order.order_no,
-             status: order.status,
-             customer_id: order.customer_id,
-             customer_name: order.customer_name,
-             total_amount: order.total_amount,
-             paid_amount: order.paid_amount,
-             payment_method: order.payment_method,
-             created_at: order.created_at,
-             updated_at: order.updated_at,
-             shift_id: order.shift_id,
-             sync_status: 'synced',
-             discount_amount: order.discount_amount,
-             note: order.note,
-           }).onConflictDoUpdate({
-             target: schema.orders.id,
-             set: {
-               order_no: order.order_no,
-               status: order.status,
-               customer_id: order.customer_id,
-               customer_name: order.customer_name,
-               total_amount: order.total_amount,
-               paid_amount: order.paid_amount,
-               payment_method: order.payment_method,
-               created_at: order.created_at,
-               updated_at: order.updated_at,
-               sync_status: 'synced',
-               discount_amount: order.discount_amount,
-               note: order.note,
-             }
-           });
-         }
-       }
-     } catch (bgErr) {
-       console.warn('Lỗi đồng bộ ngầm đơn hàng từ Cloud về SQLite:', bgErr);
-     }
-   };
-
-   // B. XỬ LÝ KHÁC NHAU GIỮA TÌM KIẾM VÀ KHÔNG TÌM KIẾM
-   let rawOrders: any[] = [];
-   let fetchSearchSuccess = false;
-
-   // 1. NẾU CÓ TÌM KIẾM -> Ưu tiên Online trước, sau đó fallback Offline
-   if (searchQuery !== '') {
-     let searchedOrders: any[] = [];
-     try {
-       const headers = await getApiHeaders();
-       const url = getApiBaseUrl();
-       const res = await fetch(`${url}/api/shops/${activeShopId}/orders?limit=${currentLimit}&page=1&search=${encodeURIComponent(searchQuery)}`, { headers });
-       if (res.ok) {
-         const resJson = await res.json();
-         const cloudOrders = resJson.data || [];
-         searchedOrders = cloudOrders.map((o: any) => {
-           const resolvedId = o.id || o.order_id;
-           let resolvedShiftId = localShiftIdMap.get(resolvedId);
-
-           if (!resolvedShiftId && o.created_at) {
-             const orderTime = new Date(o.created_at).getTime();
-             const matchedShift = shiftsData.find((s: any) => {
-               const openTime = new Date(s.opened_at).getTime();
-               const closeTime = s.closed_at ? new Date(s.closed_at).getTime() : Infinity;
-               return orderTime >= openTime && orderTime <= closeTime;
-             });
-             if (matchedShift) {
-               resolvedShiftId = matchedShift.id;
-             }
-           }
-
-           return {
-             id: resolvedId,
-             order_no: o.order_no || 'HD',
-             status: o.status || 'completed',
-             customer_name: o.customer_name || 'Khách lẻ',
-             total_amount: parseInt(o.total_amount || '0', 10),
-             paid_amount: parseInt(o.paid_amount || '0', 10),
-             payment_method: o.payment_method || 'Tiền mặt',
-             created_at: o.created_at || new Date().toISOString(),
-             updated_at: o.updated_at || o.created_at || new Date().toISOString(),
-             shift_id: resolvedShiftId || 'default-shift',
-             sync_status: 'synced',
-             discount_amount: parseInt(o.discount_amount || '0', 10),
-             note: o.note || '',
-           };
-         });
-         fetchSearchSuccess = true;
-
-         // Cache kết quả tìm kiếm vào SQLite
-         if (Platform.OS !== 'web') {
-           for (const order of searchedOrders) {
-             await db.insert(schema.orders).values({
-               id: order.id,
-               order_no: order.order_no,
-               status: order.status,
-               customer_name: order.customer_name,
-               total_amount: order.total_amount,
-               paid_amount: order.paid_amount,
-               payment_method: order.payment_method,
-               created_at: order.created_at,
-               updated_at: order.updated_at,
-               shift_id: order.shift_id,
-               sync_status: 'synced',
-               discount_amount: order.discount_amount,
-               note: order.note,
-             }).onConflictDoUpdate({
-               target: schema.orders.id,
-               set: {
-                 order_no: order.order_no,
-                 status: order.status,
-                 customer_name: order.customer_name,
-                 total_amount: order.total_amount,
-                 paid_amount: order.paid_amount,
-                 payment_method: order.payment_method,
-                 created_at: order.created_at,
-                 updated_at: order.updated_at,
-                 sync_status: 'synced',
-                 discount_amount: order.discount_amount,
-                 note: order.note,
-               }
-             });
-           }
-         }
-       }
-     } catch (err) {
-       console.warn('Lỗi tìm kiếm online, tự động chuyển về tìm kiếm offline SQLite:', err);
-     }
-
-     if (fetchSearchSuccess) {
-       rawOrders = searchedOrders;
-     } else {
-       if (Platform.OS !== 'web') {
-         rawOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.updated_at));
-       }
-     }
-   } 
-   // 2. KHÔNG TÌM KIẾM -> Offline First
-   else {
-     if (Platform.OS === 'web') {
-       rawOrders = [
-         {
-           id: 'mock-1',
-           order_no: 'HD-MOCK-1',
-           status: 'completed',
-           customer_name: 'Khách lẻ',
-           total_amount: 125000,
-           paid_amount: 125000,
-           payment_method: 'Tiền mặt',
-           created_at: new Date().toISOString(),
-           shift_id: 'default-shift',
-           sync_status: 'synced',
-           discount_amount: 0,
-           note: '',
-         }
-       ];
-     } else {
-       rawOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.updated_at));
-     }
-   }
-
-   // Lọc thô danh sách của chi nhánh hiện tại (phục vụ cho tính toán KPI stats)
-   let branchOrders = Platform.OS === 'web' ? rawOrders : rawOrders.filter((o: any) => {
-     const isLocalShift = o.shift_id && o.shift_id.startsWith(`shift-${activeShopId}-`);
-     const isActiveShift = activeShiftId && o.shift_id === activeShiftId;
-     const isDefaultShift = !isShiftEnabled && o.shift_id === 'default-shift';
-     return isLocalShift || isActiveShift || isDefaultShift;
-   });
-
-   // C. PHÂN CHIA BLOCKING SYNC NẾU NATIVE SQLITE ĐANG TRỐNG
-   if (!isLoadMore && Platform.OS !== 'web' && searchQuery === '' && branchOrders.length === 0) {
-     // Chạy đồng bộ chặn để không bị flash "Không có dữ liệu"
-     await runSync();
-     // Quét lại dữ liệu sau đồng bộ chặn
-     const updatedOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.updated_at));
-     rawOrders = updatedOrders;
-   }
-
-   // Tái định nghĩa các danh sách sau khi đồng bộ chặn (nếu có)
-   const finalBranchOrders = Platform.OS === 'web' ? rawOrders : rawOrders.filter((o: any) => {
-     const isLocalShift = o.shift_id && o.shift_id.startsWith(`shift-${activeShopId}-`);
-     const isActiveShift = activeShiftId && o.shift_id === activeShiftId;
-     const isDefaultShift = !isShiftEnabled && o.shift_id === 'default-shift';
-     return isLocalShift || isActiveShift || isDefaultShift;
-   });
-
-   // D. TÍNH TOÁN CÁC CON SỐ THỐNG KÊ (KPI STATS) TRÊN DANH SÁCH KHÔNG BỊ CẮT LÁT
-   // Lọc theo ca được chọn để tính synced/pending
-   const statsOrders = selectedShift === 'all' ? finalBranchOrders : finalBranchOrders.filter((o: any) => o.shift_id === selectedShift);
-   const synced = statsOrders.filter((o: any) => o.sync_status === 'synced').length;
-   const pending = statsOrders.filter((o: any) => o.sync_status === 'pending').length;
-   setSyncedCount(synced);
-   setPendingCount(pending);
-
-   // Tính toán doanh số ca & số đơn hàng ca chính xác
-   const targetShiftId = selectedShift !== 'all' ? selectedShift : (activeShiftId || 'default-shift');
-   if (targetShiftId === activeShiftId && activeShiftId) {
-     const stats = await getActiveShiftStats(activeShopId, activeShiftId, triggerRefresh || isRefreshing);
-     setTotalRevenue(stats.revenue);
-     setShiftOrdersCount(stats.count);
-   } else {
-     const shiftOrders = finalBranchOrders.filter((o: any) => o.shift_id === targetShiftId);
-     const revenue = shiftOrders.reduce((sum: number, o: any) => sum + o.total_amount, 0);
-     const count = shiftOrders.length;
-     setTotalRevenue(Platform.OS === 'web' ? 125000 : revenue);
-     setShiftOrdersCount(Platform.OS === 'web' ? 1 : count);
-   }
-
-   // E. LỌC DANH SÁCH THEO CÁC TIÊU CHÍ HIỂN THỊ VÀ TIẾN HÀNH CẮT LÁT (LAZY LOAD)
-   const localFiltered = finalBranchOrders.filter((o: any) => {
-     const matchesSearch = searchQuery === '' || fetchSearchSuccess || (
-       (o.id && o.id.toLowerCase().includes(searchQuery.toLowerCase())) || 
-       (o.order_no && o.order_no.toLowerCase().includes(searchQuery.toLowerCase())) ||
-       (o.customer_name && o.customer_name.toLowerCase().includes(searchQuery.toLowerCase()))
-     );
-     const matchesShift = selectedShift === 'all' || o.shift_id === selectedShift;
-     const matchesStatus = selectedStatus === 'all' || o.sync_status === selectedStatus;
-     return matchesSearch && matchesShift && matchesStatus;
-   });
-
-   const sliced = localFiltered.slice(0, currentLimit);
-   setOrdersList(sliced);
-   setHasMore(localFiltered.length > currentLimit);
-
-   if (Platform.OS !== 'web') {
-     const funds = await db.select().from(schema.paymentFunds);
-     setPaymentFundsList(funds);
-   }
-
-   // F. CHẠY SYNC NỀN NẾU BAN ĐẦU ĐÃ CÓ SẴN DỮ LIỆU SQLITE (VỪA HIỂN THỊ NHANH VỪA TẢI MỚI TRONG NỀN)
-   if (!isLoadMore && Platform.OS !== 'web' && searchQuery === '' && branchOrders.length > 0) {
-     (async () => {
-       await runSync();
-       // Cập nhật lại UI sau khi sync nền hoàn thành
-       const updatedOrders = await db.select().from(schema.orders).orderBy(desc(schema.orders.updated_at));
-       const updatedBranchOrders = updatedOrders.filter((o: any) => {
-         const isLocalShift = o.shift_id && o.shift_id.startsWith(`shift-${activeShopId}-`);
-         const isActiveShift = activeShiftId && o.shift_id === activeShiftId;
-         const isDefaultShift = !isShiftEnabled && o.shift_id === 'default-shift';
-         return isLocalShift || isActiveShift || isDefaultShift;
-       });
-
-       // Tính lại thống kê synced/pending
-       const statsOrdersNew = selectedShift === 'all' ? updatedBranchOrders : updatedBranchOrders.filter((o: any) => o.shift_id === selectedShift);
-       setSyncedCount(statsOrdersNew.filter((o: any) => o.sync_status === 'synced').length);
-       setPendingCount(statsOrdersNew.filter((o: any) => o.sync_status === 'pending').length);
-
-       // Tính lại doanh số ca
-       if (targetShiftId === activeShiftId && activeShiftId) {
-         const stats = await getActiveShiftStats(activeShopId, activeShiftId, false);
-         setTotalRevenue(stats.revenue);
-         setShiftOrdersCount(stats.count);
-       } else {
-         const shiftOrders = updatedBranchOrders.filter((o: any) => o.shift_id === targetShiftId);
-         setTotalRevenue(shiftOrders.reduce((sum: number, o: any) => sum + o.total_amount, 0));
-         setShiftOrdersCount(shiftOrders.length);
-       }
-
-               const localFilteredNew = updatedBranchOrders.filter((o: any) => {
-          const matchesShift = selectedShift === 'all' || o.shift_id === selectedShift;
-          const matchesStatus = selectedStatus === 'all' || o.sync_status === selectedStatus;
-          return matchesShift && matchesStatus;
-        });
-
-       setOrdersList(localFilteredNew.slice(0, currentLimit));
-       setHasMore(localFilteredNew.length > currentLimit);
-
-       if (triggerRefresh) {
-         setIsRefreshing(false);
-       }
-     })();
-   } else if (triggerRefresh) {
-     setIsRefreshing(false);
-   }
-
-   const mappedShifts = [
-     { id: 'all', label: 'Tất cả ca' },
-      ...shiftsData.map((s: any) => {
-        let name = s.employee_name || 'Nhân viên';
-        if (name === 'Thu ngân' || name === 'Thu ngân viên chính') {
-          name = 'Nhân viên';
-        }
-        return {
-          id: s.id,
-          label: `Ca ${name} (${s.opened_at.substring(11, 16)} - ${s.closed_at ? s.closed_at.substring(11, 16) : 'Đang mở'})`
-        };
-      })
-   ];
-   setShiftsList(mappedShifts);
-  } catch (err) {
-   console.error('Lỗi khi tải lịch sử hóa đơn:', err);
-  } finally {
-   setIsLoading(false);
-   setIsLazyLoading(false);
-  }
-  };
-
-  const onRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    setLimit(10);
-    await refreshOrders();
-  }, [searchQuery]);
+    setPage(1);
+    const requests: Promise<void>[] = [fetchOrdersOnline(shopId, 1, timeFilter, true)];
+    if (includeStats) requests.push(fetchStats(shopId));
+    await Promise.all(requests);
+  }, [fetchOrdersOnline, fetchStats, timeFilter]);
+  refreshOrdersRef.current = refreshOrders;
 
   useFocusEffect(
     useCallback(() => {
-      setLimit(10);
-      refreshOrders();
+      void refreshOrdersRef.current();
+
+      return () => {
+        ordersRequestRef.current?.abort();
+        statsRequestRef.current?.abort();
+        detailRequestRef.current?.abort();
+        financialRequestRef.current?.abort();
+      };
     }, [])
   );
 
   useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      if (isLoading) return;
-      setLimit(10);
-      refreshOrders();
-    }, 500);
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery]);
+    if (!hasMountedFiltersRef.current) {
+      hasMountedFiltersRef.current = true;
+      return;
+    }
 
-  useEffect(() => {
-    if (isLoading) return;
-    setLimit(10);
-    refreshOrders();
-  }, [selectedShift, selectedStatus]);
+    const delayMs = searchQuery ? 400 : 0;
+    const timeoutId = setTimeout(() => {
+      void refreshOrders(false);
+    }, delayMs);
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, timeFilter, refreshOrders]);
+
+  const refreshSelectedOrderFinancials = useCallback(async (order: any) => {
+    const shopId = await AsyncStorage.getItem('active_shop_id');
+    if (!shopId || order.sync_status === 'pending') return;
+
+    financialRequestRef.current?.abort();
+    const controller = new AbortController();
+    financialRequestRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const headers = await getApiHeaders();
+      const url = getApiBaseUrl();
+      const [orderRes, paymentsRes] = await Promise.all([
+        fetch(`${url}/api/shops/${shopId}/orders/${order.id}`, { headers, signal: controller.signal }),
+        fetch(`${url}/api/shops/${shopId}/payments?order_id=${order.id}&limit=50`, { headers, signal: controller.signal }),
+      ]);
+
+      if (orderRes.ok) {
+        const orderData = await orderRes.json();
+        const orderPatch = {
+          paid_amount: orderData.paid_amount,
+          debt_amount: orderData.debt_amount,
+          status: orderData.status,
+          total_amount: orderData.total_amount,
+          payment_method: orderData.payment_method,
+          sync_status: 'synced',
+        };
+        setSelectedOrder((prev: any) => prev?.id === order.id ? {
+          ...prev,
+          ...orderPatch,
+          payment_method: orderPatch.payment_method ?? prev.payment_method,
+        } : prev);
+        setOrdersList(prev => prev.map(item => item.id === order.id ? {
+          ...item,
+          ...orderPatch,
+          payment_method: orderPatch.payment_method ?? item.payment_method,
+        } : item));
+      }
+
+      if (paymentsRes.ok) {
+        const paymentsJson = await paymentsRes.json();
+        setSelectedOrderPayments(paymentsJson.data || []);
+      }
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') console.warn('Không thể refresh tài chính đơn hàng:', err);
+    } finally {
+      clearTimeout(timeoutId);
+      if (financialRequestRef.current === controller) financialRequestRef.current = null;
+    }
+  }, []);
 
   // Xem chi tiết
   const handleViewOrderDetails = async (order: any, isRefresh = false) => {
@@ -884,6 +400,10 @@ export default function OrdersScreen() {
       setSelectedOrderCustomerPhone(null);
     }
     
+    detailRequestRef.current?.abort();
+    const detailController = new AbortController();
+    detailRequestRef.current = detailController;
+    const detailTimeoutId = setTimeout(() => detailController.abort(), 8000);
     setIsDetailLoading(true);
 
     try {
@@ -964,33 +484,40 @@ export default function OrdersScreen() {
       setSelectedOrderPayments(localPayments);
       setSelectedOrderCustomerPhone(customerPhone);
 
-      let fetchedOnline = false;
-
       // 2. Chỉ thực hiện fetch online ngầm nếu đã đồng bộ và có shopId
       if (shopId && order.sync_status !== 'pending') {
         try {
           const [itemsRes, paymentsRes, returnsRes, settingsRes, cashbookRes, orderRes] = await Promise.all([
-            fetch(`${url}/api/shops/${shopId}/order-items?order_id=${order.id}&limit=100`, { headers }),
-            fetch(`${url}/api/shops/${shopId}/payments?order_id=${order.id}&limit=50`, { headers }),
-            fetch(`${url}/api/shops/${shopId}/returns?order_id=${order.id}&limit=50`, { headers }),
-            fetch(`${url}/api/shops/${shopId}/settings`, { headers }),
-            fetch(`${url}/api/shops/${shopId}/cashbook?reference_id=${order.id}&limit=100`, { headers }),
-            fetch(`${url}/api/shops/${shopId}/orders/${order.id}`, { headers })
+            fetch(`${url}/api/shops/${shopId}/order-items?order_id=${order.id}&limit=100`, { headers, signal: detailController.signal }),
+            fetch(`${url}/api/shops/${shopId}/payments?order_id=${order.id}&limit=50`, { headers, signal: detailController.signal }),
+            fetch(`${url}/api/shops/${shopId}/returns?order_id=${order.id}&limit=50`, { headers, signal: detailController.signal }),
+            fetch(`${url}/api/shops/${shopId}/settings`, { headers, signal: detailController.signal }),
+            fetch(`${url}/api/shops/${shopId}/cashbook?reference_id=${order.id}&limit=100`, { headers, signal: detailController.signal }),
+            fetch(`${url}/api/shops/${shopId}/orders/${order.id}`, { headers, signal: detailController.signal })
           ]);
 
           // Tổng tiền của đơn là dữ liệu cốt lõi: cập nhật độc lập với các API phụ
           // để nút reload vẫn làm mới Đã thanh toán/Còn nợ khi items/payments/... lỗi.
           if (orderRes.ok) {
             const orderData = await orderRes.json();
-            setSelectedOrder((prev: any) => prev?.id === order.id ? {
-              ...prev,
+            const orderPatch = {
               paid_amount: orderData.paid_amount,
               debt_amount: orderData.debt_amount,
               status: orderData.status,
               total_amount: orderData.total_amount,
-              payment_method: orderData.payment_method ?? prev.payment_method,
+              payment_method: orderData.payment_method,
               sync_status: 'synced',
+            };
+            setSelectedOrder((prev: any) => prev?.id === order.id ? {
+              ...prev,
+              ...orderPatch,
+              payment_method: orderPatch.payment_method ?? prev.payment_method,
             } : prev);
+            setOrdersList(prev => prev.map(item => item.id === order.id ? {
+              ...item,
+              ...orderPatch,
+              payment_method: orderPatch.payment_method ?? item.payment_method,
+            } : item));
           }
 
           if (itemsRes.ok && paymentsRes.ok && returnsRes.ok && settingsRes.ok && cashbookRes.ok) {
@@ -1004,7 +531,7 @@ export default function OrdersScreen() {
             const returnsWithItems = await Promise.all(
               rawReturns.map(async (ret: any) => {
                 try {
-                  const retItemsRes = await fetch(`${url}/api/shops/${shopId}/return-items?return_id=${ret.return_id}&limit=100`, { headers });
+                  const retItemsRes = await fetch(`${url}/api/shops/${shopId}/return-items?return_id=${ret.return_id}&limit=100`, { headers, signal: detailController.signal });
                   if (retItemsRes.ok) {
                     const retItemsJson = await retItemsRes.json();
                     return { ...ret, items: retItemsJson.data || [] };
@@ -1027,7 +554,7 @@ export default function OrdersScreen() {
               const retRef = ret.return_no || ret.return_id;
               if (retRef) {
                 try {
-                  const retCbRes = await fetch(`${url}/api/shops/${shopId}/cashbook?reference_id=${retRef}&limit=10`, { headers });
+                  const retCbRes = await fetch(`${url}/api/shops/${shopId}/cashbook?reference_id=${retRef}&limit=10`, { headers, signal: detailController.signal });
                   if (retCbRes.ok) {
                     const retCbJson = await retCbRes.json();
                     cbData.push(...(retCbJson.data || []));
@@ -1038,16 +565,21 @@ export default function OrdersScreen() {
               }
             }
             setSelectedOrderCashbook(cbData);
-            fetchedOnline = true;
           }
-        } catch (err) {
-          console.warn('Lỗi tải dữ liệu trực tuyến, sử dụng dữ liệu cục bộ:', err);
+        } catch (err: any) {
+          if (err?.name !== 'AbortError') {
+            console.warn('Lỗi tải dữ liệu trực tuyến, sử dụng dữ liệu cục bộ:', err);
+          }
         }
       }
-    } catch (err) {
-      console.error('Lỗi tải chi tiết dòng sản phẩm:', err);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') console.error('Lỗi tải chi tiết dòng sản phẩm:', err);
     } finally {
-      setIsDetailLoading(false);
+      clearTimeout(detailTimeoutId);
+      if (detailRequestRef.current === detailController) {
+        detailRequestRef.current = null;
+        setIsDetailLoading(false);
+      }
     }
   };
 
@@ -1133,6 +665,8 @@ export default function OrdersScreen() {
   const handleCancelOrder = async () => {
     if (!selectedOrder) return;
     setIsCancelling(true);
+    const cancelController = new AbortController();
+    const cancelTimeoutId = setTimeout(() => cancelController.abort(), 10000);
     try {
       const shopId = await AsyncStorage.getItem('active_shop_id') || '';
       const headers = await getApiHeaders();
@@ -1142,6 +676,7 @@ export default function OrdersScreen() {
       const res = await fetch(`${url}/api/shops/${shopId}/orders/${selectedOrder.id}/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
+        signal: cancelController.signal,
         body: JSON.stringify({ reason: reason || 'Không rõ' })
       });
 
@@ -1150,20 +685,16 @@ export default function OrdersScreen() {
         throw new Error(json.error || 'Hủy đơn hàng thất bại');
       }
 
-      if (Platform.OS !== 'web') {
-        await db.update(schema.orders)
-          .set({ status: 'cancelled' })
-          .where(eq(schema.orders.id, selectedOrder.id));
-      }
-
-      await refreshOrders();
+      setOrdersList(prev => prev.map(item => item.id === selectedOrder.id ? { ...item, status: 'cancelled' } : item));
       setSelectedOrder((prev: any) => prev ? { ...prev, status: 'cancelled' } : null);
+      void fetchStats(shopId);
       setShowCancelDialog(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (err: any) {
       console.error('Lỗi khi hủy đơn hàng:', err);
-      alert(err.message || 'Lỗi khi hủy đơn hàng. Vui lòng thử lại.');
+      alert(err?.name === 'AbortError' ? 'Yêu cầu hủy quá thời gian 10 giây. Hãy tải lại đơn để kiểm tra trạng thái trước khi thử lại.' : (err.message || 'Lỗi khi hủy đơn hàng. Vui lòng thử lại.'));
     } finally {
+      clearTimeout(cancelTimeoutId);
       setIsCancelling(false);
     }
   };
@@ -1186,6 +717,8 @@ export default function OrdersScreen() {
     }
 
     setIsReturning(true);
+    const returnController = new AbortController();
+    const returnTimeoutId = setTimeout(() => returnController.abort(), 15000);
     try {
       const shopId = await AsyncStorage.getItem('active_shop_id') || '';
       const headers = await getApiHeaders();
@@ -1202,6 +735,7 @@ export default function OrdersScreen() {
       const retRes = await fetch(`${url}/api/shops/${shopId}/returns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
+        signal: returnController.signal,
         body: JSON.stringify({
           order_id:      selectedOrder.id,
           order_no:      selectedOrder.order_no || selectedOrder.id,
@@ -1231,6 +765,7 @@ export default function OrdersScreen() {
           return fetch(`${url}/api/shops/${shopId}/return-items`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...headers },
+            signal: returnController.signal,
             body: JSON.stringify({
               return_id:    ret.return_id,
               return_no:    ret.return_no || ret.return_id,
@@ -1256,6 +791,7 @@ export default function OrdersScreen() {
         const processRes = await fetch(`${url}/api/shops/${shopId}/returns/${ret.return_id}/process`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers },
+          signal: returnController.signal,
           body: JSON.stringify({ processed_by: 'Hệ thống (Tự động)' })
         });
         if (processRes.ok) {
@@ -1268,21 +804,23 @@ export default function OrdersScreen() {
 
       // Fetch updated order status
       const orderRes = await fetch(`${url}/api/shops/${shopId}/orders/${selectedOrder.id}`, {
-        headers
+        headers,
+        signal: returnController.signal,
       });
       let updatedOrder = null;
       if (orderRes.ok) {
         updatedOrder = await orderRes.json();
       }
 
-      if (updatedOrder && Platform.OS !== 'web') {
-        await db.update(schema.orders)
-          .set({ status: updatedOrder.status })
-          .where(eq(schema.orders.id, selectedOrder.id));
+      if (updatedOrder) {
+        setOrdersList(prev => prev.map(item => item.id === selectedOrder.id ? {
+          ...item,
+          ...updatedOrder,
+          sync_status: 'synced',
+        } : item));
       }
+      void fetchStats(shopId);
 
-      await refreshOrders();
-      
       setShowReturnForm(false);
       setShowConfirmReturn(false);
 
@@ -1298,8 +836,9 @@ export default function OrdersScreen() {
 
     } catch (err: any) {
       console.error('Lỗi khi tạo phiếu trả hàng:', err);
-      alert(err.message || 'Lỗi khi tạo phiếu trả hàng. Vui lòng thử lại.');
+      alert(err?.name === 'AbortError' ? 'Yêu cầu đổi trả quá thời gian 15 giây. Hãy tải lại đơn để kiểm tra trạng thái trước khi thử lại.' : (err.message || 'Lỗi khi tạo phiếu trả hàng. Vui lòng thử lại.'));
     } finally {
+      clearTimeout(returnTimeoutId);
       setIsReturning(false);
     }
   };
@@ -1429,12 +968,9 @@ export default function OrdersScreen() {
               key={filter.id}
               className="mr-2 px-2.5 py-1 rounded-xl border"
               style={timeFilter === filter.id ? { backgroundColor: '#fa5908', borderColor: '#fa5908' } : { backgroundColor: '#fff', borderColor: '#e2e8f0' }}
-              onPress={() => { 
-                setTimeFilter(filter.id); 
-                setPage(1); 
-                AsyncStorage.getItem('active_shop_id').then(shopId => {
-                  if (shopId) fetchOrdersOnline(shopId, 1, filter.id);
-                });
+              onPress={() => {
+                setTimeFilter(filter.id);
+                setPage(1);
               }}
             >
               <Text className={`text-xxs font-semibold ${timeFilter === filter.id ? 'text-white' : 'text-slate-500'}`}>{filter.label}</Text>
@@ -1461,22 +997,14 @@ export default function OrdersScreen() {
               refreshing={isRefreshing}
               onRefresh={async () => {
                 setIsRefreshing(true);
-                setPage(1);
-                const shopId = await AsyncStorage.getItem('active_shop_id');
-                if (shopId) {
-                  await Promise.all([
-                    fetchOrdersOnline(shopId, 1, timeFilter, true),
-                    fetchStats(shopId)
-                  ]);
-                }
-                setIsRefreshing(false);
+                await refreshOrders();
               }}
               colors={['#fa5908']}
               tintColor="#fa5908"
             />
           }
           onEndReached={() => {
-            if (hasMore && !isLoadingMore) {
+            if (hasMore && !isLoadingMore && !isLoading) {
                const p = page + 1;
                setPage(p);
                AsyncStorage.getItem('active_shop_id').then(shopId => {
@@ -2100,15 +1628,12 @@ export default function OrdersScreen() {
           setShowDebtModal(false);
           showToast('Thu nợ thành công', 'success');
 
-          const shopId = await AsyncStorage.getItem('active_shop_id');
-          if (!shopId) return;
-
-          setPage(1);
-          await Promise.all([
-            fetchOrdersOnline(shopId, 1, timeFilter, true),
-            fetchStats(shopId),
-            selectedOrder ? handleViewOrderDetails(selectedOrder, true) : Promise.resolve(),
-          ]);
+          if (selectedOrder) {
+            // Thu nợ không thay đổi doanh thu/tổng số đơn: chỉ reload đúng đơn đang mở.
+            await refreshSelectedOrderFinancials(selectedOrder);
+          } else {
+            await refreshOrders();
+          }
         }}
       />
 

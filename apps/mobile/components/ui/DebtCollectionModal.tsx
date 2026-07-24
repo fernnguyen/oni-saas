@@ -221,73 +221,50 @@ export function DebtCollectionModal({ visible, onClose, customer, onSuccess }: D
       // REALTIME FIRST: chỉ báo thành công sau khi server đã ghi nhận phiếu và
       // cập nhật paid_amount/debt_amount của các đơn được phân bổ.
       const headers = await getApiHeaders();
-      const response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/cashbook`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'receipt',
-          amount: numericAmount,
-          method: paymentMethod,
-          category: 'debt_collection',
-          reference_id: customer.id,
-          reference_name: customer.name,
-          employee_id: userEmail,
-          note: resolvedNote,
-          date: createdAt,
-          fund_id: fundId,
-          branch_id: shopId,
-          order_allocations: allocations,
-        }),
-      });
+      const controller = new AbortController();
+      let didTimeout = false;
+      const timeoutId = setTimeout(() => {
+        didTimeout = true;
+        controller.abort();
+      }, 10000);
+      let response: Awaited<ReturnType<typeof fetch>>;
+
+      try {
+        response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/cashbook`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            type: 'receipt',
+            amount: numericAmount,
+            method: paymentMethod,
+            category: 'debt_collection',
+            reference_id: customer.id,
+            reference_name: customer.name,
+            employee_id: userEmail,
+            note: resolvedNote,
+            date: createdAt,
+            fund_id: fundId,
+            branch_id: shopId,
+            order_allocations: allocations,
+          }),
+        });
+      } catch (requestError: any) {
+        if (requestError?.name === 'AbortError' && didTimeout) {
+          throw new Error('Yêu cầu quá thời gian 10 giây. Server có thể vẫn đang xử lý; hãy tải lại đơn để kiểm tra trước khi thử thu nợ lần nữa.');
+        }
+        throw requestError;
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
         throw new Error(errorBody.error || errorBody.message || 'Server chưa ghi nhận phiếu thu nợ');
       }
 
-      const createdCashbook = await response.json().catch(() => ({}));
-      const cbId = createdCashbook.transaction_id || createdCashbook.id || `cb-server-debt-${Date.now()}`;
-
-      // Mirror kết quả server về SQLite để dữ liệu offline không bị lệch.
-      // Lỗi mirror không được biến một giao dịch server đã thành công thành thất bại giả.
-      try {
-        await db.insert(schema.cashbook).values({
-        id: cbId,
-        branch_id: shopId,
-        type: 'receipt',
-        amount: numericAmount,
-        method: paymentMethod,
-        category: 'debt_collection',
-        reference_id: customer.id,
-        reference_name: customer.name,
-        employee_id: userEmail,
-        note: resolvedNote,
-        date: createdAt,
-        fund_id: fundId,
-        sync_status: 'synced',
-        order_allocations: JSON.stringify(allocations),
-      }).onConflictDoNothing();
-
-      // Cập nhật bản mirror khách hàng để UI/offline cache đồng nhất với server.
-      await db.update(schema.customers)
-        .set({ debt_amount: Math.max(0, customerDebt - numericAmount) })
-        .where(eq(schema.customers.id, customer.id));
-
-        // Cập nhật paid_amount cho các đơn hàng được gạch nợ
-        for (const alloc of allocations) {
-          const order = selectedOrdersData.find(o => o.id === alloc.order_id);
-          if (order) {
-            await db.update(schema.orders)
-              .set({
-                paid_amount: String(Number(order.paid_amount || 0) + alloc.amount)
-              })
-              .where(eq(schema.orders.id, alloc.order_id));
-          }
-        }
-      } catch (localMirrorError) {
-        console.warn('Server đã thu nợ thành công nhưng không thể cập nhật SQLite mirror:', localMirrorError);
-      }
-
+      // Không mirror ngược dữ liệu server vào SQLite trên hot path.
+      // SQLite chỉ được đọc khi request server thất bại/offline.
       await onSuccess();
     } catch (e: any) {
       Alert.alert('Lỗi', `Lỗi khi lưu phiếu: ${e.message}`);
