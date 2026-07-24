@@ -9,7 +9,7 @@ export async function GET(req: Request) {
 
     if (!tenantId) {
       const userRes = await getSessionUserWithTenant();
-      tenantId = userRes?.tenantId ?? null;
+      tenantId = userRes?.tenant?.id ?? null;
     }
 
     if (!tenantId) {
