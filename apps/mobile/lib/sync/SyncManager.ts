@@ -466,20 +466,32 @@ export class SyncManager {
   // ==========================================
   // 2. ĐẨY HÓA ĐƠN OFFLINE LÊN CLOUD (BATCH SYNC PUSH)
   // ==========================================
-  static async pushOfflineOrders(shopId: string): Promise<{ successCount: number; failedCount: number }> {
+  static async pushOfflineOrders(shopId: string, targetOrderId?: string): Promise<{
+    successCount: number;
+    failedCount: number;
+    errors: Array<{ orderId: string; status?: number; message: string }>;
+  }> {
     let successCount = 0;
     let failedCount = 0;
+    const errors: Array<{ orderId: string; status?: number; message: string }> = [];
 
     try {
-      // Truy vấn tất cả hóa đơn lưu trữ cục bộ có sync_status là 'pending'
-      const pendingOrders = await db
-        .select()
-        .from(schema.orders)
-        .where(eq(schema.orders.sync_status, 'pending'));
+      // A manual retry may target a previously failed order. Background sync
+      // still consumes only the pending queue so hard failures do not loop.
+      const pendingOrders = targetOrderId
+        ? await db
+            .select()
+            .from(schema.orders)
+            .where(eq(schema.orders.id, targetOrderId))
+            .limit(1)
+        : await db
+            .select()
+            .from(schema.orders)
+            .where(eq(schema.orders.sync_status, 'pending'));
 
       if (pendingOrders.length === 0) {
         console.log('Không có hóa đơn offline nào chờ đồng bộ.');
-        return { successCount: 0, failedCount: 0 };
+        return { successCount: 0, failedCount: 0, errors };
       }
 
       console.log(`Phát hiện ${pendingOrders.length} hóa đơn offline. Đang bắt đầu đẩy lên Cloud...`);
@@ -518,6 +530,43 @@ export class SyncManager {
             serverOrderId = order.id;
           }
 
+          const normalizePaymentMethod = (method: unknown) => {
+            const value = String(method || '');
+            return value === 'Chuyển khoản' ? 'bank_transfer' :
+              value === 'Thẻ ATM' ? 'card' :
+              value === 'Ví MoMo' ? 'momo' :
+              value === 'Ghi nợ' ? 'debt' : value;
+          };
+          const rawPayments = (() => {
+            try {
+              const parsed = JSON.parse(order.payment_method);
+              if (Array.isArray(parsed)) return parsed;
+            } catch (e) {}
+            return order.payment_method || Number(order.paid_amount || 0) !== 0
+              ? [{ method: order.payment_method, amount: order.paid_amount }]
+              : [];
+          })();
+          const normalizedPayments = rawPayments
+            .map((payment: any, index: number) => ({
+              id: payment.id || payment.payment_id || `PAY-${order.id}-${index}`,
+              method: normalizePaymentMethod(payment.method || payment.METHOD),
+              amount: Number(payment.amount ?? payment.AMOUNT ?? 0),
+              fund_id: payment.fund_id || payment.FUND_ID || payment.meta?.fund_id || undefined,
+              reference_no: payment.reference_no || undefined,
+              note: payment.note || undefined,
+            }))
+            .filter((payment: any) => Number.isFinite(payment.amount) && payment.amount !== 0);
+          const nonDebtPaidAmount = normalizedPayments.reduce((sum: number, payment: any) =>
+            payment.method !== 'debt' && !payment.method?.startsWith('debt-')
+              ? sum + Number(payment.amount)
+              : sum, 0
+          );
+          const resolvedPaidAmount = order.status === 'in_progress'
+            ? 0
+            : normalizedPayments.length > 0
+              ? Math.min(Number(order.total_amount || 0), nonDebtPaidAmount)
+              : Number(order.paid_amount || 0);
+
           // Định dạng payload gửi lên REST API Next.js sync-batch
           const payload = {
             local_order_id: order.id,
@@ -533,8 +582,8 @@ export class SyncManager {
               discount_amount: order.discount_amount || 0,
               tax_amount: (order as any).tax_amount || 0,
               total_amount: order.total_amount,
-              paid_amount: order.paid_amount,
-              debt_amount: order.total_amount - order.paid_amount,
+              paid_amount: resolvedPaidAmount,
+              debt_amount: Math.max(0, Number(order.total_amount || 0) - resolvedPaidAmount),
               resource_id: (order as any).resource_id || parsedOrderMetadata.resource_id || undefined,
               note: order.note || `Hóa đơn offline từ di động. Tạo lúc ${order.created_at}`,
               metadata: (order as any).metadata,
@@ -554,29 +603,7 @@ export class SyncManager {
               tax_vat_rate: it.tax_vat_rate || '0',
               tax_pit_rate: it.tax_pit_rate || '0',
             })),
-            payments: order.status === 'in_progress' ? [] : (() => {
-              try {
-                const parsed = JSON.parse(order.payment_method);
-                if (Array.isArray(parsed)) {
-                  return parsed.map((p: any) => ({
-                    method: p.method === 'Chuyển khoản' ? 'bank_transfer' :
-                            p.method === 'Thẻ ATM' ? 'card' :
-                            p.method === 'Ví MoMo' ? 'momo' :
-                            p.method === 'Ghi nợ' ? 'debt' : p.method,
-                    amount: p.amount,
-                  }));
-                }
-              } catch (e) {}
-              return [
-                {
-                  method: order.payment_method === 'Chuyển khoản' ? 'bank_transfer' :
-                          order.payment_method === 'Thẻ ATM' ? 'card' :
-                          order.payment_method === 'Ví MoMo' ? 'momo' :
-                          order.payment_method === 'Ghi nợ' ? 'debt' : order.payment_method,
-                  amount: order.paid_amount,
-                }
-              ];
-            })(),
+            payments: order.status === 'in_progress' ? [] : normalizedPayments,
             stock_movements: items
               .filter((it: any) => !isTimeChargeProduct(it.product_id, it.product_name))
               .map((it: any) => ({
@@ -628,18 +655,35 @@ export class SyncManager {
           } else {
             failedCount++;
             const errorJson = await response.json().catch(() => ({}));
-            console.warn(`Đồng bộ hóa đơn #${order.id} thất bại. Lỗi từ Server:`, errorJson.message || response.statusText);
+            const message = errorJson.message || errorJson.error || response.statusText || `HTTP ${response.status}`;
+            errors.push({ orderId: order.id, status: response.status, message });
+            if (targetOrderId) {
+              await db.update(schema.orders)
+                .set({ sync_status: 'failed', updated_at: new Date().toISOString() })
+                .where(eq(schema.orders.id, order.id));
+            }
+            console.warn(`Đồng bộ hóa đơn #${order.id} thất bại. Lỗi từ Server:`, message);
           }
         } catch (singleErr) {
           failedCount++;
+          const message = singleErr instanceof Error ? singleErr.message : String(singleErr);
+          errors.push({ orderId: order.id, message });
+          if (targetOrderId) {
+            await db.update(schema.orders)
+              .set({ sync_status: 'failed', updated_at: new Date().toISOString() })
+              .where(eq(schema.orders.id, order.id))
+              .catch(() => {});
+          }
           console.error(`Lỗi đường truyền khi đồng bộ hóa đơn #${order.id}:`, singleErr);
         }
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push({ orderId: targetOrderId || 'batch', message });
       console.error('Lỗi nghiêm trọng trong tiến trình đẩy dữ liệu POS offline:', error);
     }
 
-    return { successCount, failedCount };
+    return { successCount, failedCount, errors };
   }
 
   // ==========================================

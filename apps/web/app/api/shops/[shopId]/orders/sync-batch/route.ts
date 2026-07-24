@@ -201,12 +201,27 @@ export async function POST(
 
     // Auto-create customer if name is provided but no ID
     const isRetailGuest = !order.customer_name || ['khách lẻ', 'khach le', 'khách mua lẻ', 'khach mua le'].includes(order.customer_name.trim().toLowerCase());
+    const resolvedDebtAmount = payments && payments.length > 0
+      ? Math.max(
+          0,
+          (Number(order.total_amount) || 0) -
+            payments.reduce((sum, payment) => {
+              const method = payment.method?.toLowerCase() || ''
+              return method !== 'debt' && !method.startsWith('debt-')
+                ? sum + (Number(payment.amount) || 0)
+                : sum
+            }, 0)
+        )
+      : (Number(order.debt_amount) || 0)
     
     if (isRetailGuest) {
       // SECURITY & DATA INTEGRITY CHECK: 
       // Never allow a Retail Guest to have debt.
-      const hasDebtPayment = payments?.some(p => p.method === 'debt' && Number(p.amount) > 0)
-      if (Number(order.debt_amount) > 0 || hasDebtPayment) {
+      const hasDebtPayment = payments?.some(p => {
+        const method = p.method?.toLowerCase() || ''
+        return (method === 'debt' || method.startsWith('debt-')) && Number(p.amount) > 0
+      })
+      if (resolvedDebtAmount > 0 || hasDebtPayment) {
         return NextResponse.json({ 
           error: 'DATA_INTEGRITY_ERROR', 
           message: 'Khách lẻ không được phép ghi nợ. Thiếu thông tin định danh khách hàng.' 
@@ -263,9 +278,7 @@ export async function POST(
       }
     }
 
-    const actualDebtAmount = payments && payments.length > 0
-      ? Math.max(0, (Number(order.total_amount) || 0) - payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + (Number(p.amount) || 0) : sum, 0))
-      : (Number(order.debt_amount) || 0)
+    const actualDebtAmount = resolvedDebtAmount
 
     const resolvedResourceId = (() => {
       const directResourceId = order.resource_id?.trim()
@@ -374,13 +387,44 @@ export async function POST(
       page: 1, limit: 200,
       filters: { order_id: serverId },
     })
-    const existingProductIds = new Set(
-      (existingItems.data as Record<string, string>[]).map((r) => r.product_id)
+    const existingItemRows = existingItems.data as Record<string, string>[]
+    const existingProductIds = new Set(existingItemRows.map((r) => r.product_id))
+    const canonicalTimeCharge = items.find(
+      (item) =>
+        item.product_id !== 'TIME_CHARGE' &&
+        !item.product_id.startsWith('TIME_CHARGE_MERGED_') &&
+        isTimeChargeProduct(item.product_id, item.product_name)
     )
+
+    // Older mobile builds used the synthetic TIME_CHARGE id while newer builds
+    // resolve the shop's canonical time-charge product. They represent the same
+    // room charge, so remove the legacy row before the canonical item is deduped.
+    if (canonicalTimeCharge) {
+      const legacyTimeChargeRows = existingItemRows.filter(
+        (row) => row.product_id === 'TIME_CHARGE'
+      )
+
+      for (const legacyRow of legacyTimeChargeRows) {
+        const legacyItemId = legacyRow.item_id || legacyRow.id
+        if (!legacyItemId) continue
+
+        await connector.delete('order-items', legacyItemId)
+        const {
+          item_id: _legacyItemId,
+          id: _legacyId,
+          ...legacyRestoreData
+        } = legacyRow
+        tx.add(async () => {
+          await connector.create('order-items', legacyRestoreData)
+        })
+      }
+      existingProductIds.delete('TIME_CHARGE')
+    }
 
     const itemsToCreate = []
     for (let i = 0; i < items.length; i++) {
       const it = items[i]
+      if (it.product_id === 'TIME_CHARGE' && canonicalTimeCharge) continue
       if (existingProductIds.has(it.product_id)) continue
 
       // Fallback calculations for missing tax fields
@@ -475,6 +519,7 @@ export async function POST(
         unit_name:      it.unit_name ?? '',
         conversion_rate:String(it.conversion_rate ?? 1),
       })
+      existingProductIds.add(it.product_id)
     }
     if (itemsToCreate.length > 0) {
       const createdItems = await connector.batchCreate('order-items', itemsToCreate)
@@ -490,6 +535,12 @@ export async function POST(
     // Query existing payments only if we have a valid server-side order ID.
     // If serverId is empty at this point (brand-new order), there are no existing payments yet.
     const existingPayIds = new Set<string>()
+    const existingPaySemanticCounts = new Map<string, number>()
+    const getPaymentSemanticKey = (payment: { method?: string; amount?: string | number }) => {
+      const method = payment.method?.trim().toLowerCase() || ''
+      const amount = Number(payment.amount) || 0
+      return `${method}|${amount.toFixed(2)}`
+    }
     if (serverId) {
       const existingPays = await connector.list('payments', {
         page: 1, limit: 100,
@@ -498,6 +549,11 @@ export async function POST(
       ;(existingPays.data as Record<string, string>[]).forEach((r) => {
         if (r.payment_id) existingPayIds.add(r.payment_id)
         if (r.id) existingPayIds.add(r.id)
+        const semanticKey = getPaymentSemanticKey(r)
+        existingPaySemanticCounts.set(
+          semanticKey,
+          (existingPaySemanticCounts.get(semanticKey) || 0) + 1
+        )
       })
     }
 
@@ -578,10 +634,29 @@ export async function POST(
 
     const paysToCreate = []
     const cashbookToCreate = []
-    for (const pay of payments) {
-      if (pay.id && existingPayIds.has(pay.id)) continue
+    for (let payIndex = 0; payIndex < payments.length; payIndex++) {
+      const pay = payments[payIndex]
+      const semanticKey = getPaymentSemanticKey(pay)
+      const matchingExistingCount = existingPaySemanticCounts.get(semanticKey) || 0
+
+      if (pay.id && existingPayIds.has(pay.id)) {
+        if (matchingExistingCount > 0) {
+          existingPaySemanticCounts.set(semanticKey, matchingExistingCount - 1)
+        }
+        continue
+      }
+      if (matchingExistingCount > 0) {
+        existingPaySemanticCounts.set(semanticKey, matchingExistingCount - 1)
+        continue
+      }
       
-      const newPayId = pay.id || `PAY-${Date.now()}-${Math.floor(Math.random()*1000)}`
+      const fallbackPaymentHash = crypto
+        .createHash('sha256')
+        .update(`${serverId}|${payIndex}|${semanticKey}|${pay.reference_no || ''}`)
+        .digest('hex')
+        .substring(0, 12)
+        .toUpperCase()
+      const newPayId = pay.id || `PAY-${serverId}-${payIndex}-${fallbackPaymentHash}`
       paysToCreate.push({
         id:           newPayId,
         order_id:     serverId,

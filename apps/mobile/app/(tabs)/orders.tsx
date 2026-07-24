@@ -59,6 +59,54 @@ const getPaymentMethodDisplay = (pm: string) => {
  return translateMethod(pm);
 };
 
+type OrderSyncVisual = {
+  state: 'synced' | 'pending' | 'failed';
+  color: string;
+  label: string;
+  badgeVariant: 'success' | 'warning' | 'danger';
+};
+
+const isOrderUnsynced = (syncStatus?: string) =>
+  ['pending', 'syncing', 'offline', 'failed', 'error', 'review']
+    .includes(String(syncStatus || '').trim().toLowerCase());
+
+const getOrderSyncVisual = (syncStatus?: string, isSyncing = false): OrderSyncVisual => {
+  if (isSyncing) {
+    return {
+      state: 'pending',
+      color: '#f59e0b',
+      label: 'Đang đồng bộ',
+      badgeVariant: 'warning',
+    };
+  }
+
+  const normalizedStatus = String(syncStatus || 'synced').trim().toLowerCase();
+  if (normalizedStatus === 'failed' || normalizedStatus === 'error' || normalizedStatus === 'review') {
+    return {
+      state: 'failed',
+      color: '#ef4444',
+      label: 'Đồng bộ thất bại',
+      badgeVariant: 'danger',
+    };
+  }
+
+  if (normalizedStatus === 'pending' || normalizedStatus === 'syncing' || normalizedStatus === 'offline') {
+    return {
+      state: 'pending',
+      color: '#f59e0b',
+      label: 'Chờ đồng bộ',
+      badgeVariant: 'warning',
+    };
+  }
+
+  return {
+    state: 'synced',
+    color: '#22c55e',
+    label: 'Đã đồng bộ',
+    badgeVariant: 'success',
+  };
+};
+
 type OrderResourceInfo = {
   id: string;
   name: string;
@@ -243,6 +291,7 @@ export default function OrdersScreen() {
  const [isReprintSuccessVisible, setIsReprintSuccessVisible] = useState(false);
  const [isSyncSuccessVisible, setIsSyncSuccessVisible] = useState(false);
  const [isSyncErrorVisible, setIsSyncErrorVisible] = useState(false);
+ const [syncErrorMessage, setSyncErrorMessage] = useState('Không thể đồng bộ đơn hàng. Vui lòng thử lại.');
 
   // Tải dữ liệu SQLite hoặc Cloud
 
@@ -304,7 +353,12 @@ export default function OrdersScreen() {
           const pendingLocalOrders = await db
             .select()
             .from(schema.orders)
-            .where(eq(schema.orders.sync_status, 'pending'))
+            .where(or(
+              eq(schema.orders.sync_status, 'pending'),
+              eq(schema.orders.sync_status, 'failed'),
+              eq(schema.orders.sync_status, 'error'),
+              eq(schema.orders.sync_status, 'review')
+            ))
             .orderBy(desc(schema.orders.updated_at))
             .limit(20);
           const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -404,7 +458,7 @@ export default function OrdersScreen() {
 
   const refreshSelectedOrderFinancials = useCallback(async (order: any) => {
     const shopId = await AsyncStorage.getItem('active_shop_id');
-    if (!shopId || order.sync_status === 'pending') return;
+    if (!shopId || isOrderUnsynced(order.sync_status)) return;
 
     financialRequestRef.current?.abort();
     const controller = new AbortController();
@@ -553,7 +607,7 @@ export default function OrdersScreen() {
       setSelectedOrderCustomerPhone(customerPhone);
 
       // 2. Chỉ thực hiện fetch online ngầm nếu đã đồng bộ và có shopId
-      if (shopId && order.sync_status !== 'pending') {
+      if (shopId && !isOrderUnsynced(order.sync_status)) {
         try {
           const [itemsRes, paymentsRes, returnsRes, settingsRes, cashbookRes, orderRes] = await Promise.all([
             fetch(`${url}/api/shops/${shopId}/order-items?order_id=${order.id}&limit=100`, { headers, signal: detailController.signal }),
@@ -956,12 +1010,12 @@ export default function OrdersScreen() {
     }
   };
 
-  const canCancel = selectedOrder && selectedOrder.sync_status !== 'pending' && (
+  const canCancel = selectedOrder && !isOrderUnsynced(selectedOrder.sync_status) && (
     (selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'in_progress' && hasPermission('orders.delete')) ||
     (selectedOrder.status === 'in_progress' && hasPermission('orders.delete') && (hasPermission('owner') || hasPermission('admin')))
   );
 
-  const canReturn = selectedOrder && selectedOrder.sync_status !== 'pending' && hasPermission('returns.create') && (
+  const canReturn = selectedOrder && !isOrderUnsynced(selectedOrder.sync_status) && hasPermission('returns.create') && (
     selectedOrder.status === 'completed' || selectedOrder.status === 'partially_refunded'
   );
 
@@ -987,7 +1041,7 @@ export default function OrdersScreen() {
          item.product_id !== 'TIME_CHARGE' && /^(Tiền phòng|Tiền giờ)\s*-/.test(item.product_name || '')
        );
 
-       if (localOrder?.sync_status === 'pending' && hasCanonicalTimeItem && virtualTimeItems.length > 0) {
+       if (localOrder && isOrderUnsynced(localOrder.sync_status) && hasCanonicalTimeItem && virtualTimeItems.length > 0) {
          const duplicateTotal = virtualTimeItems.reduce((sum: number, item: any) => sum + Number(item.line_total || 0), 0);
          const duplicateTax = virtualTimeItems.reduce((sum: number, item: any) => sum + Number(item.tax_amount || 0), 0);
          for (const item of virtualTimeItems) {
@@ -1006,17 +1060,21 @@ export default function OrdersScreen() {
      }
 
      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-     const results = await SyncManager.pushOfflineOrders(shopId);
+     const results = await SyncManager.pushOfflineOrders(shopId, orderId);
 
      await refreshOrders();
 
      if (results.successCount > 0) {
+       setSyncErrorMessage('Không thể đồng bộ đơn hàng. Vui lòng thử lại.');
        setIsSyncSuccessVisible(true);
      } else {
+       const targetError = results.errors.find((error) => error.orderId === orderId) || results.errors[0];
+       setSyncErrorMessage(targetError?.message || 'Không tìm thấy đơn chờ đồng bộ hoặc máy chủ không chấp nhận dữ liệu.');
        setIsSyncErrorVisible(true);
      }
    } catch (err: any) {
      console.error('Lỗi khi đồng bộ hóa đơn:', err);
+     setSyncErrorMessage(err?.message || 'Không thể kết nối đến máy chủ. Vui lòng thử lại sau.');
      setIsSyncErrorVisible(true);
    } finally {
      setIsSyncingOrder(null);
@@ -1205,6 +1263,26 @@ export default function OrdersScreen() {
                   <Text className="text-slate-900 font-bold text-sm">
                     {order.order_no && order.order_no !== 'HD' ? '#' + String(order.order_no).split('-').pop() : '#' + String(order.id).split('-').pop()}
                   </Text>
+                  {(() => {
+                    const syncVisual = getOrderSyncVisual(order.sync_status, isSyncingOrder === order.id);
+                    return (
+                      <View
+                        accessible
+                        accessibilityRole="text"
+                        accessibilityLabel={syncVisual.label}
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: 999,
+                          backgroundColor: syncVisual.color,
+                          marginLeft: 6,
+                          marginTop: 1,
+                          borderWidth: 1,
+                          borderColor: '#ffffff',
+                        }}
+                      />
+                    );
+                  })()}
                   <Text className="text-slate-500 font-medium text-[10px] ml-1.5 mt-0.5">
                     {formatDateTime(order.created_at)}
                   </Text>
@@ -1300,12 +1378,20 @@ export default function OrdersScreen() {
                 >
                   <Ionicons name={copiedId ? "checkmark" : "copy-outline"} size={11} color={copiedId ? "#10b981" : "#64748b"} />
                 </TouchableOpacity>
-                <Badge 
-                  variant={selectedOrder.sync_status === 'pending' ? 'warning' : 'success'} 
-                  label={selectedOrder.sync_status === 'pending' ? 'Chờ đồng bộ' : 'Đã đồng bộ'} 
-                  size="sm"
-                />
-                {selectedOrder.sync_status === 'pending' && (
+                {(() => {
+                  const syncVisual = getOrderSyncVisual(
+                    selectedOrder.sync_status,
+                    isSyncingOrder === selectedOrder.id
+                  );
+                  return (
+                    <Badge
+                      variant={syncVisual.badgeVariant}
+                      label={syncVisual.label}
+                      size="sm"
+                    />
+                  );
+                })()}
+                {isOrderUnsynced(selectedOrder.sync_status) && (
                   <TouchableOpacity
                     onPress={() => handleSyncSingleOrder(selectedOrder.id)}
                     disabled={isSyncingOrder === selectedOrder.id}
@@ -2287,7 +2373,7 @@ export default function OrdersScreen() {
               Đồng bộ thất bại
             </Text>
             <Text className="text-xs text-slate-455 mt-1 text-center font-semibold leading-relaxed mb-4">
-              Không thể kết nối đến máy chủ. Vui lòng thử lại sau khi có mạng ổn định.
+              {syncErrorMessage}
             </Text>
             <Button
               variant="danger"
@@ -2329,7 +2415,7 @@ export default function OrdersScreen() {
         onClose={() => setIsSyncErrorVisible(false)}
         onConfirm={() => setIsSyncErrorVisible(false)}
         title="Đồng bộ thất bại"
-        description="Không thể kết nối đến máy chủ. Vui lòng thử lại sau khi có mạng ổn định."
+        description={syncErrorMessage}
         confirmLabel="Xác nhận"
         variant="danger"
       />
