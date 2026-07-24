@@ -994,6 +994,7 @@ export function useTableManager(props: UseTableManagerProps) {
       const openTableMeta = JSON.stringify({
         resource_id: targetTableForOpen.id,
         resource_name: targetTableForOpen.name,
+        resource_type: targetTableForOpen.type,
         check_in: new Date(nowTime).toISOString(),
         num_guests: targetGuestCount,
         rental_type: targetRoomRentalType,
@@ -1071,6 +1072,7 @@ export function useTableManager(props: UseTableManagerProps) {
           sync_status: 'pending',
           note: '',
           discount_amount: 0,
+          resource_id: targetTableForOpen.id,
           metadata: openTableMeta,
         });
 
@@ -1622,9 +1624,11 @@ export function useTableManager(props: UseTableManagerProps) {
           sync_status: 'pending',
           note: note,
           discount_amount: discount,
+          resource_id: selectedTableForPay.id,
           metadata: JSON.stringify({
             resource_id: selectedTableForPay.id,
             resource_name: selectedTableForPay.name,
+            resource_type: selectedTableForPay.type,
             billing_cost: billing.cost,
             billing_duration: billing.label,
             check_in: selectedTableForPay.startTime,
@@ -1745,11 +1749,13 @@ export function useTableManager(props: UseTableManagerProps) {
               total_amount: totalAmount,
               paid_amount: Math.min(totalAmount, paidSum),
               debt_amount: Math.max(0, totalAmount - Math.min(totalAmount, paidSum)),
+              resource_id: selectedTableForPay.id,
               note: note || `Thanh toán phòng/bàn từ di động.`,
               created_at: checkoutTimeStr,
               metadata: JSON.stringify({
                 resource_id: selectedTableForPay.id,
                 resource_name: selectedTableForPay.name,
+                resource_type: selectedTableForPay.type,
                 billing_cost: billing.cost,
                 billing_duration: billing.label,
                 check_in: selectedTableForPay.startTime,
@@ -1898,7 +1904,8 @@ export function useTableManager(props: UseTableManagerProps) {
       const newOrderMeta = JSON.stringify({
         ...sourceMeta,
         resource_id: targetTable.id,
-        resource_name: targetTable.name
+        resource_name: targetTable.name,
+        resource_type: targetTable.type
       });
 
       const targetStartTime = includeSourceStayCost ? sourceTable.startTime : new Date().toISOString();
@@ -1920,7 +1927,7 @@ export function useTableManager(props: UseTableManagerProps) {
         await fetch(`${currentUrl}/api/shops/${shopId}/orders/${orderId}`, {
           method: 'PUT',
           headers,
-          body: JSON.stringify({ metadata: newOrderMeta }),
+          body: JSON.stringify({ resource_id: targetTable.id, metadata: newOrderMeta }),
         });
       }
 
@@ -1947,7 +1954,7 @@ export function useTableManager(props: UseTableManagerProps) {
         // Update order
         await db
           .update(schema.orders)
-          .set({ metadata: newOrderMeta, sync_status: 'pending' })
+          .set({ resource_id: targetTable.id, metadata: newOrderMeta, sync_status: 'pending' })
           .where(eq(schema.orders.id, orderId));
 
         const updated = await db.select().from(schema.location_resources);

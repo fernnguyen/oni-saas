@@ -143,13 +143,18 @@ export class SyncManager {
       // Bản đồ hóa các active order theo resource_id để tra cứu nhanh
       const activeOrdersMap = new Map<string, any>();
       for (const order of activeOrders) {
+        let meta: Record<string, any> = {};
         try {
-          const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {});
-          const rId = meta.resource_id;
-          if (rId) {
-            activeOrdersMap.set(rId, { order, meta });
+          const parsed = typeof order.metadata === 'string' ? JSON.parse(order.metadata || '{}') : order.metadata;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            meta = parsed;
           }
         } catch (e) {}
+
+        const rId = order.resource_id || meta.resource_id;
+        if (rId) {
+          activeOrdersMap.set(rId, { order, meta });
+        }
       }
 
       // --- BƯỚC E: LƯU TRỮ VÀO SQLITE NỘI ĐỊA CỦA ĐIỆN THOẠI (Drizzle Transaction) ---
@@ -497,11 +502,12 @@ export class SyncManager {
             .where(eq(schema.order_items.order_id, order.id));
 
           let serverOrderId = '';
+          let parsedOrderMetadata: any = {};
           if ((order as any).metadata) {
             try {
-              const parsedMeta = JSON.parse((order as any).metadata);
-              if (parsedMeta && parsedMeta.server_order_id) {
-                serverOrderId = parsedMeta.server_order_id;
+              parsedOrderMetadata = JSON.parse((order as any).metadata);
+              if (parsedOrderMetadata?.server_order_id) {
+                serverOrderId = parsedOrderMetadata.server_order_id;
               }
             } catch (e) {}
           }
@@ -529,6 +535,7 @@ export class SyncManager {
               total_amount: order.total_amount,
               paid_amount: order.paid_amount,
               debt_amount: order.total_amount - order.paid_amount,
+              resource_id: (order as any).resource_id || parsedOrderMetadata.resource_id || undefined,
               note: order.note || `Hóa đơn offline từ di động. Tạo lúc ${order.created_at}`,
               metadata: (order as any).metadata,
               shift_id: order.shift_id || '',
@@ -1337,13 +1344,18 @@ export class SyncManager {
       // Bản đồ hóa các active order theo resource_id để tra cứu nhanh
       const activeOrdersMap = new Map<string, any>();
       for (const order of activeOrders) {
+        let meta: Record<string, any> = {};
         try {
-          const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {});
-          const rId = meta.resource_id;
-          if (rId) {
-            activeOrdersMap.set(rId, { order, meta });
+          const parsed = typeof order.metadata === 'string' ? JSON.parse(order.metadata || '{}') : order.metadata;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            meta = parsed;
           }
         } catch (e) {}
+
+        const rId = order.resource_id || meta.resource_id;
+        if (rId) {
+          activeOrdersMap.set(rId, { order, meta });
+        }
       }
 
       // Ghi dữ liệu vào SQLite sử dụng duy nhất một Transaction để tối ưu hiệu năng

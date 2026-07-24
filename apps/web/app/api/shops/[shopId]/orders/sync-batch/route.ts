@@ -79,6 +79,7 @@ interface SyncOrder {
   points_earned?: number
   points_redeemed?: number
   note?: string
+  resource_id?: string
   metadata?: string
   payment_method?: string
   shift_id?: string
@@ -266,6 +267,19 @@ export async function POST(
       ? Math.max(0, (Number(order.total_amount) || 0) - payments.reduce((sum, p) => p.method !== 'debt' && !p.method?.startsWith('debt-') ? sum + (Number(p.amount) || 0) : sum, 0))
       : (Number(order.debt_amount) || 0)
 
+    const resolvedResourceId = (() => {
+      const directResourceId = order.resource_id?.trim()
+      if (directResourceId) return directResourceId
+      if (!order.metadata) return ''
+
+      try {
+        const metadata = JSON.parse(order.metadata)
+        return typeof metadata?.resource_id === 'string' ? metadata.resource_id.trim() : ''
+      } catch {
+        return ''
+      }
+    })()
+
     if (!serverId) {
       isNewOrder = true
       
@@ -296,6 +310,9 @@ export async function POST(
         reference_no:    local_order_id ?? '',
         shift_id:        resolvedShiftId,
         created_at:      getGMT7Time(),
+      }
+      if (resolvedResourceId) {
+        createData.resource_id = resolvedResourceId
       }
       if (order.metadata !== undefined) {
         createData.metadata = order.metadata
@@ -331,6 +348,9 @@ export async function POST(
       }
       if (resolvedShiftId) {
         updateData.shift_id = resolvedShiftId
+      }
+      if (resolvedResourceId) {
+        updateData.resource_id = resolvedResourceId
       }
       if (order.metadata !== undefined) {
         updateData.metadata = order.metadata
@@ -1060,10 +1080,9 @@ export async function POST(
     }
 
     // --- Auto Release Table Logic ---
-    if (order.status === 'completed' && order.metadata) {
+    if (order.status === 'completed' && resolvedResourceId) {
       try {
-        const metaObj = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata
-        const resourceId = metaObj?.resource_id
+        const resourceId = resolvedResourceId
         if (resourceId && !resourceId.startsWith('takeaway')) {
           const resource = await connector.findById('location-resources', resourceId)
           if (resource) {
@@ -1086,10 +1105,18 @@ export async function POST(
     }
 
     // --- Auto Occupy Table Logic ---
-    if (order.status === 'in_progress' && order.metadata) {
+    if (order.status === 'in_progress' && resolvedResourceId) {
       try {
-        const metaObj = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata
-        const resourceId = metaObj?.resource_id
+        let metaObj: Record<string, any> = {}
+        if (order.metadata) {
+          try {
+            const parsed = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              metaObj = parsed
+            }
+          } catch {}
+        }
+        const resourceId = resolvedResourceId
         if (resourceId && !resourceId.startsWith('takeaway')) {
           const resource = await connector.findById('location-resources', resourceId)
           if (resource) {

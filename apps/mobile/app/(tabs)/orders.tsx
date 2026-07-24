@@ -59,6 +59,39 @@ const getPaymentMethodDisplay = (pm: string) => {
  return translateMethod(pm);
 };
 
+type OrderResourceInfo = {
+  id: string;
+  name: string;
+  type: string;
+};
+
+const getOrderResourceInfo = (order: any): OrderResourceInfo | null => {
+  if (!order) return null;
+
+  let metadata: Record<string, any> = {};
+  try {
+    const parsed = typeof order.metadata === 'string'
+      ? JSON.parse(order.metadata || '{}')
+      : order.metadata;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      metadata = parsed;
+    }
+  } catch {}
+
+  const id = String(order.resource_id || metadata.resource_id || '').trim();
+  const name = String(metadata.resource_name || '').trim();
+  const type = String(metadata.resource_type || '').trim().toLowerCase();
+  if (!id && !name) return null;
+  if (id.toLowerCase().startsWith('takeaway')) return null;
+  if (type && type !== 'room' && type !== 'table') return null;
+
+  return {
+    id,
+    name: name || id,
+    type,
+  };
+};
+
 // Import hệ thống UI dùng chung cao cấp
 import {Header} from '../../components/layout/Header';
 import {Badge} from '../../components/ui/Badge';
@@ -722,6 +755,7 @@ export default function OrdersScreen() {
                 customer_id: orderData.customer_id,
                 customer_name: orderData.customer_name,
                 note: orderData.note,
+                resource_id: orderData.resource_id || '',
                 metadata: orderData.metadata,
                 sync_status: 'synced'
               };
@@ -1178,6 +1212,24 @@ export default function OrdersScreen() {
                 <Badge variant={getOrderStatusBadgeProps(order.status).variant} label={getOrderStatusBadgeProps(order.status).label} size="sm" />
               </View>
 
+              {(() => {
+                const resource = getOrderResourceInfo(order);
+                if (!resource) return null;
+
+                return (
+                  <View className="self-start flex-row items-center rounded-lg border border-violet-100 bg-violet-50 px-2 py-1">
+                    <Ionicons
+                      name={resource.type === 'room' ? 'bed-outline' : 'grid-outline'}
+                      size={12}
+                      color="#7c3aed"
+                    />
+                    <Text className="ml-1.5 text-[10px] font-semibold text-violet-700" numberOfLines={1}>
+                      {resource.name}
+                    </Text>
+                  </View>
+                );
+              })()}
+
               <View className="flex-row items-center mt-2 justify-between">
                 <View className="flex-row items-center">
                   <Ionicons name="person-outline" size={14} color="#64748b" />
@@ -1326,6 +1378,24 @@ export default function OrdersScreen() {
                         )}
                       </View>
                     </View>
+
+                    {(() => {
+                      const resource = getOrderResourceInfo(selectedOrder);
+                      if (!resource) return null;
+
+                      const resourceLabel = resource.type === 'room'
+                        ? 'Phòng'
+                        : resource.type === 'table'
+                          ? 'Bàn'
+                          : 'Phòng/Bàn';
+
+                      return (
+                        <View className="flex-row justify-between py-1">
+                          <Text className="text-tiny text-slate-500 font-medium">{resourceLabel}:</Text>
+                          <Text className="text-tiny font-semibold text-violet-700">{resource.name}</Text>
+                        </View>
+                      );
+                    })()}
 
                     {selectedOrder.note && (
                       <View className="border-t border-slate-200 mt-2 pt-2">

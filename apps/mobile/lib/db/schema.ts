@@ -114,6 +114,7 @@ export const orders = sqliteTable('orders', {
   sync_status: text('sync_status').notNull().default('synced'), // synced | pending (đóng offline chờ mạng)
   note: text('note'),
   discount_amount: integer('discount_amount').default(0),
+  resource_id: text('resource_id'),
   metadata: text('metadata'),
 });
 

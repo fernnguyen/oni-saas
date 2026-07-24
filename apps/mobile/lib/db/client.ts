@@ -231,6 +231,7 @@ export function initializeLocalDatabase(customDb?: any) {
         sync_status TEXT NOT NULL DEFAULT 'synced',
         note TEXT,
         discount_amount INTEGER DEFAULT 0,
+        resource_id TEXT,
         metadata TEXT
       );
 
@@ -348,6 +349,7 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`UPDATE orders SET updated_at = created_at WHERE updated_at IS NULL;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN note TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN discount_amount INTEGER DEFAULT 0;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN resource_id TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN metadata TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN reference_no TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE location_resources ADD COLUMN metadata TEXT;`); } catch (e) {}
