@@ -262,10 +262,42 @@ export default function OrdersScreen() {
         sync_status: order.sync_status || 'synced',
       }));
       const meta = json.meta || {};
+      let displayOrders = cloudOrders;
+
+      // Server vẫn là nguồn chính, nhưng mutation checkout đang pending phải được
+      // overlay tạm thời để refresh không làm đơn completed quay lại in_progress.
+      if (pageNum === 1 && Platform.OS !== 'web') {
+        try {
+          const pendingLocalOrders = await db
+            .select()
+            .from(schema.orders)
+            .where(eq(schema.orders.sync_status, 'pending'))
+            .orderBy(desc(schema.orders.updated_at))
+            .limit(20);
+          const normalizedSearch = searchQuery.trim().toLowerCase();
+          const visiblePendingOrders = normalizedSearch
+            ? pendingLocalOrders.filter((order: any) =>
+                [order.id, order.order_no, order.reference_no, order.customer_name]
+                  .some(value => String(value || '').toLowerCase().includes(normalizedSearch))
+              )
+            : pendingLocalOrders;
+          const pendingKeys = new Set(
+            visiblePendingOrders.flatMap((order: any) => [order.id, order.reference_no].filter(Boolean))
+          );
+          displayOrders = [
+            ...visiblePendingOrders,
+            ...cloudOrders.filter((order: any) =>
+              ![order.id, order.order_id, order.reference_no].some(key => key && pendingKeys.has(key))
+            ),
+          ];
+        } catch (pendingError) {
+          console.warn('Không thể đọc các đơn pending từ SQLite:', pendingError);
+        }
+      }
 
       setHasMore(cloudOrders.length > 0 && pageNum < (meta.totalPages || Infinity));
       if (isRefresh || pageNum === 1) {
-        setOrdersList(cloudOrders);
+        setOrdersList(displayOrders);
       } else {
         setOrdersList(prev => {
           const existingIds = new Set(prev.map(o => o.id));
@@ -901,27 +933,62 @@ export default function OrdersScreen() {
 
  // Đồng bộ
  const handleSyncSingleOrder = async (orderId: string) => {
- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
- setIsSyncingOrder(orderId);
- try {
- const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
- const results = await SyncManager.pushOfflineOrders(shopId);
- 
- await refreshOrders();
- 
- if (results.successCount > 0) {
- setIsSyncSuccessVisible(true);
-} else {
- setIsSyncErrorVisible(true);
-}
-} catch (err: any) {
- console.error('Lỗi khi đồng bộ hóa đơn:', err);
- setIsSyncErrorVisible(true);
-} finally {
- setIsSyncingOrder(null);
- setSelectedOrder(null);
-}
-};
+   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+   setIsSyncingOrder(orderId);
+   try {
+     // Tự sửa dữ liệu checkout phòng/bàn được tạo bởi phiên bản cũ: phiên bản đó
+     // lưu cả system time charge lẫn TIME_CHARGE ảo và làm tổng tiền bị nhân đôi.
+     if (Platform.OS !== 'web') {
+       const [localOrder] = await db
+         .select()
+         .from(schema.orders)
+         .where(eq(schema.orders.id, orderId))
+         .limit(1);
+       const localItems = await db
+         .select()
+         .from(schema.order_items)
+         .where(eq(schema.order_items.order_id, orderId));
+       const virtualTimeItems = localItems.filter((item: any) => item.product_id === 'TIME_CHARGE');
+       const hasCanonicalTimeItem = localItems.some((item: any) =>
+         item.product_id !== 'TIME_CHARGE' && /^(Tiền phòng|Tiền giờ)\s*-/.test(item.product_name || '')
+       );
+
+       if (localOrder?.sync_status === 'pending' && hasCanonicalTimeItem && virtualTimeItems.length > 0) {
+         const duplicateTotal = virtualTimeItems.reduce((sum: number, item: any) => sum + Number(item.line_total || 0), 0);
+         const duplicateTax = virtualTimeItems.reduce((sum: number, item: any) => sum + Number(item.tax_amount || 0), 0);
+         for (const item of virtualTimeItems) {
+           await db.delete(schema.order_items).where(eq(schema.order_items.id, item.id));
+         }
+         const correctedTotal = Math.max(0, Number(localOrder.total_amount || 0) - duplicateTotal);
+         await db.update(schema.orders)
+           .set({
+             total_amount: correctedTotal,
+             paid_amount: Math.min(correctedTotal, Number(localOrder.paid_amount || 0)),
+             tax_amount: Math.max(0, Number(localOrder.tax_amount || 0) - duplicateTax),
+             updated_at: new Date().toISOString(),
+           })
+           .where(eq(schema.orders.id, orderId));
+       }
+     }
+
+     const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+     const results = await SyncManager.pushOfflineOrders(shopId);
+
+     await refreshOrders();
+
+     if (results.successCount > 0) {
+       setIsSyncSuccessVisible(true);
+     } else {
+       setIsSyncErrorVisible(true);
+     }
+   } catch (err: any) {
+     console.error('Lỗi khi đồng bộ hóa đơn:', err);
+     setIsSyncErrorVisible(true);
+   } finally {
+     setIsSyncingOrder(null);
+     setSelectedOrder(null);
+   }
+ };
 
  // In lại bill
  const handleReprint = () => {

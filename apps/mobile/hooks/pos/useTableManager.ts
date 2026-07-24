@@ -397,66 +397,107 @@ export function useTableManager(props: UseTableManagerProps) {
   };
 
   const syncOrderItemsOnline = async (orderId: string, cartItems: any, tableId?: string) => {
-    if (!isOnline) return;
+    if (!isOnline) return false;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+    const getModifiersHash = (modifiers: any) => {
+      if (!modifiers) return 'none';
+      try {
+        const parsed = typeof modifiers === 'string' ? JSON.parse(modifiers) : modifiers;
+        if (!Array.isArray(parsed) || parsed.length === 0) return 'none';
+        return parsed
+          .map((modifier: any) => modifier.option || modifier.name || modifier.id || '')
+          .filter(Boolean)
+          .sort()
+          .join(',') || 'none';
+      } catch {
+        return 'none';
+      }
+    };
+
+    const getItemKey = (productId: string, variantLabel: string, modifiers: any) =>
+      `${productId}_${variantLabel || 'none'}_${getModifiersHash(modifiers)}`;
+
     try {
       const currentUrl = getApiBaseUrl();
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const headers = await getApiHeaders();
 
-      // Tải món hiện tại trên server
-      const serverItemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200`, { headers });
-      if (!serverItemsRes.ok) return false;
-      const serverItemsData = await serverItemsRes.json();
-      const serverItems = serverItemsData.data || [];
-
-      const serverItemsMap = new Map<string, any>();
-      for (const item of serverItems) {
-        let modifiersHash = 'none';
-        if (item.modifiers) {
-          try {
-            const parsed = typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers;
-            if (Array.isArray(parsed)) {
-              modifiersHash = parsed.map((m: any) => m.option).sort().join(',') || 'none';
-            }
-          } catch(e) {}
-        }
-        const key = `${item.product_id}_${item.variant_label || 'none'}_${modifiersHash}`;
-        serverItemsMap.set(key, item);
+      const serverItemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200`, {
+        headers,
+        signal: controller.signal,
+      });
+      if (!serverItemsRes.ok) {
+        throw new Error(`Không thể tải món trên server (${serverItemsRes.status})`);
       }
 
-      // Đồng bộ hóa vi sai (Differential Sync)
+      const serverItemsData = await serverItemsRes.json();
+      const serverItems = serverItemsData.data || [];
+      const serverItemsMap = new Map<string, any[]>();
+
+      for (const item of serverItems) {
+        const key = getItemKey(item.product_id, item.variant_label, item.modifiers);
+        const matches = serverItemsMap.get(key) || [];
+        matches.push(item);
+        serverItemsMap.set(key, matches);
+      }
+
       let index = 1;
-      for (const [prodId, cartItem] of Object.entries(cartItems) as [string, any][]) {
-        if (prodId === 'TIME_CHARGE') continue; // Tiền giờ ảo không đồng bộ lên mục gọi món
-        const existing = serverItemsMap.get(prodId);
-        const lineTotal = cartItem.price * cartItem.quantity;
+      for (const [cartItemId, cartItem] of Object.entries(cartItems) as [string, any][]) {
+        if (isTimeChargeProduct(cartItem.productId || cartItemId, cartItem.name)) continue;
+
+        const productId = cartItem.productId || cartItemId;
+        const itemKey = getItemKey(productId, cartItem.variant_label, cartItem.modifiers);
+        const matches = serverItemsMap.get(itemKey) || [];
+        const existing = matches.shift();
+        if (matches.length > 0) serverItemsMap.set(itemKey, matches);
+        else serverItemsMap.delete(itemKey);
+
+        const modifierTotal = Number(cartItem.modifier_total || 0);
+        const lineTotal = (Number(cartItem.price) + modifierTotal) * Number(cartItem.quantity);
         const lineNo = String(index++);
 
         if (existing) {
-          // Nếu đã tồn tại nhưng sai số lượng, cập nhật lên server
-          if (parseInt(existing.qty, 10) !== cartItem.quantity || parseInt(existing.unit_price, 10) !== cartItem.price) {
-            await fetch(`${currentUrl}/api/shops/${shopId}/order-items/${existing.id}`, {
+          const existingId = existing.item_id || existing.id;
+          if (!existingId) throw new Error('Món trên server không có mã định danh');
+
+          const needsUpdate =
+            Number(existing.qty) !== Number(cartItem.quantity) ||
+            Number(existing.unit_price) !== Number(cartItem.price) ||
+            Number(existing.modifier_total || 0) !== modifierTotal ||
+            Number(existing.line_total) !== lineTotal;
+
+          if (needsUpdate) {
+            const updateRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items/${existingId}`, {
               method: 'PUT',
               headers: { ...headers, 'Content-Type': 'application/json' },
+              signal: controller.signal,
               body: JSON.stringify({
                 qty: String(cartItem.quantity),
                 line_total: String(lineTotal),
                 unit_price: String(cartItem.price),
                 original_price: String(cartItem.original_price ?? cartItem.price),
                 discount_amount: String(cartItem.discount_amount || 0),
+                variant_label: cartItem.variant_label || '',
+                modifiers: cartItem.modifiers ? JSON.stringify(cartItem.modifiers) : '',
+                modifier_total: String(modifierTotal),
               })
             });
+            if (!updateRes.ok) {
+              throw new Error(`Không thể cập nhật món trên server (${updateRes.status})`);
+            }
           }
-          serverItemsMap.delete(prodId);
         } else {
-          // Chưa tồn tại thì thêm mới lên server (line_no là chuỗi bắt buộc của Zod Schema)
-          await fetch(`${currentUrl}/api/shops/${shopId}/order-items`, {
+          const createRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items`, {
             method: 'POST',
             headers: { ...headers, 'Content-Type': 'application/json' },
+            signal: controller.signal,
             body: JSON.stringify({
               order_id: orderId,
               line_no: lineNo,
-              product_id: cartItem.productId,
+              product_id: productId,
               product_name: cartItem.name,
               qty: String(cartItem.quantity),
               unit_price: String(cartItem.price),
@@ -466,27 +507,46 @@ export function useTableManager(props: UseTableManagerProps) {
               line_discount: '0',
               variant_label: cartItem.variant_label || '',
               modifiers: cartItem.modifiers ? JSON.stringify(cartItem.modifiers) : '',
-              modifier_total: String(cartItem.modifier_total || 0),
+              modifier_total: String(modifierTotal),
             })
           });
+          if (!createRes.ok) {
+            throw new Error(`Không thể thêm món lên server (${createRes.status})`);
+          }
         }
       }
 
-      // Xóa món đã bị bỏ ra khỏi giỏ
-      for (const [prodId, serverItem] of serverItemsMap.entries()) {
-        await fetch(`${currentUrl}/api/shops/${shopId}/order-items/${serverItem.id}`, {
-          method: 'DELETE',
-          headers
-        });
+      // Những dòng còn lại không còn xuất hiện trong giỏ hiện tại; đồng thời dọn
+      // các bản ghi trùng được tạo bởi cơ chế key cũ.
+      for (const staleItems of serverItemsMap.values()) {
+        for (const serverItem of staleItems) {
+          const serverItemId = serverItem.item_id || serverItem.id;
+          if (!serverItemId) continue;
+          const deleteRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items/${serverItemId}`, {
+            method: 'DELETE',
+            headers,
+            signal: controller.signal,
+          });
+          if (!deleteRes.ok && deleteRes.status !== 404) {
+            throw new Error(`Không thể xóa món cũ trên server (${deleteRes.status})`);
+          }
+        }
       }
 
       if (broadcastSync && tableId) {
-        broadcastSync({ event: "TABLE_UPDATED", tableId });
+        broadcastSync({ event: 'TABLE_UPDATED', tableId });
       }
       return true;
-    } catch (err) {
-      console.warn('Lỗi khi đồng bộ món lên server:', err);
+    } catch (err: any) {
+      console.warn(
+        err?.name === 'AbortError'
+          ? 'Đồng bộ món lên server quá thời gian 12 giây'
+          : 'Lỗi khi đồng bộ món lên server:',
+        err?.name === 'AbortError' ? undefined : err
+      );
       return false;
+    } finally {
+      clearTimeout(timeoutId);
     }
   };
 
@@ -1387,9 +1447,16 @@ export function useTableManager(props: UseTableManagerProps) {
       }
 
       const billing = calculateBilling(selectedTableForPay, customCheckoutTime, rentalType);
-      const tableCartItems = overrideCartItems || tableCarts[selectedTableForPay.id] || {};
+      const rawTableCartItems = overrideCartItems || tableCarts[selectedTableForPay.id] || {};
+      // TIME_CHARGE chỉ là dòng ảo để hiển thị trong modal checkout. Phần tiền phòng/giờ
+      // được tạo riêng bằng system product bên dưới, nên tuyệt đối không tính/gửi dòng ảo này.
+      const tableCartItems = Object.fromEntries(
+        Object.entries(rawTableCartItems).filter(([cartItemId, item]: [string, any]) =>
+          !isTimeChargeProduct(item.productId || cartItemId, item.name)
+        )
+      );
 
-      const itemsCost = Object.values(tableCartItems).reduce((sum, item) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0);
+      const itemsCost = Object.values(tableCartItems).reduce((sum, item: any) => sum + ((item.price + (item.modifier_total || 0)) * item.quantity), 0);
       const subtotal = billing.cost + itemsCost;
 
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
@@ -1640,10 +1707,10 @@ export function useTableManager(props: UseTableManagerProps) {
             setIsQrModalOpen(true);
           }, 400);
         } else {
-          showToast(`Thanh toán Hóa đơn ${orderNo} thành công!`, "success");
+          showToast(`Đã lưu hóa đơn ${orderNo}. Đang đồng bộ lên server...`, 'info');
         }
       } else {
-        showToast(`Thanh toán Hóa đơn ${orderNo} thành công! Hệ thống đang đồng bộ trong nền.`, "success");
+        showToast(`Đã lưu hóa đơn ${orderNo}. Đang đồng bộ lên server...`, 'info');
       }
 
       // B. Đồng bộ hóa trong nền không làm nghẽn giao diện chính
@@ -1658,6 +1725,8 @@ export function useTableManager(props: UseTableManagerProps) {
           return;
         }
 
+        const syncController = new AbortController();
+        const syncTimeoutId = setTimeout(() => syncController.abort(), 15000);
         try {
           const headers = await getApiHeaders();
           const payload = {
@@ -1724,6 +1793,7 @@ export function useTableManager(props: UseTableManagerProps) {
               return {
                 method: p.method,
                 amount: p.amount,
+                fund_id: p.fund_id,
                 meta: {
                   fund_id: p.fund_id,
                   fund_name: fund ? fund.name : ''
@@ -1743,56 +1813,60 @@ export function useTableManager(props: UseTableManagerProps) {
           const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
             method: 'POST',
             headers: { ...headers, 'Content-Type': 'application/json' },
+            signal: syncController.signal,
             body: JSON.stringify(payload),
           });
 
           if (syncRes.ok) {
             const syncData = await syncRes.json().catch(() => ({}));
-            let serverOrderNo = orderNo;
-            if (syncData.order_no) serverOrderNo = syncData.order_no;
+            const resolvedServerOrderNo = syncData.order_no || orderNo;
 
-            // Cập nhật vị trí sang available trên Server Cloud
-            const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${selectedTableForPay.id}`, {
-              method: 'PATCH',
-              headers: { ...headers, 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                status: 'dirty',
-                current_order_id: '',
-                startTime: null
-              }),
-            });
-
-            if (patchRes.ok) {
-              if (Platform.OS !== 'web' && syncData.order_id) {
-                const serverId = syncData.order_id;
-                if (serverId !== orderId) {
-                  await db.update(schema.order_items)
-                    .set({ order_id: serverId })
-                    .where(eq(schema.order_items.order_id, orderId));
-                }
-                await db.update(schema.orders)
-                  .set({ id: serverId, order_no: serverOrderNo, sync_status: 'synced', reference_no: orderId, updated_at: new Date().toISOString() })
-                  .where(eq(schema.orders.id, orderId));
+            // sync-batch đã tự hoàn tất order và giải phóng resource theo cấu hình
+            // skip_cleaning_process; không PATCH resource lần hai để tránh ghi đè trạng thái.
+            if (Platform.OS !== 'web' && syncData.order_id) {
+              const serverId = syncData.order_id;
+              if (serverId !== orderId) {
+                await db.update(schema.order_items)
+                  .set({ order_id: serverId })
+                  .where(eq(schema.order_items.order_id, orderId));
               }
-              broadcastSync?.({ event: 'TABLE_PAID', tableId: selectedTableForPay.id, orderId: orderId });
-            } else {
-              console.warn('[POS] Patch location-resources lỗi trên cloud:', patchRes.status);
+              await db.update(schema.orders)
+                .set({
+                  id: serverId,
+                  order_no: resolvedServerOrderNo,
+                  sync_status: 'synced',
+                  reference_no: orderId,
+                  updated_at: new Date().toISOString()
+                })
+                .where(eq(schema.orders.id, orderId));
             }
+            broadcastSync?.({ event: 'TABLE_PAID', tableId: selectedTableForPay.id, orderId: syncData.order_id || orderId });
+            showToast(`Đã đồng bộ hóa đơn ${resolvedServerOrderNo} lên server.`, 'success');
           } else {
-            console.warn('[POS] Sync batch phòng bàn lỗi server:', syncRes.status);
+            const syncError = await syncRes.json().catch(() => ({}));
+            console.warn('[POS] Sync batch phòng bàn lỗi server:', syncRes.status, syncError);
+            showToast('Hóa đơn đã lưu cục bộ và đang chờ đồng bộ lại.', 'info');
             if (Platform.OS !== 'web') {
               setTimeout(() => {
                 SyncManager.pushOfflineOrders(shopId).catch(() => {});
               }, 800);
             }
           }
-        } catch (syncErr) {
-          console.warn('[POS] Sync phòng bàn trực tiếp thất bại, sẽ gửi qua hàng đợi sau:', syncErr);
+        } catch (syncErr: any) {
+          console.warn(
+            syncErr?.name === 'AbortError'
+              ? '[POS] Sync phòng bàn quá thời gian 15 giây, sẽ gửi qua hàng đợi sau.'
+              : '[POS] Sync phòng bàn trực tiếp thất bại, sẽ gửi qua hàng đợi sau:',
+            syncErr?.name === 'AbortError' ? undefined : syncErr
+          );
+          showToast('Hóa đơn đã lưu cục bộ và đang chờ đồng bộ lại.', 'info');
           if (Platform.OS !== 'web') {
             setTimeout(() => {
               SyncManager.pushOfflineOrders(shopId).catch(() => {});
             }, 800);
           }
+        } finally {
+          clearTimeout(syncTimeoutId);
         }
       })();
     } catch (err) {
