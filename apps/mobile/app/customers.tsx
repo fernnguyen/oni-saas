@@ -18,15 +18,15 @@ import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect, useRouter} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {db, expoDb} from '../../lib/db/client';
-import * as schema from '../../lib/db/schema';
+import {db, expoDb} from '../lib/db/client';
+import * as schema from '../lib/db/schema';
 import {eq, like, or, and, desc} from 'drizzle-orm';
-import {getApiBaseUrl, getApiHeaders} from '../../lib/api/config';
-import {Header} from '../../components/layout/Header';
-import {DrawerMenu} from '../../components/erp/DrawerMenu';
+import {getApiBaseUrl, getApiHeaders} from '../lib/api/config';
+import {Header} from '../components/layout/Header';
+import {DrawerMenu} from '../components/erp/DrawerMenu';
 import * as Clipboard from 'expo-clipboard';
-import {formatCurrency, formatDateTime} from '../../lib/utils/format';
-import { usePermissions } from '../../lib/auth/PermissionsContext';
+import {formatCurrency, formatDateTime} from '../lib/utils/format';
+import { usePermissions } from '../lib/auth/PermissionsContext';
 
 const PAYMENT_METHOD_VI: Record<string, string> = {
   cash: 'Tiền mặt',
@@ -574,7 +574,11 @@ export default function CustomersScreen() {
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
       
       {/* 1. SHARED HEADER - Thống nhất 100% */}
-      <Header onPressMenu={() => setIsDrawerOpen(true)} />
+      <Header 
+        title="Quản lý Khách hàng" 
+        onPressMenu={() => setIsDrawerOpen(true)} 
+        showBack={true} 
+      />
 
       {/* 2. SEARCH BAR & FILTER TABS */}
       <View className="p-4 bg-white border-b border-slate-200">

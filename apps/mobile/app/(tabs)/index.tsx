@@ -916,6 +916,7 @@ export default function DashboardScreen() {
   const canViewCashbook = hasPermission('cashbook.view');
   const canViewSettings = hasPermission('settings.view');
   const canViewDebt = hasPermission('debt.view') || hasPermission('customers.view');
+  const canViewCustomers = hasPermission('customers.view');
   const canViewProducts = hasPermission(['products.view', 'settings.manage', 'admin', 'owner']);
 
   const shouldShowStats = canViewReports || !!activeShiftIdState;
@@ -1037,19 +1038,30 @@ export default function DashboardScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity 
+              activeOpacity={canViewCustomers ? 0.7 : 1}
+              onPress={() => canViewCustomers ? router.push('/customers') : Alert.alert('Thông báo', 'Bạn không có quyền quản lý Khách hàng!')}
+              className={`items-center w-[23%] ${!canViewCustomers ? 'opacity-40' : ''}`}
+            >
+              <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2">
+                <Ionicons name="people-outline" size={20} color="#fa5908" />
+                {!canViewCustomers && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
+              </View>
+              <Text className="text-xxs font-semibold text-slate-500 text-center">Khách hàng</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
               activeOpacity={canViewSettings ? 0.7 : 1}
               onPress={() => canViewSettings ? router.push('/(tabs)/settings') : Alert.alert('Thông báo', 'Bạn không có quyền truy cập Cài đặt!')}
               className={`items-center w-[23%] ${!canViewSettings ? 'opacity-40' : ''}`}
             >
               <View className="bg-slate-50 w-11 h-11 rounded-xl items-center justify-center border border-slate-100 mb-2">
-                <Ionicons name="people-outline" size={20} color="#fa5908" />
+                <Ionicons name="settings-outline" size={20} color="#fa5908" />
                 {!canViewSettings && <Text style={{position: 'absolute', right: 2, top: 2, fontSize: 8}}>🔒</Text>}
               </View>
               <Text className="text-xxs font-semibold text-slate-500 text-center">Nhân Sự</Text>
             </TouchableOpacity>
 
             {/* Placeholders để căn trái dòng 2 trong justify-between flex-wrap */}
-            <View className="w-[23%]" />
             <View className="w-[23%]" />
           </View>
         </View>

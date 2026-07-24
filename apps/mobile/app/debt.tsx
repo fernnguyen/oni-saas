@@ -235,7 +235,7 @@ export default function DebtScreen() {
                   setIsModalVisible(true);
                 } else {
                   router.push({
-                    pathname: '/(tabs)/customers',
+                    pathname: '/customers',
                     params: { customer_id: item.id }
                   });
                 }

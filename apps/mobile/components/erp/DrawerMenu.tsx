@@ -392,7 +392,7 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  </Text>
  {renderMenuItem('calculator', 'Bán hàng nhanh POS', '/(tabs)/pos')}
  {renderMenuItem('receipt', 'Lịch sử hóa đơn', '/(tabs)/orders')}
- {renderMenuItem('people-outline', 'Quản lý Khách hàng', '/(tabs)/customers')}
+ {renderMenuItem('people-outline', 'Quản lý Khách hàng', '/customers')}
 
  {/* Group 2: Vận hành & Tài chính */}
  <Text className="text-[8.5px] font-bold text-slate-400 mb-1 mt-3.5 px-1.5 uppercase tracking-wider">

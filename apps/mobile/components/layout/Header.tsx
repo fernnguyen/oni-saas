@@ -20,7 +20,8 @@ import {Dialog} from '../ui/Dialog';
 import {useNotifications} from '../../lib/notifications/NotificationContext';
 
 export interface HeaderProps {
- onPressMenu: () => void;
+ onPressMenu?: () => void;
+ onPressBack?: () => void;
  syncStatus?: 'synced' | 'pending';
  onPressSync?: () => void;
  isSyncing?: boolean;
@@ -32,6 +33,7 @@ export interface HeaderProps {
 
 export function Header({
   onPressMenu, 
+  onPressBack,
   syncStatus, 
   onPressSync, 
   isSyncing = false, 
@@ -435,6 +437,21 @@ export function Header({
     showToast('Không thể xác nhận đăng nhập web. Vui lòng thử lại!', 'error');
   };
 
+  const handleLeftPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (showBack) {
+      if (onPressBack) {
+        onPressBack();
+      } else if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.push('/(tabs)');
+      }
+    } else {
+      onPressMenu?.();
+    }
+  };
+
  return (
  <View className="px-4 py-2.5 bg-white border-b border-slate-100 flex-row justify-between items-center relative z-50" style={{shadowColor: '#000000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2}}>
  
@@ -443,7 +460,7 @@ export function Header({
   {/* Nút Hamburger Left hoặc Quay lại */}
   <TouchableOpacity 
   activeOpacity={0.7}
-  onPress={onPressMenu}
+  onPress={handleLeftPress}
   className="p-2 bg-slate-50 border border-slate-100 rounded-xl mr-3"
   >
   <Ionicons name={showBack ? "chevron-back" : "menu-outline"} size={20} color="#fa5908" />

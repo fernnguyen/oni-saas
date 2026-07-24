@@ -101,64 +101,80 @@ function TabLayoutContent() {
         options={{
           title: 'Trang chủ',
           tabBarIcon: ({color, focused}) => (
-            <Ionicons name={focused ? 'analytics' : 'analytics-outline'} size={22} color={color} />
+            <Ionicons name={focused ? 'home' : 'home-outline'} size={22} color={color} />
           ),
         }}
       />
 
-      {/* 2. HÓA ĐƠN */}
+      {/* 2. ĐƠN HÀNG */}
       <Tabs.Screen
         name="orders"
         options={{
-          title: 'Hóa đơn',
+          title: 'Đơn hàng',
           tabBarIcon: ({color, focused}) => (
             <Ionicons name={focused ? 'receipt' : 'receipt-outline'} size={22} color={color} />
           ),
         }}
       />
 
-      {/* 3. BÁN HÀNG POS (Ẩn nếu thiếu quyền pos.use) */}
+      {/* 3. BÁN HÀNG POS / QUÉT MÃ (Ẩn nếu thiếu quyền pos.use) */}
       <Tabs.Screen
         name="pos"
+        listeners={{
+          tabPress: (e) => {
+            const isPosScreen = pathname === '/pos' || pathname === '/(tabs)/pos' || pathname === '/(tabs)/pos/';
+            if (isPosScreen) {
+              DeviceEventEmitter.emit('open-barcode-scanner');
+            }
+          },
+        }}
         options={{
           href: hasPermission('pos.use') ? undefined : null,
-          title: posLabel,
-          tabBarIcon: () => (
-            <View style={{ justifyContent: 'center', alignItems: 'center' }}>
-              <View style={{ height: 22, width: 22 }} />
-              <View
-                style={{
-                  position: 'absolute',
-                  top: -26,
-                  width: 48,
-                  height: 48,
-                  borderRadius: 24,
-                  backgroundColor: '#fa5908',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  shadowColor: '#fa5908',
-                  shadowOffset: {width: 0, height: 4},
-                  shadowOpacity: 0.35,
-                  shadowRadius: 6,
-                  elevation: 6,
-                  borderWidth: 2.5,
-                  borderColor: '#ffffff',
-                }}
-              >
-                <MaterialCommunityIcons name="cash-register" size={22} color="white" />
+          title: (pathname === '/pos' || pathname === '/(tabs)/pos' || pathname === '/(tabs)/pos/') ? 'Quét mã' : posLabel,
+          tabBarIcon: () => {
+            const isPosScreen = pathname === '/pos' || pathname === '/(tabs)/pos' || pathname === '/(tabs)/pos/';
+            return (
+              <View style={{ justifyContent: 'center', alignItems: 'center' }}>
+                <View style={{ height: 22, width: 22 }} />
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -26,
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: '#fa5908',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    shadowColor: '#fa5908',
+                    shadowOffset: {width: 0, height: 4},
+                    shadowOpacity: 0.35,
+                    shadowRadius: 6,
+                    elevation: 6,
+                    borderWidth: 2.5,
+                    borderColor: '#ffffff',
+                  }}
+                >
+                  {isPosScreen ? (
+                    <Ionicons name="scan" size={24} color="white" />
+                  ) : (
+                    <MaterialCommunityIcons name="cash-register" size={22} color="white" />
+                  )}
+                </View>
               </View>
-            </View>
-          ),
+            );
+          },
         }}
       />
 
-      {/* 4. KHÁCH HÀNG */}
+      {/* 4. CÔNG NỢ */}
       <Tabs.Screen
-        name="customers"
+        name="debt"
         options={{
-          title: 'Khách hàng',
+          href: (hasPermission('debt.view') || hasPermission('customers.view')) ? undefined : null,
+          title: 'Công nợ',
           tabBarIcon: ({color, focused}) => (
-            <Ionicons name={focused ? 'people' : 'people-outline'} size={22} color={color} />
+            <Ionicons name={focused ? 'wallet' : 'wallet-outline'} size={22} color={color} />
           ),
         }}
       />

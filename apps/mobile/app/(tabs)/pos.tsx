@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert, Pressable, KeyboardAvoidingView } from 'react-native';
+import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert, Pressable, KeyboardAvoidingView, DeviceEventEmitter } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
@@ -220,6 +220,13 @@ export default function PosScreen() {
       setIsScannerOpen(true);
     }
   }, [params.restore_barcode_scanner]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('open-barcode-scanner', () => {
+      setIsScannerOpen(true);
+    });
+    return () => sub.remove();
+  }, []);
 
   const [isSavingCart, setIsSavingCart] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -1307,7 +1314,7 @@ export default function PosScreen() {
     if (foundProduct) {
       setScannedProductInfo(foundProduct);
       setIsScannerOpen(false);
-
+      setProductSearchQuery(''); // Xóa bộ lọc tìm kiếm để quay về danh sách sản phẩm chung
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
       setIsScanSuccessDialogVisible(true);
     } else {
@@ -1367,7 +1374,8 @@ export default function PosScreen() {
       setCart(previous => ({ ...previous, [String(product.id)]: previous[String(product.id)] ? { ...previous[String(product.id)], quantity: previous[String(product.id)].quantity + 1 } : { productId: product.id, name: product.name, price: product.sell_price, original_price: product.sell_price, quantity: 1, tax_rate: product.tax_rate, input_tax_rate: product.input_tax_rate, tax_group: product.tax_group, modifier_total: 0 } }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       setQuickCreateRequest(null);
-      showToast('Đã tạo sản phẩm, thêm vào đơn và đánh dấu cần review.', 'success');
+      setProductSearchQuery(''); // Xóa ô tìm kiếm để đưa về danh sách sản phẩm chung
+      showToast(`Đã thêm "${product.name}" vào giỏ hàng.`, 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Không thể tạo sản phẩm.', 'error');
     } finally { setIsQuickCreateSaving(false); setQuickCreateProgress(''); }
@@ -1406,7 +1414,9 @@ export default function PosScreen() {
   const handleConfirmAddScanned = () => {
     if (scannedProductInfo) {
       addToCart(scannedProductInfo);
+      showToast(`Đã thêm "${scannedProductInfo.name}" vào giỏ hàng`, 'success');
     }
+    setProductSearchQuery(''); // Xóa ô tìm kiếm để đưa về danh sách sản phẩm chung
     setIsScanSuccessDialogVisible(false);
     setScannedProductInfo(null);
   };
