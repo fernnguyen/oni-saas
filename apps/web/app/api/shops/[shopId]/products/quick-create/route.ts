@@ -40,20 +40,18 @@ function canQuickCreate(permissions: string[]) {
 }
 
 async function findExistingBarcode(connector: Awaited<ReturnType<typeof requireShopAccess>>['connector'], barcode: string) {
-  const [productBarcode, productSku, unitBarcode, unitSku] = await Promise.all([
+  const [productBarcode, productSku, unitBarcode] = await Promise.all([
     connector.list('products', { filters: { barcode }, limit: 10 }),
     connector.list('products', { filters: { sku: barcode }, limit: 10 }),
     connector.list('product-units', { filters: { barcode }, limit: 10 }),
-    connector.list('product-units', { filters: { sku: barcode }, limit: 10 }),
   ])
   const normalizedBarcode = normalizeProductLookup(barcode)
   const matchingProduct = [...productBarcode.data, ...productSku.data].find((product: ProductRow) =>
     normalizeProductLookup(String(product.barcode || '')) === normalizedBarcode ||
     normalizeProductLookup(String(product.sku || '')) === normalizedBarcode
   ) as ProductRow | undefined
-  const matchingUnit = [...unitBarcode.data, ...unitSku.data].find((unit: ProductRow) =>
-    normalizeProductLookup(String(unit.barcode || '')) === normalizedBarcode ||
-    normalizeProductLookup(String(unit.sku || '')) === normalizedBarcode
+  const matchingUnit = unitBarcode.data.find((unit: ProductRow) =>
+    normalizeProductLookup(String(unit.barcode || '')) === normalizedBarcode
   ) as ProductRow | undefined
 
   if (matchingProduct) return matchingProduct
