@@ -2574,9 +2574,11 @@ export default function PosScreen() {
                           value={customerSearchQuery}
                           onChangeText={setCustomerSearchQuery}
                           style={{
+                            height: 28,
                             paddingVertical: 0,
                             textAlignVertical: 'center',
-                            lineHeight: undefined,
+                            lineHeight: 16,
+                            includeFontPadding: false,
                             ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
                           }}
                         />
@@ -3033,9 +3035,11 @@ export default function PosScreen() {
                             value={customerSearchQuery}
                             onChangeText={setCustomerSearchQuery}
                             style={{
+                              height: 28,
                               paddingVertical: 0,
                               textAlignVertical: 'center',
-                              lineHeight: undefined,
+                              lineHeight: 16,
+                              includeFontPadding: false,
                               ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
                             }}
                           />

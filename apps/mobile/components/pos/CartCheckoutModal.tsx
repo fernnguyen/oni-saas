@@ -130,6 +130,37 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     });
   }, [paymentMethodsList]);
 
+  const isDebtPaymentMethod = React.useCallback((methodValue: string) => {
+    const resolved = resolvedMethods.find((method) => method.value === methodValue || method.code === methodValue);
+    return resolved?.type === 'debt'
+      || resolved?.code === 'debt'
+      || methodValue === 'debt'
+      || methodValue?.startsWith('debt-');
+  }, [resolvedMethods]);
+
+  const getPreferredFundForMethod = React.useCallback((method: any) => {
+    const isDefaultFund = (fund: any) => fund.is_default === 'TRUE' || fund.is_default === true;
+    const isDebt = method?.type === 'debt' || method?.code === 'debt' || isDebtPaymentMethod(method?.value || '');
+
+    if (isDebt) {
+      const debtFunds = paymentFundsList.filter((fund) => fund.type === 'debt');
+      const cashFunds = paymentFundsList.filter((fund) => fund.type === 'cash');
+      return debtFunds.find(isDefaultFund)
+        || debtFunds[0]
+        || cashFunds.find(isDefaultFund)
+        || cashFunds[0]
+        || paymentFundsList.find(isDefaultFund)
+        || paymentFundsList[0];
+    }
+
+    let fundType = method?.type || 'bank';
+    if (method?.type === 'cash' || method?.code === 'cash') fundType = 'cash';
+    else if (method?.type === 'wallet') fundType = 'wallet';
+
+    const matchingFunds = paymentFundsList.filter((fund) => fund.type === fundType);
+    return matchingFunds.find(isDefaultFund) || matchingFunds[0];
+  }, [isDebtPaymentMethod, paymentFundsList]);
+
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [isDiscountModalVisible, setIsDiscountModalVisible] = useState(false);
   const [discountTypeTab, setDiscountTypeTab] = useState<'amount' | 'percent'>('amount');
@@ -639,23 +670,35 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     if (paymentFundsList && paymentFundsList.length > 0) {
       setPaymentRows(prev => {
         let changed = false;
-        const next = prev.map(p => {
-          if ((!p.fund_id || p.fund_id === 'cash') && p.method !== 'debt' && !p.method?.startsWith('debt-') && p.method !== 'prepaid' && !p.method?.startsWith('prepaid-')) {
-            const methodObj = resolvedMethods.find(m => m.value === p.method);
-            const fundType = methodObj ? (methodObj.type || 'bank') : (p.method === 'cash' || p.method?.startsWith('cash-') ? 'cash' : 'bank');
-            const matching = paymentFundsList.filter(f => f.type === fundType);
-            const defaultFund = matching.find(f => f.is_default === 'TRUE') || matching[0];
-            if (defaultFund && defaultFund.id !== p.fund_id) {
+        const next = prev.map((payment) => {
+          const methodObj = resolvedMethods.find((method) => method.value === payment.method || method.code === payment.method);
+
+          if (isDebtPaymentMethod(payment.method)) {
+            const currentFund = paymentFundsList.find((fund) => fund.id === payment.fund_id);
+            const hasCompatibleFund = currentFund?.type === 'debt' || currentFund?.type === 'cash';
+            const preferredFund = getPreferredFundForMethod(methodObj || { value: payment.method, code: payment.method });
+            if (!hasCompatibleFund && preferredFund && preferredFund.id !== payment.fund_id) {
               changed = true;
-              return { ...p, fund_id: defaultFund.id };
+              return { ...payment, fund_id: preferredFund.id };
+            }
+            return payment;
+          }
+
+          if ((!payment.fund_id || payment.fund_id === 'cash') && payment.method !== 'prepaid' && !payment.method?.startsWith('prepaid-')) {
+            const fundType = methodObj ? (methodObj.type || 'bank') : (payment.method === 'cash' || payment.method?.startsWith('cash-') ? 'cash' : 'bank');
+            const matching = paymentFundsList.filter((fund) => fund.type === fundType);
+            const defaultFund = matching.find((fund) => fund.is_default === 'TRUE' || fund.is_default === true) || matching[0];
+            if (defaultFund && defaultFund.id !== payment.fund_id) {
+              changed = true;
+              return { ...payment, fund_id: defaultFund.id };
             }
           }
-          return p;
+          return payment;
         });
         return changed ? next : prev;
       });
     }
-  }, [paymentFundsList, resolvedMethods]);
+  }, [getPreferredFundForMethod, isDebtPaymentMethod, paymentFundsList, resolvedMethods, setPaymentRows]);
 
   // Đồng bộ phương thức thanh toán dạng text/code (như 'cash') sang ID thực tế của database
   React.useEffect(() => {
@@ -758,8 +801,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   // --- Debt & prepaid logic ---
   const customerDebt = Number(activeCustomer?.debt_amount || 0);
   const currentOrderDebtAmount = paymentRows
-    .filter(p => p.method === 'debt' || p.method?.startsWith('debt-'))
-    .reduce((s, p) => s + p.amount, 0);
+    .filter((payment) => isDebtPaymentMethod(payment.method))
+    .reduce((sum, payment) => sum + payment.amount, 0);
   const prepaidBalance = Number(activeCustomer?.prepaid_balance || 0);
 
   // Tổng thực tế cần thu = đơn hàng + tiền trả nợ cũ thêm
@@ -798,7 +841,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
    * Nếu không có row đơn nào đủ → dùng row lớn nhất.
    */
   const selectDebtFund = (): { fund_id: string; method: string } => {
-    const real = paymentRows.filter(r => r.method !== 'debt' && !r.method?.startsWith('debt-') && r.method !== 'prepaid' && !r.method?.startsWith('prepaid-'));
+    const real = paymentRows.filter((row) => !isDebtPaymentMethod(row.method) && row.method !== 'prepaid' && !row.method?.startsWith('prepaid-'));
     if (!real.length) return { fund_id: paymentRows[0]?.fund_id || '', method: paymentRows[0]?.method || 'cash' };
     const covering = real.filter(r => r.amount >= clampedDebtRepay);
     if (covering.length > 0) {
@@ -815,8 +858,16 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       return;
     }
     // 1. Kiểm tra khách lẻ (no selectedCustomer) dùng Ghi nợ hoặc Ví trả trước
-    const hasDebt = paymentRows.some((p) => (p.method === 'debt' || p.method?.startsWith('debt-')) && p.amount > 0);
+    const hasDebt = paymentRows.some((payment) => isDebtPaymentMethod(payment.method) && payment.amount > 0);
     const hasPrepaid = paymentRows.some((p) => (p.method === 'prepaid' || p.method?.startsWith('prepaid-')) && p.amount > 0);
+
+    if (hasDebt && clampedDebtRepay > 0) {
+      Alert.alert(
+        'Không thể ghi nợ',
+        'Đơn đang thu nợ cũ của khách nên không thể đồng thời dùng phương thức Ghi nợ.'
+      );
+      return;
+    }
 
     if (hasDebt && !selectedCustomer) {
       Alert.alert('Lỗi thanh toán', 'Phương thức Ghi nợ yêu cầu phải chọn Khách hàng.');
@@ -960,9 +1011,11 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         onChangeText={setCustomerSearchQuery}
                         editable={!loading}
                         style={{
+                          height: 28,
                           paddingVertical: 0,
                           textAlignVertical: 'center',
-                          lineHeight: undefined,
+                          lineHeight: 16,
+                          includeFontPadding: false,
                           ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
                         }}
                       />
@@ -1562,12 +1615,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         const usedMethods = new Set(paymentRows.map((p) => p.method));
                         const nextMethod = METHODS.find((m) => !usedMethods.has(m.value)) || METHODS[0];
                         
-                        let fundType = 'bank';
-                        if (nextMethod.type === 'cash' || nextMethod.code === 'cash') fundType = 'cash';
-                        else if (nextMethod.type === 'wallet') fundType = 'wallet';
-                        
-                        const matchingFunds = paymentFundsList.filter(f => f.type === fundType);
-                        const defaultFund = matchingFunds.find(f => f.is_default === 'TRUE') || matchingFunds[0];
+                        const defaultFund = getPreferredFundForMethod(nextMethod);
 
                         setPaymentRows(prev => [
                           ...prev,
@@ -1754,10 +1802,16 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   </View>
                 )}
                 <View className="flex-row justify-between items-center">
-                  <Text className="text-xs text-slate-700 font-semibold">{clampedDebtRepay > 0 ? 'Tổng cần thu:' : 'Khách trả:'}</Text>
+                  <Text className={`text-xs font-semibold ${currentOrderDebtAmount > 0 ? 'text-rose-700' : 'text-slate-700'}`}>
+                    {currentOrderDebtAmount > 0
+                      ? `Ghi nợ cho ${activeCustomer?.name || 'khách hàng'}:`
+                      : clampedDebtRepay > 0
+                        ? 'Tổng cần thu:'
+                        : 'Khách trả:'}
+                  </Text>
                   <View className="flex-row items-center gap-2">
-                    <Text className={`font-bold text-sm ${paidSum >= effectiveTotal ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {formatCurrency(paidSum)}
+                    <Text className={`font-bold text-sm ${currentOrderDebtAmount > 0 ? 'text-rose-600' : paidSum >= effectiveTotal ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {formatCurrency(currentOrderDebtAmount > 0 ? currentOrderDebtAmount : paidSum)}
                     </Text>
                     {clampedDebtRepay > 0 && (
                       <Text className="text-[10px] text-slate-400">/ {formatCurrency(effectiveTotal)}</Text>
@@ -1829,6 +1883,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       if ((isPrepaid || isDebt) && !selectedCustomer) {
                         isDisabled = true;
                         disableReason = 'Cần khách hàng';
+                      } else if (isDebt && clampedDebtRepay > 0) {
+                        isDisabled = true;
+                        disableReason = 'Đang trả nợ cũ';
                       } else if (isPrepaid && customerPrepaid <= 0) {
                         isDisabled = true;
                         disableReason = 'Số dư ví = 0';
@@ -1844,12 +1901,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           onPress={() => {
                             if (!selectingMethodRow) return;
                             const idx = selectingMethodRow.idx;
-                            let newFundType = 'bank';
-                            if (m.type === 'cash' || m.code === 'cash') newFundType = 'cash';
-                            else if (m.type === 'wallet') newFundType = 'wallet';
-                            
-                            const mFunds = paymentFundsList.filter(f => f.type === newFundType);
-                            const dFund = mFunds.find(f => f.is_default === 'TRUE') || mFunds[0];
+                            const dFund = getPreferredFundForMethod(m);
                             
                             const isBankTransfer = m.type === 'bank' && m.code !== 'card';
                             if (isBankTransfer && (!dFund || !dFund.account_number || dFund.account_number.trim() === '')) {
@@ -2063,17 +2115,26 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   const methodName = foundMethod ? foundMethod.label : p.method;
                   const amt = parseFloat(String(p.amount)) || 0;
                   
+                  const isDebtPayment = isDebtPaymentMethod(p.method);
+                  const isPrepaidPayment = foundMethod?.type === 'prepaid'
+                    || foundMethod?.code === 'prepaid'
+                    || p.method === 'prepaid'
+                    || p.method?.startsWith('prepaid-');
                   let fundDetail = '';
-                  if (p.method !== 'debt' && p.method !== 'prepaid') {
-                    let fundType = 'bank';
-                    if (foundMethod) {
-                      fundType = foundMethod.type || 'bank';
+                  if (!isPrepaidPayment) {
+                    let fallbackFund;
+                    if (isDebtPayment) {
+                      fallbackFund = getPreferredFundForMethod(foundMethod || { value: p.method, code: p.method });
                     } else {
-                      if (p.method === 'cash') fundType = 'cash';
-                      else if (['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet';
+                      let fundType = foundMethod?.type || 'bank';
+                      if (foundMethod?.type === 'cash' || foundMethod?.code === 'cash' || p.method === 'cash') fundType = 'cash';
+                      else if (foundMethod?.type === 'wallet' || ['momo', 'zalopay', 'vnpay', 'wallet'].includes(p.method)) fundType = 'wallet';
+                      const matchingFunds = paymentFundsList.filter((fund) => fund.type === fundType);
+                      fallbackFund = matchingFunds.find((fund) => fund.is_default === 'TRUE' || fund.is_default === true) || matchingFunds[0];
                     }
-                    const matchingFunds = paymentFundsList.filter(f => f.type === fundType);
-                    const activeFund = paymentFundsList.find(f => f.id === p.fund_id) || matchingFunds[0];
+                    const activeFund = isDebtPayment
+                      ? fallbackFund
+                      : paymentFundsList.find((fund) => fund.id === p.fund_id) || fallbackFund;
                     if (activeFund) {
                       fundDetail = activeFund.name + (activeFund.account_number ? ` (STK: ${activeFund.account_number})` : '');
                     }
@@ -2088,8 +2149,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                         {fundDetail ? <Text className="text-xs text-slate-500 mt-0.5 leading-normal">{fundDetail}</Text> : null}
                       </View>
                       <View className="flex-row items-baseline shrink-0">
-                        <Text className="font-bold text-slate-900 text-xs">{formatCurrency(amt).replace(/[đ₫]/g, '').trim()}</Text>
-                        <Text className="text-[9px] font-bold text-slate-400 ml-0.5">đ</Text>
+                        <Text className={`font-bold text-xs ${isDebtPayment ? 'text-rose-600' : 'text-slate-900'}`}>
+                          {formatCurrency(amt).replace(/[đ₫]/g, '').trim()}
+                        </Text>
+                        <Text className={`text-[9px] font-bold ml-0.5 ${isDebtPayment ? 'text-rose-500' : 'text-slate-400'}`}>đ</Text>
                       </View>
                     </View>
                   );
