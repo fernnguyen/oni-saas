@@ -7,8 +7,6 @@ import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { formatCurrency, formatDateTime } from '../../lib/utils/format';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
-import { SyncManager } from '../../lib/sync/SyncManager';
-import { KeepAliveManager } from '../../lib/sync/KeepAliveManager';
 import { Dialog } from './Dialog';
 
 interface DebtOrder {
@@ -24,7 +22,7 @@ interface DebtCollectionModalProps {
   visible: boolean;
   onClose: () => void;
   customer: any;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
 }
 
 export function DebtCollectionModal({ visible, onClose, customer, onSuccess }: DebtCollectionModalProps) {
@@ -217,11 +215,43 @@ export function DebtCollectionModal({ visible, onClose, customer, onSuccess }: D
       // Tìm quỹ đang chọn để ánh xạ method (cash | bank_transfer)
       const selectedFund = funds.find(f => f.id === fundId);
       const paymentMethod = selectedFund?.type === 'bank' || selectedFund?.type === 'wallet' ? 'bank_transfer' : 'cash';
-      const fundName = selectedFund?.name || 'Sổ quỹ';
+      const createdAt = new Date().toISOString();
+      const resolvedNote = note || `Thu nợ khách hàng ${customer.name}`;
 
-      // Lưu vào cashbook SQLite
-      const cbId = `cb-local-debt-${Date.now()}`;
-      await db.insert(schema.cashbook).values({
+      // REALTIME FIRST: chỉ báo thành công sau khi server đã ghi nhận phiếu và
+      // cập nhật paid_amount/debt_amount của các đơn được phân bổ.
+      const headers = await getApiHeaders();
+      const response = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/cashbook`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'receipt',
+          amount: numericAmount,
+          method: paymentMethod,
+          category: 'debt_collection',
+          reference_id: customer.id,
+          reference_name: customer.name,
+          employee_id: userEmail,
+          note: resolvedNote,
+          date: createdAt,
+          fund_id: fundId,
+          branch_id: shopId,
+          order_allocations: allocations,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.error || errorBody.message || 'Server chưa ghi nhận phiếu thu nợ');
+      }
+
+      const createdCashbook = await response.json().catch(() => ({}));
+      const cbId = createdCashbook.transaction_id || createdCashbook.id || `cb-server-debt-${Date.now()}`;
+
+      // Mirror kết quả server về SQLite để dữ liệu offline không bị lệch.
+      // Lỗi mirror không được biến một giao dịch server đã thành công thành thất bại giả.
+      try {
+        await db.insert(schema.cashbook).values({
         id: cbId,
         branch_id: shopId,
         type: 'receipt',
@@ -231,34 +261,34 @@ export function DebtCollectionModal({ visible, onClose, customer, onSuccess }: D
         reference_id: customer.id,
         reference_name: customer.name,
         employee_id: userEmail,
-        note: (note ? note : `Thu nợ khách hàng ${customer.name}`),
-        date: new Date().toISOString(),
-        fund_id: fundId || null,
-        sync_status: 'pending',
+        note: resolvedNote,
+        date: createdAt,
+        fund_id: fundId,
+        sync_status: 'synced',
         order_allocations: JSON.stringify(allocations),
-      });
+      }).onConflictDoNothing();
 
-      // Cập nhật lại customers.debt_amount cục bộ tạm thời để UI responsive
+      // Cập nhật bản mirror khách hàng để UI/offline cache đồng nhất với server.
       await db.update(schema.customers)
         .set({ debt_amount: Math.max(0, customerDebt - numericAmount) })
         .where(eq(schema.customers.id, customer.id));
 
-      // Cập nhật paid_amount cho các đơn hàng được gạch nợ
-      for (const alloc of allocations) {
-        const order = selectedOrdersData.find(o => o.id === alloc.order_id);
-        if (order) {
-          await db.update(schema.orders)
-            .set({ 
-              paid_amount: String(Number(order.paid_amount || 0) + alloc.amount)
-            })
-            .where(eq(schema.orders.id, alloc.order_id));
+        // Cập nhật paid_amount cho các đơn hàng được gạch nợ
+        for (const alloc of allocations) {
+          const order = selectedOrdersData.find(o => o.id === alloc.order_id);
+          if (order) {
+            await db.update(schema.orders)
+              .set({
+                paid_amount: String(Number(order.paid_amount || 0) + alloc.amount)
+              })
+              .where(eq(schema.orders.id, alloc.order_id));
+          }
         }
+      } catch (localMirrorError) {
+        console.warn('Server đã thu nợ thành công nhưng không thể cập nhật SQLite mirror:', localMirrorError);
       }
 
-      // Trigger sync ngầm
-      KeepAliveManager.triggerSyncIfNeeded(true).catch(() => {});
-
-      onSuccess();
+      await onSuccess();
     } catch (e: any) {
       Alert.alert('Lỗi', `Lỗi khi lưu phiếu: ${e.message}`);
     } finally {

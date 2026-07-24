@@ -167,6 +167,7 @@ export default function OrdersScreen() {
   const [page, setPage] = useState(1);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [timeFilter, setTimeFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   useEffect(() => { const load = async () => { const shopId = await AsyncStorage.getItem('active_shop_id'); if (shopId) fetchOrdersOnline(shopId, 1, timeFilter, true); }; load(); }, [timeFilter, searchQuery]);
   const [stats, setStats] = useState<any>(null);
   const { toastMsg, toastOpacity, showToast } = usePosToast();
@@ -175,7 +176,6 @@ export default function OrdersScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeShiftId, setActiveShiftId] = useState('');
 
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedShift, setSelectedShift] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all'); // all, synced, pending
 
@@ -379,7 +379,11 @@ export default function OrdersScreen() {
       const res = await fetch(url, { headers });
       if (res.ok) {
         const json = await res.json();
-        const cloudOrders = json.data || [];
+        const cloudOrders = (json.data || []).map((order: any) => ({
+          ...order,
+          // Đơn vừa đọc từ server luôn là bản đã đồng bộ. API không trả field này.
+          sync_status: order.sync_status || 'synced',
+        }));
         const meta = json.meta || {};
         
         setHasMore(cloudOrders.length > 0 && pageNum < (meta.totalPages || Infinity));
@@ -974,17 +978,27 @@ export default function OrdersScreen() {
             fetch(`${url}/api/shops/${shopId}/orders/${order.id}`, { headers })
           ]);
 
+          // Tổng tiền của đơn là dữ liệu cốt lõi: cập nhật độc lập với các API phụ
+          // để nút reload vẫn làm mới Đã thanh toán/Còn nợ khi items/payments/... lỗi.
+          if (orderRes.ok) {
+            const orderData = await orderRes.json();
+            setSelectedOrder((prev: any) => prev?.id === order.id ? {
+              ...prev,
+              paid_amount: orderData.paid_amount,
+              debt_amount: orderData.debt_amount,
+              status: orderData.status,
+              total_amount: orderData.total_amount,
+              payment_method: orderData.payment_method ?? prev.payment_method,
+              sync_status: 'synced',
+            } : prev);
+          }
+
           if (itemsRes.ok && paymentsRes.ok && returnsRes.ok && settingsRes.ok && cashbookRes.ok) {
             const itemsJson = await itemsRes.json();
             const paymentsJson = await paymentsRes.json();
             const returnsJson = await returnsRes.json();
             const settingsJson = await settingsRes.json();
             const cashbookJson = await cashbookRes.json();
-            
-            if (orderRes.ok) {
-              const orderData = await orderRes.json();
-              setSelectedOrder((prev: any) => ({ ...prev, paid_amount: orderData.paid_amount, status: orderData.status, total_amount: orderData.total_amount }));
-            }
 
             const rawReturns = returnsJson.data || [];
             const returnsWithItems = await Promise.all(
@@ -1290,12 +1304,12 @@ export default function OrdersScreen() {
     }
   };
 
-  const canCancel = selectedOrder && selectedOrder.sync_status === 'synced' && (
+  const canCancel = selectedOrder && selectedOrder.sync_status !== 'pending' && (
     (selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'in_progress' && hasPermission('orders.delete')) ||
     (selectedOrder.status === 'in_progress' && hasPermission('orders.delete') && (hasPermission('owner') || hasPermission('admin')))
   );
 
-  const canReturn = selectedOrder && selectedOrder.sync_status === 'synced' && hasPermission('returns.create') && (
+  const canReturn = selectedOrder && selectedOrder.sync_status !== 'pending' && hasPermission('returns.create') && (
     selectedOrder.status === 'completed' || selectedOrder.status === 'partially_refunded'
   );
 
@@ -2082,19 +2096,19 @@ export default function OrdersScreen() {
         visible={showDebtModal}
         onClose={() => setShowDebtModal(false)}
         customer={debtCustomerData}
-        onSuccess={() => {
+        onSuccess={async () => {
           setShowDebtModal(false);
           showToast('Thu nợ thành công', 'success');
-          AsyncStorage.getItem('active_shop_id').then(shopId => {
-            if (shopId) {
-              setPage(1);
-              fetchOrdersOnline(shopId, 1, timeFilter, true);
-              fetchStats(shopId);
-            }
-          });
-          if (selectedOrder) {
-            handleViewOrderDetails(selectedOrder, true);
-          }
+
+          const shopId = await AsyncStorage.getItem('active_shop_id');
+          if (!shopId) return;
+
+          setPage(1);
+          await Promise.all([
+            fetchOrdersOnline(shopId, 1, timeFilter, true),
+            fetchStats(shopId),
+            selectedOrder ? handleViewOrderDetails(selectedOrder, true) : Promise.resolve(),
+          ]);
         }}
       />
 
