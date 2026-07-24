@@ -17,11 +17,11 @@ export interface SyncDotButtonProps {
 }
 
 const STATUS_CONFIG: Record<SyncDotStatus, { dot: string; icon: string; iconColor: string }> = {
-  synced:  { dot: '#22c55e', icon: 'sync-outline',          iconColor: '#16a34a' },
-  pending: { dot: '#fa5908', icon: 'sync-outline',          iconColor: '#fa5908' },
+  synced:  { dot: '#22c55e', icon: 'cloud-done-outline',    iconColor: '#16a34a' },
+  pending: { dot: '#fa5908', icon: 'cloud-upload-outline',  iconColor: '#fa5908' },
   offline: { dot: '#d97706', icon: 'cloud-offline-outline', iconColor: '#d97706' },
-  error:   { dot: '#e11d48', icon: 'alert-circle-outline',  iconColor: '#e11d48' },
-  syncing: { dot: 'transparent', icon: 'sync-outline',      iconColor: '#fa5908' },
+  error:   { dot: '#e11d48', icon: 'cloud-offline-outline', iconColor: '#e11d48' },
+  syncing: { dot: 'transparent', icon: 'cloud-upload-outline', iconColor: '#fa5908' },
 };
 
 export function SyncDotButton({
@@ -152,44 +152,43 @@ export function SyncDotButton({
   const cfg = STATUS_CONFIG[status];
 
   return (
-    // Outer wrapper — so the status dot can overflow outside the button boundary
-    <View style={{ position: 'relative' }}>
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={onPress}
-        style={{
-          padding: 7,
-          backgroundColor: '#f8fafc',
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: '#f1f5f9',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-        accessibilityLabel={`Đồng bộ: ${status}`}
-      >
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={onPress}
+      style={{
+        padding: 5.5,
+        backgroundColor: '#f8fafc',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      accessibilityLabel={`Đồng bộ: ${status}`}
+    >
+      <View style={{ position: 'relative' }}>
         <Animated.View style={status === 'syncing' ? { transform: [{ rotate: spin }] } : undefined}>
-          <Ionicons name={cfg.icon as any} size={22} color={cfg.iconColor} />
+          <Ionicons name={cfg.icon as any} size={20} color={cfg.iconColor} />
         </Animated.View>
-      </TouchableOpacity>
 
-      {/* Status dot — outside button, top-right corner */}
-      {status !== 'syncing' && (
-        <View
-          style={{
-            position: 'absolute',
-            top: -3,
-            right: -3,
-            width: 9,
-            height: 9,
-            borderRadius: 5,
-            backgroundColor: cfg.dot,
-            borderWidth: 1.5,
-            borderColor: 'white',
-            zIndex: 10,
-          }}
-        />
-      )}
-    </View>
+        {/* Status dot — góc trên bên phải icon */}
+        {status !== 'syncing' && (
+          <View
+            style={{
+              position: 'absolute',
+              top: -2,
+              right: -2,
+              width: 7,
+              height: 7,
+              borderRadius: 4,
+              backgroundColor: cfg.dot,
+              borderWidth: 1,
+              borderColor: 'white',
+              zIndex: 10,
+            }}
+          />
+        )}
+      </View>
+    </TouchableOpacity>
   );
 }

@@ -459,11 +459,20 @@ export function Header({
   <View className="flex-row items-center flex-1 mr-4">
   {/* Nút Hamburger Left hoặc Quay lại */}
   <TouchableOpacity 
-  activeOpacity={0.7}
-  onPress={handleLeftPress}
-  className="p-2 bg-slate-50 border border-slate-100 rounded-xl mr-3"
+    activeOpacity={0.7}
+    onPress={handleLeftPress}
+    style={{
+      padding: 5.5,
+      backgroundColor: '#f8fafc',
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: '#f1f5f9',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 10,
+    }}
   >
-  <Ionicons name={showBack ? "chevron-back" : "menu-outline"} size={20} color="#fa5908" />
+    <Ionicons name={showBack ? "chevron-back" : "menu-outline"} size={20} color="#fa5908" />
   </TouchableOpacity>
 
   {/* Cấu trúc chọn chi nhánh dropdown hoặc Title */}
@@ -512,9 +521,9 @@ export function Header({
   <TouchableOpacity
     activeOpacity={0.7}
     style={{
-      padding: 7,
+      padding: 5.5,
       backgroundColor: '#f8fafc',
-      borderRadius: 12,
+      borderRadius: 10,
       borderWidth: 1,
       borderColor: '#f1f5f9',
       alignItems: 'center',
@@ -526,46 +535,46 @@ export function Header({
     }}
     accessibilityLabel="Quét mã QR đăng nhập web"
   >
-    <Ionicons name="qr-code-outline" size={22} color="#64748b" />
+    <Ionicons name="qr-code-outline" size={20} color="#64748b" />
   </TouchableOpacity>
 
-  {/* Chuông thông báo — dot đỏ nằm bên ngoài button */}
-  <View style={{ position: 'relative' }}>
-    <TouchableOpacity
-      activeOpacity={0.7}
-      style={{
-        padding: 7,
-        backgroundColor: '#f8fafc',
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#f1f5f9',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-      onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        router.push('/notifications');
-      }}
-    >
-      <Ionicons name="notifications-outline" size={22} color="#64748b" />
-    </TouchableOpacity>
-    {unreadCount > 0 && (
-      <View
-        style={{
-          position: 'absolute',
-          top: -3,
-          right: -3,
-          width: 9,
-          height: 9,
-          borderRadius: 5,
-          backgroundColor: '#ef4444',
-          borderWidth: 1.5,
-          borderColor: 'white',
-          zIndex: 10,
-        }}
-      />
-    )}
-  </View>
+  {/* Chuông thông báo — dot đỏ nằm ở góc trên bên phải icon */}
+  <TouchableOpacity
+    activeOpacity={0.7}
+    style={{
+      padding: 5.5,
+      backgroundColor: '#f8fafc',
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: '#f1f5f9',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}
+    onPress={() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      router.push('/notifications');
+    }}
+  >
+    <View style={{ position: 'relative' }}>
+      <Ionicons name="notifications-outline" size={20} color="#64748b" />
+      {unreadCount > 0 && (
+        <View
+          style={{
+            position: 'absolute',
+            top: -2,
+            right: -2,
+            width: 7,
+            height: 7,
+            borderRadius: 4,
+            backgroundColor: '#ef4444',
+            borderWidth: 1,
+            borderColor: 'white',
+            zIndex: 10,
+          }}
+        />
+      )}
+    </View>
+  </TouchableOpacity>
   </View>
 
  {/* DROPDOWN MENU CHUYỂN CHI NHÁNH THẢ XUỐNG */}
