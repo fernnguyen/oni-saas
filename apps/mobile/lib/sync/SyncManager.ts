@@ -93,7 +93,8 @@ export class SyncManager {
 
       const rawCategories = catData.data || [];
       const rawProducts = prodData.data || [];
-      const rawTables = tableData.data || [];
+      // Keep soft-deleted rooms/tables out of the offline POS cache.
+      const rawTables = (tableData.data || []).filter((table: any) => table.status !== 'deleted');
       const activeOrders = activeOrdersData.data || [];
       const rawCustomers = custData.data || [];
       const rawFunds = fundsData.data || [];
@@ -274,6 +275,11 @@ export class SyncManager {
           for (const table of rawTables) {
             const rate = parseInt(table.hourly_rate || '0', 10);
             const isOccupied = table.status === 'occupied' || table.status === 'playing';
+            const resolvedStatus = isOccupied
+              ? 'occupied'
+              : ['available', 'reserved', 'dirty', 'cleaning', 'maintenance'].includes(table.status)
+                ? table.status
+                : 'available';
             const tId = table.id || table.resource_id;
             const activeOrderSession = activeOrdersMap.get(tId);
             
@@ -306,7 +312,7 @@ export class SyncManager {
               id: tId,
               name: table.name || '',
               type: table.type || 'table',
-              status: isOccupied ? 'occupied' : (table.status === 'dirty' || table.status === 'cleaning' ? table.status : 'available'),
+              status: resolvedStatus,
               current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
               hourly_rate: isNaN(rate) ? 0 : rate,
               zone: table.zone || null,
@@ -317,7 +323,7 @@ export class SyncManager {
               set: {
                 name: table.name || '',
                 type: table.type || 'table',
-                status: isOccupied ? 'occupied' : (table.status === 'dirty' || table.status === 'cleaning' ? table.status : 'available'),
+                status: resolvedStatus,
                 current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
                 hourly_rate: isNaN(rate) ? 0 : rate,
                 zone: table.zone || null,
@@ -1382,7 +1388,8 @@ export class SyncManager {
         fetch(`${baseUrl}/api/shops/${shopId}/orders?status=in_progress&limit=100`, { headers }).then(res => res.ok ? res.json() : { data: [] }),
       ]);
 
-      const rawTables = tableData.data || [];
+      // Soft-deleted resources must never reappear as available in the offline POS cache.
+      const rawTables = (tableData.data || []).filter((table: any) => table.status !== 'deleted');
       const activeOrders = activeOrdersData.data || [];
 
       // Bản đồ hóa các active order theo resource_id để tra cứu nhanh
@@ -1410,6 +1417,11 @@ export class SyncManager {
           for (const table of rawTables) {
             const rate = parseInt(table.hourly_rate || '0', 10);
             const isOccupied = table.status === 'occupied' || table.status === 'playing';
+            const resolvedStatus = isOccupied
+              ? 'occupied'
+              : ['available', 'reserved', 'dirty', 'cleaning', 'maintenance'].includes(table.status)
+                ? table.status
+                : 'available';
             const tId = table.id || table.resource_id;
             const activeOrderSession = activeOrdersMap.get(tId);
             
@@ -1442,7 +1454,7 @@ export class SyncManager {
               id: tId,
               name: table.name || '',
               type: table.type || 'table',
-              status: isOccupied ? 'occupied' : (table.status === 'dirty' || table.status === 'cleaning' ? table.status : 'available'),
+              status: resolvedStatus,
               current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
               hourly_rate: isNaN(rate) ? 0 : rate,
               zone: table.zone || null,
@@ -1453,7 +1465,7 @@ export class SyncManager {
               set: {
                 name: table.name || '',
                 type: table.type || 'table',
-                status: isOccupied ? 'occupied' : (table.status === 'dirty' || table.status === 'cleaning' ? table.status : 'available'),
+                status: resolvedStatus,
                 current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
                 hourly_rate: isNaN(rate) ? 0 : rate,
                 zone: table.zone || null,

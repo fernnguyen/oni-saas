@@ -23,6 +23,7 @@ import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { SingleLineInput } from '../../components/ui/single-line-input';
 import { Switch } from '../../components/ui/Switch';
 import { DrawerMenu } from '../../components/erp/DrawerMenu';
 import { BarcodeScannerModal } from '../../components/ui/BarcodeScannerModal';
@@ -1494,7 +1495,7 @@ export default function PosScreen() {
           <View className="flex-row">
             <TouchableOpacity
               activeOpacity={0.8}
-              className={`mr-3 px-4 py-2 rounded-xl flex-row items-center border ${activeVertical === 'retail' ? 'bg-orange-500 border-orange-500' : 'bg-white border-slate-200'}`}
+              className={`flex-1 mr-2 px-2.5 py-2 rounded-xl flex-row items-center border ${activeVertical === 'retail' ? 'bg-orange-500 border-orange-500' : 'bg-white border-slate-200'}`}
               style={activeVertical === 'retail' ? {
                 shadowColor: '#fa5908',
                 shadowOffset: { width: 0, height: 2 },
@@ -1505,14 +1506,14 @@ export default function PosScreen() {
               onPress={() => setActiveVertical('retail')}
             >
               <Ionicons name="cart-outline" size={14} color={activeVertical === 'retail' ? 'white' : '#fa5908'} className="mr-1.5" />
-              <Text className={`font-semibold text-tiny ${activeVertical === 'retail' ? 'text-white' : 'text-slate-600'}`}>
+              <Text className={`flex-1 font-semibold text-tiny ${activeVertical === 'retail' ? 'text-white' : 'text-slate-600'}`} numberOfLines={1}>
                 {getFirstTabLabel()}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               activeOpacity={0.8}
-              className={`px-4 py-2 rounded-xl flex-row items-center border ${activeVertical !== 'retail' ? 'bg-orange-500 border-orange-500' : 'bg-white border-slate-200'}`}
+              className={`flex-1 px-2.5 py-2 rounded-xl flex-row items-center border ${activeVertical !== 'retail' ? 'bg-orange-500 border-orange-500' : 'bg-white border-slate-200'}`}
               style={activeVertical !== 'retail' ? {
                 shadowColor: '#fa5908',
                 shadowOffset: { width: 0, height: 2 },
@@ -1533,13 +1534,28 @@ export default function PosScreen() {
                 color={activeVertical !== 'retail' ? 'white' : '#fa5908'}
                 className="mr-1.5"
               />
-              <Text className={`font-semibold text-tiny ${activeVertical !== 'retail' ? 'text-white' : 'text-slate-600'}`}>
+              <Text className={`flex-1 font-semibold text-tiny ${activeVertical !== 'retail' ? 'text-white' : 'text-slate-600'}`} numberOfLines={1}>
                 {
                   shopVertical === 'fnb' ? 'Sơ đồ Bàn' :
                     shopVertical === 'sports_court' ? 'Sơ đồ Sân' :
                       shopVertical === 'lodging' ? 'Sơ đồ Phòng' :
                         'Bàn Bi-a (Giờ)'
                 }
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                router.push('/resource-management');
+              }}
+              className="ml-2 px-2.5 py-2 rounded-xl flex-row items-center border border-slate-200 bg-white"
+              accessibilityLabel="Quản lý phòng bàn"
+            >
+              <Ionicons name="settings-outline" size={14} color="#475569" />
+              <Text className="ml-1.5 font-semibold text-tiny text-slate-600" numberOfLines={1}>
+                Quản lý
               </Text>
             </TouchableOpacity>
           </View>
@@ -1870,21 +1886,24 @@ export default function PosScreen() {
             </View>
 
             <View className="flex-row items-center space-x-2">
-              <View className="flex-1 flex-row items-center bg-white border border-slate-200 rounded-xl px-3 py-2 mr-2">
-                <Ionicons name="search-outline" size={16} color="#94a3b8" />
-                <TextInput
-                  placeholder="Tìm kiếm..."
-                  className="flex-1 ml-2 text-sm text-slate-800"
-                  value={tableSearchQuery}
-                  onChangeText={setTableSearchQuery}
-                  placeholderTextColor="#94a3b8"
-                />
-                {tableSearchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => setTableSearchQuery('')}>
-                    <Ionicons name="close-circle" size={16} color="#cbd5e1" />
-                  </TouchableOpacity>
-                )}
-              </View>
+              <SingleLineInput
+                value={tableSearchQuery}
+                onChangeText={setTableSearchQuery}
+                placeholder="Tìm kiếm..."
+                placeholderTextColor="#94a3b8"
+                containerClassName="flex-1 rounded-xl border border-slate-200 bg-white px-3 mr-2"
+                inputClassName="ml-2 text-xs font-medium text-slate-700"
+                leading={
+                  <Ionicons name="search-outline" size={16} color="#94a3b8" />
+                }
+                trailing={
+                  tableSearchQuery.length > 0 ? (
+                    <TouchableOpacity onPress={() => setTableSearchQuery('')}>
+                      <Ionicons name="close-circle" size={16} color="#cbd5e1" />
+                    </TouchableOpacity>
+                  ) : null
+                }
+              />
 
               <View className="flex-row bg-slate-100 p-1 rounded-xl border border-slate-200">
                 <Pressable

@@ -38,8 +38,10 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  const displayVersion = buildNumber ? `v${appVersion} (${buildNumber})` : `v${appVersion}`;
 
  const canViewDebt = hasPermission('debt.view') || hasPermission('customers.view');
+ const canViewResources = hasPermission('pos.use');
 
  const [userInfo, setUserInfo] = useState<{name: string, email: string} | null>(null);
+ const [resourceMenuLabel, setResourceMenuLabel] = useState<string | null>(null);
  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
  const [isLoggingOut, setIsLoggingOut] = useState(false);
  const [isShiftOpen, setIsShiftOpen] = useState(false);
@@ -78,6 +80,15 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
   try {
   const name = await AsyncStorage.getItem('user_name');
   const email = await AsyncStorage.getItem('saved_email');
+  const activeIndustry = (await AsyncStorage.getItem('active_shop_industry') || '').toLowerCase();
+  const resourceLabels: Record<string, string> = {
+    lodging: 'Quản lý Phòng',
+    fnb: 'Quản lý Bàn',
+    billiards: 'Quản lý Bàn',
+    sports_court: 'Quản lý Sân',
+    service_hourly: 'Quản lý Phòng/Máy',
+  };
+  setResourceMenuLabel(resourceLabels[activeIndustry] || null);
   const activeShiftId = await AsyncStorage.getItem('active_shift_id');
   const isShiftEnabled = (await AsyncStorage.getItem('enable_shift_management')) === 'true';
   
@@ -399,6 +410,7 @@ export function DrawerMenu({visible, onClose, branchName = 'Chi nhánh chính'}:
  Vận hành & Tài chính
  </Text>
  {renderMenuItem('pricetags-outline', 'Quản lý Sản phẩm', '/products')}
+ {canViewResources && resourceMenuLabel && renderMenuItem('grid-outline', resourceMenuLabel, '/resource-management')}
  {renderMenuItem('cube-outline', 'Quản lý Kho hàng', '/warehouse')}
  {renderMenuItem('wallet-outline', 'Sổ quỹ (Cashbook)', '/cashbook')}
  {canViewDebt && renderMenuItem('card-outline', 'Quản lý Công nợ', '/debt')}
