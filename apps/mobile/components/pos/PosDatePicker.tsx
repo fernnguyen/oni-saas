@@ -8,9 +8,10 @@ interface PosDatePickerProps {
   onConfirm: (dateStr: string) => void;
   targetField: 'dob' | 'expiry_date' | string;
   initialDate?: string; // DD/MM/YYYY
+  title?: string;
 }
 
-export function PosDatePicker({isOpen, onClose, onConfirm, targetField, initialDate}: PosDatePickerProps) {
+export function PosDatePicker({isOpen, onClose, onConfirm, targetField, initialDate, title}: PosDatePickerProps) {
   const [pickerDay, setPickerDay] = useState(new Date().getDate());
   const [pickerMonth, setPickerMonth] = useState(new Date().getMonth() + 1);
   const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
@@ -40,7 +41,7 @@ export function PosDatePicker({isOpen, onClose, onConfirm, targetField, initialD
       <View className="w-full max-w-[340px] bg-white rounded-3xl p-5 shadow-2xl items-center border border-slate-100 overflow-hidden">
         {/* Modal Title */}
         <Text className="text-xs font-semibold text-slate-400 mb-3">
-          {targetField === 'dob' ? 'Chọn ngày sinh' : 'Chọn ngày hết hạn'}
+          {title || (targetField === 'dob' ? 'Chọn ngày sinh' : 'Chọn ngày hết hạn')}
         </Text>
 
         {/* Premium Header Display */}

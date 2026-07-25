@@ -2,7 +2,7 @@ import React, {useState, useCallback, useEffect, useRef} from 'react';
 import {Text, View, ScrollView, TouchableOpacity, TouchableWithoutFeedback, TextInput, Modal, Platform, ActivityIndicator, RefreshControl, FlatList, Animated} from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {useFocusEffect, useLocalSearchParams} from 'expo-router';
+import {useFocusEffect, useLocalSearchParams, useRouter} from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {db} from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
@@ -178,6 +178,7 @@ const getOrderStatusBadgeProps = (status: string): { label: string; variant: 'pr
 
 export default function OrdersScreen() {
   const {hasPermission} = usePermissions();
+  const router = useRouter();
   const params = useLocalSearchParams();
   const orderIdParam = params?.id as string | undefined;
   const [selectedOrderPayments, setSelectedOrderPayments] = useState<any[]>([]);
@@ -185,6 +186,27 @@ export default function OrdersScreen() {
   const [selectedOrderCashbook, setSelectedOrderCashbook] = useState<any[]>([]);
   const [shopSettings, setShopSettings] = useState<any>({});
   const [isDetailLoading, setIsDetailLoading] = useState(false);
+
+  // This is only a UI convenience; the manual-order API is the authority and
+  // enforces both the shop switch and the Owner/Admin role again.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const shopId = await AsyncStorage.getItem('active_shop_id');
+      if (!shopId) return;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/settings`, { headers: await getApiHeaders(), signal: controller.signal });
+        if (mounted && res.ok) {
+          const settings = await res.json();
+          setShopSettings((current: any) => ({ ...current, ...settings }));
+        }
+      } catch (error: any) { if (error?.name !== 'AbortError') console.warn('manual order settings error', error); }
+      finally { clearTimeout(timeoutId); }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -1160,6 +1182,12 @@ export default function OrdersScreen() {
               </TouchableOpacity>
             ) : null}
           </View>
+          {hasPermission('orders.delete') && shopSettings?.enable_manual_orders !== false ? (
+            <TouchableOpacity onPress={() => router.push('/manual-order')} className="ml-2 h-10 flex-row items-center rounded-2xl bg-orange-500 px-3 shadow-sm">
+              <Ionicons name="add" size={17} color="#fff" />
+              <Text className="ml-0.5 text-xxs font-bold text-white">Ghi đơn</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row mb-3">

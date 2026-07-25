@@ -40,7 +40,9 @@ function buildProfitReport(orders: Row[], orderItems: Row[], products: Row[], ca
   // Filter completed orders
   const completedOrders = orders.filter(o => {
     if (o.status !== 'completed' || o.is_return === 'TRUE') return false
-    const dateStr = o.updated_at || o.created_at || new Date().toISOString()
+    // Manual entries intentionally use their selected invoice time; POS orders
+    // retain the existing completion/update-time convention.
+    const dateStr = o.channel === 'manual' ? o.created_at : (o.updated_at || o.created_at || new Date().toISOString())
     return inRange(dateStr)
   })
   const completedOrderIds = new Set(completedOrders.map(o => o.order_id || o.id))
@@ -88,7 +90,7 @@ function buildProfitReport(orders: Row[], orderItems: Row[], products: Row[], ca
     if (!completedOrderIds.has(orderId)) continue
 
     const order = completedOrders.find(o => (o.order_id || o.id) === orderId)
-    const dateStr = order?.updated_at || order?.created_at || new Date().toISOString()
+    const dateStr = order?.channel === 'manual' ? order.created_at : (order?.updated_at || order?.created_at || new Date().toISOString())
     const dKey = dayKey(dateStr)
 
     if (!seriesMap[dKey]) {
@@ -127,7 +129,7 @@ function buildProfitReport(orders: Row[], orderItems: Row[], products: Row[], ca
 
   // 2. Process Order-Level Discounts
   for (const o of completedOrders) {
-    const dateStr = o.updated_at || o.created_at || new Date().toISOString()
+    const dateStr = o.channel === 'manual' ? o.created_at : (o.updated_at || o.created_at || new Date().toISOString())
     const dKey = dayKey(dateStr)
     const discount = parseAmount(o.discount_amount)
     

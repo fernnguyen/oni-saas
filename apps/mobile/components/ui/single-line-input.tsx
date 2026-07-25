@@ -10,6 +10,7 @@ type SingleLineInputProps = Omit<TextInputProps, 'multiline'> & {
   inputClassName?: string;
   leading?: ReactNode;
   trailing?: ReactNode;
+  formatValue?: (value: string) => string;
 };
 
 /**
@@ -21,6 +22,8 @@ export function SingleLineInput({
   inputClassName = '',
   leading,
   trailing,
+  formatValue,
+  onChangeText,
   ...props
 }: SingleLineInputProps) {
   return (
@@ -28,6 +31,9 @@ export function SingleLineInput({
       {leading}
       <TextInput
         {...props}
+        onChangeText={formatValue && onChangeText
+          ? (value) => onChangeText(formatValue(value))
+          : onChangeText}
         multiline={false}
         className={`h-full flex-1 pb-0.5 ${inputClassName}`}
       />

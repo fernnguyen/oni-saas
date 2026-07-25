@@ -117,6 +117,14 @@ function TabLayoutContent() {
         }}
       />
 
+      <Tabs.Screen
+        name="manual-order"
+        options={{
+          href: null,
+          title: 'Ghi đơn',
+        }}
+      />
+
       {/* 3. BÁN HÀNG POS / QUÉT MÃ (Ẩn nếu thiếu quyền pos.use) */}
       <Tabs.Screen
         name="pos"

@@ -37,6 +37,7 @@ interface ShopSettings {
   qr_ordering_type?: 'web' | 'zalo';
   enable_shift_management?: boolean;
   strict_shift_lock?: boolean;
+  enable_manual_orders?: boolean;
   synced_from_sheet_at: string | null;
   sepay_webhook_token?: string | null;
   sepay_auth_method?: string | null;
@@ -147,6 +148,7 @@ export function ShopSettingsForm({
     qr_ordering_type: initial.qr_ordering_type ?? 'web',
     enable_shift_management: initial.enable_shift_management ?? false,
     strict_shift_lock: initial.strict_shift_lock ?? false,
+    enable_manual_orders: initial.enable_manual_orders ?? true,
     default_max_debt_days: String(initial.default_max_debt_days ?? 30),
     default_max_debt_amount: String(initial.default_max_debt_amount ?? 10000000),
     allow_sell_over_debt_limit: initial.allow_sell_over_debt_limit ?? true,
@@ -668,6 +670,7 @@ export function ShopSettingsForm({
           allow_negative_stock: form.allow_negative_stock,
           enable_shift_management: form.enable_shift_management,
           strict_shift_lock: form.strict_shift_lock,
+          enable_manual_orders: form.enable_manual_orders,
           auto_print_receipt: form.auto_print_receipt,
           mute_pos_sound: form.mute_pos_sound,
           skip_cleaning_process: form.skip_cleaning_process,
@@ -1330,6 +1333,26 @@ export function ShopSettingsForm({
                     </Field>
                   </div>
                 )}
+
+                <Field label="Ghi nhận đơn bán thủ công">
+                  <div
+                    onClick={() => canManage && set('enable_manual_orders', !form.enable_manual_orders)}
+                    className="flex cursor-pointer items-center gap-3 mt-1"
+                  >
+                    <div
+                      className={`relative h-6 w-11 rounded-full transition-colors ${form.enable_manual_orders ? 'bg-primary' : 'bg-slate-200'} ${canManage ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.enable_manual_orders ? 'translate-x-5' : ''}`}
+                      />
+                    </div>
+                    <span className="text-sm text-slate-600 select-none font-medium">
+                      {form.enable_manual_orders
+                        ? 'Cho phép Owner/Admin ghi đơn ngoài POS, kể cả đơn nhập bù.'
+                        : 'Ẩn và chặn tạo đơn thủ công ở cả web và ứng dụng di động.'}
+                    </span>
+                  </div>
+                </Field>
 
                 <Field label="Tự động in hóa đơn">
                   <div

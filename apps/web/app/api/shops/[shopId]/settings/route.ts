@@ -26,6 +26,9 @@ const DEFAULT_SETTINGS = {
   qr_ordering_type: 'web',
   enable_shift_management: false,
   strict_shift_lock: false,
+  // Manual entries are intentionally opt-out for existing shops. The API still
+  // enforces this value so hiding the UI cannot be bypassed.
+  enable_manual_orders: true,
   print_bilingual: false,
   show_brand_attribution: true,
   sepay_webhook_token: '',
@@ -86,6 +89,7 @@ const putSchema = z.object({
   qr_ordering_type: z.enum(['web', 'zalo']).optional(),
   enable_shift_management: z.boolean().optional(),
   strict_shift_lock: z.boolean().optional(),
+  enable_manual_orders: z.boolean().optional(),
   print_bilingual: z.boolean().optional(),
   show_brand_attribution: z.boolean().optional(),
   default_max_debt_days: z.number().int().min(0).optional(),

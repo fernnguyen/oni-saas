@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useDebounce } from 'use-debounce'
 import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { DataTable, Column } from '@/app/components/ui/DataTable'
 import { SlideOver } from '@/app/components/ui/SlideOver'
 import { TagBadge, TagColor } from '@/app/components/ui/TagBadge'
@@ -26,6 +27,8 @@ interface Props {
   shopId: string
   shopName: string
   permissions?: string[]
+  canCreateManual?: boolean
+  manualOrderHref?: string
 }
 
 interface StatPeriod {
@@ -62,6 +65,7 @@ const CHANNEL_LABEL: Record<string, string> = {
   zalo: 'Zalo',
   'pos-mobile': 'POS Mobile',
   mini_app: 'Mini App',
+  manual: 'Ghi thủ công',
 }
 
 const METHOD_LABEL: Record<string, string> = {
@@ -113,7 +117,7 @@ const STAT_CARDS: { key: keyof OrderStats; label: string }[] = [
   { key: 'returns', label: 'Trả hàng' },
 ]
 
-export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
+export function OrdersClient({ shopId, shopName, permissions = [], canCreateManual = false, manualOrderHref = 'new' }: Props) {
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const initialSearch = searchParams?.get('search') || searchParams?.get('orderId') || ''
@@ -777,6 +781,11 @@ export function OrdersClient({ shopId, shopName, permissions = [] }: Props) {
             {isFetching && !isLoading && <span className="ml-2 text-xs text-slate-400">Đang cập nhật...</span>}
           </p>
         </div>
+        {canCreateManual && settings?.enable_manual_orders !== false && (
+          <Link href={manualOrderHref} className="shrink-0 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90">
+            + Ghi đơn thủ công
+          </Link>
+        )}
       </div>
 
       {/* Status filter tabs */}
