@@ -190,14 +190,16 @@ fi
 ssh oni@server "node --version && pm2 --version && drizzle-kit --version"
 ```
 
-### Bước 4.5 — Cài drizzle-kit global
+### Bước 4.5 — Cài các gói migration global
 
 ```bash
-# Cài vào NVM node hiện tại — tự động vào PATH
-npm install -g drizzle-kit@0.31.10
+# Cài drizzle-kit (CLI), drizzle-orm và pg driver vào NVM node hiện tại
+npm install -g drizzle-kit@0.31.10 drizzle-orm@0.45.2 pg
 drizzle-kit --version
 # → /home/oni/.nvm/versions/node/v24.15.0/bin/drizzle-kit
 ```
+
+> **Lưu ý về `dotenv`**: Không cần cài `dotenv` global. File `drizzle.pg.config.ts` và `drizzle.config.ts` đã được tối ưu để tự đọc và parse file `.env` bằng module `fs` thuần có sẵn của Node.js, giúp giảm phụ thuộc vào package bên ngoài.
 
 ### Bước 4.6 — Upload scripts lên server
 
