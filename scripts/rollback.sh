@@ -10,7 +10,14 @@
 set -euo pipefail
 
 export PATH="$HOME/.npm-global/bin:$HOME/.local/share/pnpm:/usr/local/bin:$PATH"
-[ -s "$HOME/.nvm/nvm.sh" ] && source "$HOME/.nvm/nvm.sh"
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+  # shellcheck source=/dev/null
+  \. "$HOME/.nvm/nvm.sh"
+fi
+GLOBAL_NODE_MODULES=$(npm root -g 2>/dev/null || echo "")
+if [ -n "${GLOBAL_NODE_MODULES}" ]; then
+  export NODE_PATH="${GLOBAL_NODE_MODULES}:${NODE_PATH:-}"
+fi
 
 DEPLOY_ROOT="/var/www/oni"
 RELEASES_DIR="${DEPLOY_ROOT}/releases"

@@ -27,6 +27,10 @@ if [ -s "$HOME/.nvm/nvm.sh" ]; then
   # shellcheck source=/dev/null
   \. "$HOME/.nvm/nvm.sh"
 fi
+GLOBAL_NODE_MODULES=$(npm root -g 2>/dev/null || echo "")
+if [ -n "${GLOBAL_NODE_MODULES}" ]; then
+  export NODE_PATH="${GLOBAL_NODE_MODULES}:${NODE_PATH:-}"
+fi
 
 # ── Cấu hình ─────────────────────────────────────────────────────────────────
 VERSION="${1:?Thiếu version. Dùng: ./deploy.sh v1.0.0}"
