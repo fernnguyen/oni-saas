@@ -204,11 +204,18 @@ mkdir -p "${RELEASE_DIR}/apps/web"
 ln -sfn "${SHARED_DIR}/.env" "${RELEASE_DIR}/apps/web/.env"
 echo "   ✅ .env → ${SHARED_DIR}/.env"
 
-# Symlink standalone node_modules vào packages/adapters để drizzle-kit tìm thấy drizzle-orm, pg...
-if [ -d "${RELEASE_DIR}/apps/web/.next/standalone/node_modules" ]; then
-  ln -sfn "${RELEASE_DIR}/apps/web/.next/standalone/node_modules" "${RELEASE_DIR}/node_modules"
-  ln -sfn "${RELEASE_DIR}/apps/web/.next/standalone/node_modules" "${RELEASE_DIR}/packages/adapters/node_modules"
-  echo "   ✅ Linked standalone node_modules for drizzle-kit"
+# Symlink các gói global cần thiết cho drizzle-kit vào packages/adapters/node_modules
+# drizzle-kit dùng bundled CJS resolver riêng (bỏ qua NODE_PATH) → phải symlink vật lý
+ADAPTERS_NM="${RELEASE_DIR}/packages/adapters/node_modules"
+mkdir -p "${ADAPTERS_NM}"
+GLOBAL_NM=$(npm root -g 2>/dev/null || true)
+if [ -n "${GLOBAL_NM}" ]; then
+  for pkg in drizzle-orm drizzle-kit pg pg-native; do
+    if [ -d "${GLOBAL_NM}/${pkg}" ] && [ ! -e "${ADAPTERS_NM}/${pkg}" ]; then
+      ln -sfn "${GLOBAL_NM}/${pkg}" "${ADAPTERS_NM}/${pkg}"
+    fi
+  done
+  echo "   ✅ Linked global packages into packages/adapters/node_modules"
 fi
 
 # ── Step 5: Ghi ecosystem.config.js với path tuyệt đối của release này ────────
