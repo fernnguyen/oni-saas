@@ -12,6 +12,7 @@ if (!appVersion) {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
   transpilePackages: ['@oni/adapters', '@oni/core'],
   env: {

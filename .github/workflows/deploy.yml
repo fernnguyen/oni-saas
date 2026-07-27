@@ -1,45 +1,122 @@
-name: Deploy to VPS on Tag
+name: Build & Deploy to VPS
 
 on:
   push:
     tags:
-      - 'v*' # Chạy action khi tạo tag bắt đầu bằng 'v' (ví dụ: v1.0.0, v2.1.3)
+      - 'v*' # Chạy khi push tag bắt đầu bằng 'v' (vd: v1.0.0, v2.1.3)
+
+# [H1] Chặn concurrent deploys — nếu tag mới push trong khi deploy đang chạy,
+# đợi cho lần hiện tại xong rồi mới chạy. cancel-in-progress: false để không kill deploy đang chạy.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
+    name: Build Application
     runs-on: ubuntu-latest
+
     steps:
-      - name: Deploy to VPS
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Cần để git describe --tags hoạt động trong next.config.mjs
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'  # [H2] Match Node version với server (v24.15.0)
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Next.js standalone
+        env:
+          # ── Build-time public vars (baked into JS bundle) ────────────────────
+          NEXT_PUBLIC_SUPABASE_URL:                 ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:     ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_ROOT_DOMAIN:                  ${{ secrets.NEXT_PUBLIC_ROOT_DOMAIN }}
+          NEXT_PUBLIC_SITE_URL:                     ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+          NEXT_PUBLIC_SENTRY_DSN:                   ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY:           ${{ secrets.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+          NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.NEXT_PUBLIC_GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          NEXT_PUBLIC_REALTIME_PROVIDER:            ${{ secrets.NEXT_PUBLIC_REALTIME_PROVIDER }}
+          NEXT_PUBLIC_ZALO_MINI_APP_ID:             ${{ secrets.NEXT_PUBLIC_ZALO_MINI_APP_ID }}
+          NEXT_PUBLIC_APP_VERSION:                  ${{ github.ref_name }}
+          # ── Sentry sourcemap upload ──────────────────────────────────────────
+          SENTRY_AUTH_TOKEN:  ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DSN:         ${{ secrets.SENTRY_DSN }}
+          SENTRY_ORG:         ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT:     ${{ secrets.SENTRY_PROJECT }}
+        run: pnpm run build
+
+      - name: Package artifact
+        run: |
+          VERSION=${{ github.ref_name }}
+
+          # Next.js standalone không tự copy static assets — phải copy thủ công
+          cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
+          cp -r apps/web/public       apps/web/.next/standalone/apps/web/public
+
+          # deploy.sh tự generate ecosystem.config.js với hardcoded absolute paths
+          # nên KHÔNG cần include vào artifact
+          tar -czf "oni-release-${VERSION}.tar.gz" \
+            apps/web/.next/standalone/ \
+            packages/adapters/src/ \
+            packages/adapters/package.json \
+            packages/adapters/drizzle.pg.config.ts \
+            scripts/
+
+          echo "Artifact size: $(du -sh oni-release-${VERSION}.tar.gz | cut -f1)"
+
+      - name: Save artifact (backup 30 ngày trên GitHub)
+        uses: actions/upload-artifact@v4
+        with:
+          name: oni-release-${{ github.ref_name }}
+          path: oni-release-${{ github.ref_name }}.tar.gz
+          retention-days: 30
+
+  deploy:
+    name: Deploy to VPS
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: oni-release-${{ github.ref_name }}
+
+      - name: SCP artifact to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          port:     ${{ secrets.VPS_PORT }}
+          source:   "oni-release-${{ github.ref_name }}.tar.gz"
+          target:   "/var/www/oni/releases/tmp/"
+
+      - name: Run deploy script on server
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT }} # Thường là 22
-          script_stop: true # Dừng lại và báo lỗi (màu đỏ) ngay lập tức nếu có bất kỳ lệnh nào bị lỗi
+          host:        ${{ secrets.VPS_HOST }}
+          username:    ${{ secrets.VPS_USERNAME }}
+          key:         ${{ secrets.VPS_SSH_KEY }}
+          port:        ${{ secrets.VPS_PORT }}
+          script_stop: true
           script: |
-            cd /var/www/oni/app
-            
-            # Load biến môi trường của user (quan trọng để tìm thấy pnpm/node trong non-interactive ssh)
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            export PATH="$HOME/.local/share/pnpm:$PATH"
-            source ~/.bashrc || true
-            
-            # Lấy code mới nhất theo tag vừa được push (Rất quan trọng để build code mới)
-            git fetch --tags
-            git checkout ${{ github.ref_name }}
-            
-            # Cài đặt dependency (phòng khi có thư viện mới)
-            pnpm install
-            
-            # Build ứng dụng với tag phiên bản hiện tại làm biến môi trường
-            export NEXT_PUBLIC_APP_VERSION="${{ github.ref_name }}"
-            pnpm run build
-            
-            # Push database schema mới
-            cd /var/www/oni/app/packages/adapters && pnpm db:push:pg
-            
-            # Quay lại thư mục gốc và reload PM2 không gây downtime (Zero-Downtime Reload)
-            cd /var/www/oni/app
-            pm2 startOrReload ecosystem.config.js --update-env
+            VERSION="${{ github.ref_name }}"
+            RELEASE_DIR="/var/www/oni/releases/${VERSION}"
+            ARTIFACT="/var/www/oni/releases/tmp/oni-release-${VERSION}.tar.gz"
+
+            # 1. Giải nén trước để lấy script mới nhất từ artifact của release này
+            mkdir -p "${RELEASE_DIR}"
+            tar -xzf "${ARTIFACT}" -C "${RELEASE_DIR}"
+            chmod +x "${RELEASE_DIR}/scripts/"*.sh
+
+            # 2. Chạy chính script deploy.sh mới nhất của release này
+            "${RELEASE_DIR}/scripts/deploy.sh" "${VERSION}"
