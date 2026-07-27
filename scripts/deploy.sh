@@ -196,13 +196,20 @@ if [ ! -d "${RELEASE_DIR}/packages/adapters" ]; then
   exit 1
 fi
 
-# ── Step 4: Symlink shared/.env ──────────────────────────────────────────────
+# ── Step 4: Symlink shared/.env & node_modules ────────────────────────────────
 echo ""
-echo "🔗 [3/8] Linking shared .env..."
+echo "🔗 [3/8] Linking shared .env & node_modules..."
 ln -sfn "${SHARED_DIR}/.env" "${RELEASE_DIR}/.env"
 mkdir -p "${RELEASE_DIR}/apps/web"
 ln -sfn "${SHARED_DIR}/.env" "${RELEASE_DIR}/apps/web/.env"
 echo "   ✅ .env → ${SHARED_DIR}/.env"
+
+# Symlink standalone node_modules vào packages/adapters để drizzle-kit tìm thấy drizzle-orm, pg...
+if [ -d "${RELEASE_DIR}/apps/web/.next/standalone/node_modules" ]; then
+  ln -sfn "${RELEASE_DIR}/apps/web/.next/standalone/node_modules" "${RELEASE_DIR}/node_modules"
+  ln -sfn "${RELEASE_DIR}/apps/web/.next/standalone/node_modules" "${RELEASE_DIR}/packages/adapters/node_modules"
+  echo "   ✅ Linked standalone node_modules for drizzle-kit"
+fi
 
 # ── Step 5: Ghi ecosystem.config.js với path tuyệt đối của release này ────────
 echo ""

@@ -50,6 +50,11 @@ if [ ! -d "${RELEASE_DIR}" ]; then
   exit 1
 fi
 
+if [ -d "${RELEASE_DIR}/apps/web/.next/standalone/node_modules" ]; then
+  ln -sfn "${RELEASE_DIR}/apps/web/.next/standalone/node_modules" "${RELEASE_DIR}/node_modules"
+  ln -sfn "${RELEASE_DIR}/apps/web/.next/standalone/node_modules" "${RELEASE_DIR}/packages/adapters/node_modules"
+fi
+
 echo ""
 echo "════════════════════════════════════════════════"
 echo "  ONI Switch — ${VERSION} (post-manual-migration)"
