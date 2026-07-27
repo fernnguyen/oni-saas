@@ -230,6 +230,7 @@ if [ ! -d "${STANDALONE}" ]; then
   exit 1
 fi
 
+RELEASE_DIR="$RELEASE_DIR" SHARED_DIR="$SHARED_DIR" STANDALONE="$STANDALONE" VERSION="$VERSION" APP_PORT="$APP_PORT" \
 node - << 'NODESCRIPT'
 const fs   = require('fs');
 const path = require('path');
