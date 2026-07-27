@@ -64,7 +64,7 @@ echo "🔀 Switching current → ${VERSION}..."
 ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
 
 echo "♻️  PM2 graceful reload..."
-pm2 startOrReload "${CURRENT_LINK}/ecosystem.config.js" --update-env
+pm2 restart "${CURRENT_LINK}/ecosystem.config.js" --update-env || pm2 startOrReload "${CURRENT_LINK}/ecosystem.config.js" --update-env
 
 echo "🩺 Health check (5 giây)..."
 sleep 5
