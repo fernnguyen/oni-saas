@@ -25,6 +25,10 @@ RELEASES_DIR="${DEPLOY_ROOT}/releases"
 CURRENT_LINK="${DEPLOY_ROOT}/current"
 RELEASE_DIR="${RELEASES_DIR}/${VERSION}"
 
+STANDALONE_NODE_MODULES="${RELEASE_DIR}/apps/web/.next/standalone/node_modules"
+GLOBAL_NODE_MODULES=$(npm root -g 2>/dev/null || echo "")
+export NODE_PATH="${STANDALONE_NODE_MODULES}:${GLOBAL_NODE_MODULES}:${NODE_PATH:-}"
+
 set -o allexport
 # shellcheck source=/dev/null
 source "${DEPLOY_ROOT}/shared/.env"

@@ -27,11 +27,6 @@ if [ -s "$HOME/.nvm/nvm.sh" ]; then
   # shellcheck source=/dev/null
   \. "$HOME/.nvm/nvm.sh"
 fi
-GLOBAL_NODE_MODULES=$(npm root -g 2>/dev/null || echo "")
-if [ -n "${GLOBAL_NODE_MODULES}" ]; then
-  export NODE_PATH="${GLOBAL_NODE_MODULES}:${NODE_PATH:-}"
-fi
-
 # ── Cấu hình ─────────────────────────────────────────────────────────────────
 VERSION="${1:?Thiếu version. Dùng: ./deploy.sh v1.0.0}"
 DEPLOY_ROOT="/var/www/oni"
@@ -42,6 +37,11 @@ RELEASE_DIR="${RELEASES_DIR}/${VERSION}"
 ARTIFACT="${RELEASES_DIR}/tmp/oni-release-${VERSION}.tar.gz"
 KEEP_RELEASES=10
 APP_PORT=3000
+
+# ── Load NODE_PATH chứa cả standalone node_modules và global modules ────────
+STANDALONE_NODE_MODULES="${RELEASE_DIR}/apps/web/.next/standalone/node_modules"
+GLOBAL_NODE_MODULES=$(npm root -g 2>/dev/null || echo "")
+export NODE_PATH="${STANDALONE_NODE_MODULES}:${GLOBAL_NODE_MODULES}:${NODE_PATH:-}"
 HEALTH_CHECK_RETRIES=12    # 12 × 5s = 60 giây tối đa
 HEALTH_CHECK_INTERVAL=5    # giây giữa mỗi retry
 MIGRATION_TIMEOUT=120      # giây tối đa cho drizzle-kit push

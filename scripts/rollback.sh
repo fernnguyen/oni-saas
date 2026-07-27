@@ -23,6 +23,10 @@ DEPLOY_ROOT="/var/www/oni"
 RELEASES_DIR="${DEPLOY_ROOT}/releases"
 CURRENT_LINK="${DEPLOY_ROOT}/current"
 
+STANDALONE_NODE_MODULES="${CURRENT_LINK}/apps/web/.next/standalone/node_modules"
+GLOBAL_NODE_MODULES=$(npm root -g 2>/dev/null || echo "")
+export NODE_PATH="${STANDALONE_NODE_MODULES}:${GLOBAL_NODE_MODULES}:${NODE_PATH:-}"
+
 set -o allexport
 # shellcheck source=/dev/null
 source "${DEPLOY_ROOT}/shared/.env"
