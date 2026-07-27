@@ -218,10 +218,13 @@ if [ -n "${GLOBAL_NM}" ]; then
   echo "   ✅ Linked global packages into packages/adapters/node_modules"
 fi
 
-# ── Step 5: Ghi ecosystem.config.js với path tuyệt đối của release này ────────
+# ── Step 5: Ghi ecosystem.config.js dùng symlink current/ ───────────────────
 echo ""
 echo "⚙️  [4/8] Configuring ecosystem.config.js..."
+# Dùng RELEASE_DIR để kiểm tra directory tồn tại, nhưng ecosystem.config.js
+# dùng CURRENT_LINK để PM2 tự resolve symlink khi reload → zero-downtime thật sự
 STANDALONE="${RELEASE_DIR}/apps/web/.next/standalone/apps/web"
+STANDALONE_VIA_CURRENT="${CURRENT_LINK}/apps/web/.next/standalone/apps/web"
 
 if [ ! -d "${STANDALONE}" ]; then
   echo "❌ Standalone directory không tìm thấy: ${STANDALONE}"
@@ -237,7 +240,7 @@ cat > "${RELEASE_DIR}/ecosystem.config.js" << ECOEOF
 const fs   = require('fs');
 const path = require('path');
 
-const STANDALONE = '${STANDALONE}';
+const STANDALONE = '${STANDALONE_VIA_CURRENT}'; // via symlink → auto-resolves on pm2 reload
 const SHARED_ENV = '${SHARED_DIR}/.env';
 const APP_PORT   = '${APP_PORT}';
 
@@ -367,10 +370,11 @@ echo "🔀 [6/8] Switching current → ${VERSION}..."
 ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
 echo "   Symlink: ${CURRENT_LINK} → $(readlink -f "${CURRENT_LINK}")"
 
-# ── Step 8: PM2 reload / restart (zero-downtime) ─────────────────────────────
+# ── Step 8: PM2 delete + start (đảm bảo script path luôn đúng) ──────────────
+# pm2 restart/reload KHÔNG update script path — phải delete+start mỗi deploy
 echo ""
-echo "♻️  [7/8] PM2 graceful reload..."
-pm2 restart "${CURRENT_LINK}/ecosystem.config.js" --update-env || pm2 startOrReload "${CURRENT_LINK}/ecosystem.config.js" --update-env
+echo "♻️  [7/8] PM2 startOrReload (zero-downtime)..."
+pm2 startOrReload "${CURRENT_LINK}/ecosystem.config.js" --update-env
 
 # ── Step 9: HTTP Health check với retry ──────────────────────────────────────
 echo ""
