@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -10,16 +12,18 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import { formatCurrency, formatDateTime, maskCurrencyInput, parseCurrencyToNumber } from '../../lib/utils/format';
 import { SingleLineInput } from '../../components/ui/single-line-input';
 import { PosDatePicker } from '../../components/pos/PosDatePicker';
+import { Dialog } from '../../components/ui/Dialog';
 
 type Row = Record<string, any>;
 type Line = { product: Row; qty: number };
@@ -61,7 +65,14 @@ function partsFromDate(date: Date) {
   return { dateText: `${day}/${month}/${year}`, hourText: hour, minuteText: minute };
 }
 
+function isSameLocalDate(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
 export default function ManualOrderScreen() {
+  const { height: windowHeight } = useWindowDimensions();
   const [productQuery, setProductQuery] = useState('');
   const [products, setProducts] = useState<Row[]>([]);
   const [customerQuery, setCustomerQuery] = useState('');
@@ -80,9 +91,24 @@ export default function ManualOrderScreen() {
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [methodPickerOpen, setMethodPickerOpen] = useState(false);
   const [fundPickerOpen, setFundPickerOpen] = useState(false);
+  const [confirmShopId, setConfirmShopId] = useState<string | null>(null);
   const [dateText, setDateText] = useState(() => partsFromDate(new Date()).dateText);
   const [hourText, setHourText] = useState(() => partsFromDate(new Date()).hourText);
   const [minuteText, setMinuteText] = useState(() => partsFromDate(new Date()).minuteText);
+
+  const goToOrders = useCallback(() => {
+    router.replace('/orders');
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        goToOrders();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [goToOrders])
+  );
 
   const selectedMethod = PAYMENT_METHODS.find((item) => item.value === method) || PAYMENT_METHODS[0];
   const matchingFunds = useMemo(
@@ -175,6 +201,8 @@ export default function ManualOrderScreen() {
     [lines, subtotal, discountAmount]
   );
   const total = Math.max(0, subtotal - discountAmount + tax);
+  const invoiceIsToday = isSameLocalDate(occurredAt, new Date());
+  const missingTransferReference = method !== 'cash' && !paymentReference.trim();
 
   const add = (product: Row) => {
     const productId = idOf(product);
@@ -238,6 +266,63 @@ export default function ManualOrderScreen() {
     setTimePickerOpen(false);
   };
 
+  const resetForm = () => {
+    const now = new Date();
+    const parts = partsFromDate(now);
+    setProductQuery('');
+    setProducts([]);
+    setCustomerQuery('');
+    setCustomers([]);
+    setCustomer(null);
+    setLines([]);
+    setDiscount('');
+    setNote('');
+    setPaymentReference('');
+    setMethod('cash');
+    setFundId('');
+    setOccurredAt(now);
+    setDateText(parts.dateText);
+    setHourText(parts.hourText);
+    setMinuteText(parts.minuteText);
+    setDatePickerOpen(false);
+    setTimePickerOpen(false);
+    setMethodPickerOpen(false);
+    setFundPickerOpen(false);
+    setConfirmShopId(null);
+  };
+
+  const createManualOrder = async (shopId: string) => {
+    Keyboard.dismiss();
+    setSaving(true);
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/manual-orders`, {
+        method: 'POST',
+        headers: { ...(await getApiHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: customer?.customer_id || customer?.id,
+          customer_name: customer?.name,
+          occurred_at: occurredAt.toISOString(),
+          note,
+          discount_amount: discountAmount,
+          payment_method: method,
+          fund_id: fundId || undefined,
+          payment_reference_no: paymentReference,
+          items: lines.map((line) => ({ product_id: idOf(line.product), qty: line.qty })),
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message || 'Không thể lưu đơn');
+      resetForm();
+      Alert.alert('Đã lưu', `Đơn ${body.order_no} đã được ghi nhận thủ công.`, [
+        { text: 'Đóng', onPress: goToOrders },
+      ]);
+    } catch (error) {
+      Alert.alert('Không thể lưu', error instanceof Error ? error.message : 'Lỗi không xác định');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const save = async () => {
     if (!lines.length) {
       Alert.alert('Thiếu mặt hàng', 'Hãy thêm ít nhất một mặt hàng.');
@@ -258,33 +343,8 @@ export default function ManualOrderScreen() {
       return;
     }
 
-    setSaving(true);
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/manual-orders`, {
-        method: 'POST',
-        headers: { ...(await getApiHeaders()), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer_id: customer?.customer_id || customer?.id,
-          customer_name: customer?.name,
-          occurred_at: occurredAt.toISOString(),
-          note,
-          discount_amount: discountAmount,
-          payment_method: method,
-          fund_id: fundId || undefined,
-          payment_reference_no: paymentReference,
-          items: lines.map((line) => ({ product_id: idOf(line.product), qty: line.qty })),
-        }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.message || 'Không thể lưu đơn');
-      Alert.alert('Đã lưu', `Đơn ${body.order_no} đã được ghi nhận thủ công.`, [
-        { text: 'Đóng', onPress: () => router.back() },
-      ]);
-    } catch (error) {
-      Alert.alert('Không thể lưu', error instanceof Error ? error.message : 'Lỗi không xác định');
-    } finally {
-      setSaving(false);
-    }
+    Keyboard.dismiss();
+    setConfirmShopId(shopId);
   };
 
   return (
@@ -302,7 +362,7 @@ export default function ManualOrderScreen() {
       >
         <View className="mb-4 flex-row items-center justify-between">
           <View className="flex-row items-center">
-            <TouchableOpacity onPress={() => router.back()} className="mr-3 rounded-xl border border-slate-200 bg-white p-2">
+            <TouchableOpacity onPress={goToOrders} className="mr-3 rounded-xl border border-slate-200 bg-white p-2">
               <Ionicons name="chevron-back" size={18} color="#475569" />
             </TouchableOpacity>
             <View>
@@ -644,6 +704,137 @@ export default function ManualOrderScreen() {
           );
         })}
       </BottomSheet>
+
+      <Dialog
+        visible={Boolean(confirmShopId)}
+        onClose={() => {
+          if (!saving) setConfirmShopId(null);
+        }}
+        onConfirm={() => {
+          if (confirmShopId) return createManualOrder(confirmShopId);
+        }}
+        title="Xác nhận ghi đơn thủ công"
+        description="Kiểm tra kỹ các thông tin ảnh hưởng đến doanh thu, sổ quỹ và tồn kho."
+        confirmLabel="Tạo đơn"
+        cancelLabel="Hủy"
+        loading={saving}
+        disableOutsideClick={saving}
+      >
+        <ScrollView
+          style={{ height: Math.min(390, Math.max(220, windowHeight - 330)) }}
+          contentContainerStyle={{ paddingBottom: 8 }}
+          showsVerticalScrollIndicator
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+        >
+          {!invoiceIsToday ? (
+            <View className="mb-3 flex-row rounded-xl border border-red-200 bg-red-50 p-3">
+              <Ionicons name="warning-outline" size={18} color="#dc2626" />
+              <View className="ml-2 flex-1">
+                <Text className="text-xs font-bold text-red-700">Ngày hóa đơn khác ngày hiện tại</Text>
+                <Text className="mt-1 text-[10px] font-medium leading-4 text-red-600">
+                  Đơn, phiếu thu và phiếu xuất kho sẽ được ghi nhận vào ngày {formatDateTime(occurredAt)}.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          <View className="mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <View className="flex-row justify-between border-b border-slate-100 p-3">
+              <Text className="text-xs font-medium text-slate-500">Khách hàng</Text>
+              <Text className="max-w-[62%] text-right text-xs font-bold text-slate-800" numberOfLines={1}>
+                {customer?.name || 'Khách lẻ'}
+              </Text>
+            </View>
+            <View className={`flex-row justify-between border-b p-3 ${invoiceIsToday ? 'border-slate-100' : 'border-red-100 bg-red-50'}`}>
+              <Text className={`text-xs font-medium ${invoiceIsToday ? 'text-slate-500' : 'text-red-600'}`}>Ngày hóa đơn</Text>
+              <Text className={`text-right text-xs font-bold ${invoiceIsToday ? 'text-slate-800' : 'text-red-700'}`}>
+                {formatDateTime(occurredAt)}
+              </Text>
+            </View>
+            <View className="flex-row justify-between border-b border-slate-100 p-3">
+              <Text className="text-xs font-medium text-slate-500">Thanh toán</Text>
+              <Text className="text-right text-xs font-bold text-slate-800">{selectedMethod.label}</Text>
+            </View>
+            <View className="flex-row justify-between p-3">
+              <Text className="text-xs font-medium text-slate-500">Sổ quỹ nhận tiền</Text>
+              <Text className="max-w-[58%] text-right text-xs font-bold text-slate-800" numberOfLines={2}>
+                {selectedFund?.name || 'Sổ quỹ mặc định'}
+              </Text>
+            </View>
+          </View>
+
+          {missingTransferReference ? (
+            <View className="mb-3 flex-row rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <Ionicons name="alert-circle-outline" size={17} color="#d97706" />
+              <Text className="ml-2 flex-1 text-[10px] font-medium leading-4 text-amber-700">
+                Chưa nhập mã tham chiếu cho {selectedMethod.label}. Bạn vẫn có thể tạo đơn nhưng sẽ khó đối soát giao dịch.
+              </Text>
+            </View>
+          ) : null}
+
+          <View className="mb-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/60">
+            <View className="border-b border-slate-200 px-3 py-2">
+              <Text className="text-[10px] font-bold uppercase text-slate-500">
+                Chi tiết mặt hàng ({lines.length})
+              </Text>
+            </View>
+            {lines.map((line) => {
+              const price = Number(line.product.sell_price || line.product.price || 0);
+              return (
+                <View key={idOf(line.product)} className="flex-row items-center justify-between border-b border-slate-100 px-3 py-2.5">
+                  <View className="flex-1 pr-3">
+                    <Text className="text-xs font-semibold text-slate-800" numberOfLines={1}>{line.product.name}</Text>
+                    <Text className="mt-0.5 text-[10px] text-slate-500">{line.qty} × {formatCurrency(price)}</Text>
+                  </View>
+                  <Text className="text-xs font-bold text-slate-800">{formatCurrency(price * line.qty)}</Text>
+                </View>
+              );
+            })}
+          </View>
+
+          <View className="mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <View className="flex-row justify-between border-b border-slate-100 px-3 py-2.5">
+              <Text className="text-xs text-slate-500">Tạm tính</Text>
+              <Text className="text-xs font-semibold text-slate-700">{formatCurrency(subtotal)}</Text>
+            </View>
+            {discountAmount > 0 ? (
+              <View className="flex-row justify-between border-b border-amber-100 bg-amber-50 px-3 py-2.5">
+                <Text className="text-xs font-medium text-amber-700">Giảm giá</Text>
+                <Text className="text-xs font-bold text-amber-700">-{formatCurrency(discountAmount)}</Text>
+              </View>
+            ) : null}
+            {tax > 0 ? (
+              <View className="flex-row justify-between border-b border-slate-100 px-3 py-2.5">
+                <Text className="text-xs text-slate-500">Thuế</Text>
+                <Text className="text-xs font-semibold text-slate-700">{formatCurrency(tax)}</Text>
+              </View>
+            ) : null}
+            <View className="flex-row justify-between bg-orange-50 px-3 py-3">
+              <Text className="text-sm font-bold text-slate-800">Thành tiền</Text>
+              <Text className="text-sm font-bold text-orange-600">{formatCurrency(total)}</Text>
+            </View>
+          </View>
+
+          {(paymentReference.trim() || note.trim()) ? (
+            <View className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              {paymentReference.trim() ? (
+                <Text className="text-[10px] leading-4 text-slate-600">Mã tham chiếu: <Text className="font-bold text-slate-800">{paymentReference.trim()}</Text></Text>
+              ) : null}
+              {note.trim() ? (
+                <Text className={`${paymentReference.trim() ? 'mt-1' : ''} text-[10px] leading-4 text-slate-600`}>Ghi chú: <Text className="font-bold text-slate-800">{note.trim()}</Text></Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          <View className="flex-row rounded-xl border border-orange-200 bg-orange-50 p-3">
+            <Ionicons name="information-circle-outline" size={17} color="#ea580c" />
+            <Text className="ml-2 flex-1 text-[10px] font-medium leading-4 text-orange-700">
+              Sau khi tạo, hệ thống sẽ ghi nhận doanh thu, thu tiền vào sổ quỹ đã chọn và trừ tồn kho theo thời gian hóa đơn.
+            </Text>
+          </View>
+        </ScrollView>
+      </Dialog>
     </SafeAreaView>
   );
 }

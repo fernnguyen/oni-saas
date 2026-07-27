@@ -122,7 +122,9 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
     for (const p of payments) {
       if (!p.method && !p.amount) continue;
       const orderDate = orderDateMap.get(p.order_id)
-      const t = new Date(p.created_at || p.paid_at || orderDate || 0).getTime()
+      // paid_at is the effective accounting date. created_at is only the time
+      // the row entered Oni, which differs for backdated manual orders.
+      const t = new Date(p.paid_at || orderDate || p.created_at || 0).getTime()
       if (t < monthStart) continue
       const method = normalizePaymentMethod(p.method || 'unknown')
       paymentRevenue[method] = (paymentRevenue[method] ?? 0) + parseAmount(p.amount)

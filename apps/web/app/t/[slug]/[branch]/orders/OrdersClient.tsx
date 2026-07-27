@@ -679,7 +679,12 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
     {
       key: 'channel',
       label: 'Kênh',
-      render: (row) => <TagBadge label={CHANNEL_LABEL[row.channel] ?? row.channel} color={row.channel === 'pos-mobile' ? 'purple' : 'blue'} />,
+      render: (row) => (
+        <TagBadge
+          label={CHANNEL_LABEL[row.channel] ?? row.channel}
+          color={row.channel === 'manual' ? 'yellow' : row.channel === 'pos-mobile' ? 'purple' : 'blue'}
+        />
+      ),
     },
     {
       key: 'status',
@@ -949,7 +954,12 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
                 </div>
                 <div>
                   <dt className="text-slate-500">Kênh</dt>
-                  <dd><TagBadge label={CHANNEL_LABEL[selectedOrder.channel] ?? selectedOrder.channel} color={selectedOrder.channel === 'pos-mobile' ? 'purple' : 'blue'} /></dd>
+                  <dd>
+                    <TagBadge
+                      label={CHANNEL_LABEL[selectedOrder.channel] ?? selectedOrder.channel}
+                      color={selectedOrder.channel === 'manual' ? 'yellow' : selectedOrder.channel === 'pos-mobile' ? 'purple' : 'blue'}
+                    />
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Ngày tạo</dt>
@@ -957,7 +967,7 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
                 </div>
                 <div>
                   <dt className="text-slate-500">Nhân viên</dt>
-                  <dd className="text-slate-900">{selectedOrder.employee_id || '—'}</dd>
+                  <dd className="text-slate-900">{selectedOrder.employee_name || '—'}</dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Trạng thái</dt>

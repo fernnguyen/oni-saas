@@ -8,6 +8,7 @@ import { handleApiError } from '../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { getGMT7Time } from '@oni/core'
+import { withOrderEmployeeNames } from '@/lib/server/orderEmployees'
 
 
 export async function GET(
@@ -16,7 +17,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'orders.view')
+    const { connector, shop } = await requireShopAccess(shopId, 'orders.view')
 
     const sp = req.nextUrl.searchParams
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
@@ -62,6 +63,7 @@ export async function GET(
     const sortBy = time && time !== 'all' ? 'created_at' : 'updated_at' // Default to updated_at if not provided in list
 
     const result = await connector.list('orders', { page, limit, search: search || undefined, filters, date_range, sortBy, sortDesc })
+    result.data = await withOrderEmployeeNames(connector, shop.tenant_id, result.data)
 
     return NextResponse.json(result)
   } catch (e) {

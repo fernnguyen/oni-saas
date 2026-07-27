@@ -219,6 +219,7 @@ export function initializeLocalDatabase(customDb?: any) {
         order_no TEXT,
         reference_no TEXT,
         status TEXT NOT NULL DEFAULT 'completed',
+        channel TEXT NOT NULL DEFAULT 'pos-mobile',
         customer_id TEXT,
         customer_name TEXT,
         total_amount INTEGER NOT NULL DEFAULT 0,
@@ -352,6 +353,7 @@ export function initializeLocalDatabase(customDb?: any) {
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN resource_id TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN metadata TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN reference_no TEXT;`); } catch (e) {}
+    try { targetDb.execSync(`ALTER TABLE orders ADD COLUMN channel TEXT NOT NULL DEFAULT 'pos-mobile';`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE location_resources ADD COLUMN metadata TEXT;`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT 'simple';`); } catch (e) {}
     try { targetDb.execSync(`ALTER TABLE order_items ADD COLUMN original_price INTEGER;`); } catch (e) {}

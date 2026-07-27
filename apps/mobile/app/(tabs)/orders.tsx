@@ -140,6 +140,19 @@ const getOrderResourceInfo = (order: any): OrderResourceInfo | null => {
   };
 };
 
+const isManualOrder = (order: any): boolean => {
+  if (String(order?.channel || '').trim().toLowerCase() === 'manual') return true;
+
+  try {
+    const metadata = typeof order?.metadata === 'string'
+      ? JSON.parse(order.metadata || '{}')
+      : order?.metadata;
+    return String(metadata?.entry_source || '').trim().toLowerCase() === 'manual';
+  } catch {
+    return false;
+  }
+};
+
 // Import hệ thống UI dùng chung cao cấp
 import {Header} from '../../components/layout/Header';
 import {Badge} from '../../components/ui/Badge';
@@ -830,6 +843,8 @@ export default function OrdersScreen() {
                 status: orderData.status || 'completed',
                 customer_id: orderData.customer_id,
                 customer_name: orderData.customer_name,
+                employee_id: orderData.employee_id,
+                employee_name: orderData.employee_name,
                 note: orderData.note,
                 resource_id: orderData.resource_id || '',
                 metadata: orderData.metadata,
@@ -1291,6 +1306,11 @@ export default function OrdersScreen() {
                   <Text className="text-slate-900 font-bold text-sm">
                     {order.order_no && order.order_no !== 'HD' ? '#' + String(order.order_no).split('-').pop() : '#' + String(order.id).split('-').pop()}
                   </Text>
+                  {isManualOrder(order) ? (
+                    <View className="ml-1.5">
+                      <Badge variant="warning" label="Ghi thủ công" size="sm" />
+                    </View>
+                  ) : null}
                   {(() => {
                     const syncVisual = getOrderSyncVisual(order.sync_status, isSyncingOrder === order.id);
                     return (
@@ -1473,6 +1493,20 @@ export default function OrdersScreen() {
                         {selectedOrder.created_at ? formatDateTime(selectedOrder.created_at) : 'Ngoại tuyến'}
                       </Text>
                     </View>
+                    {selectedOrder.employee_name ? (
+                      <View className="flex-row justify-between py-1">
+                        <Text className="text-tiny text-slate-500 font-medium">Nhân viên:</Text>
+                        <Text className="max-w-[65%] text-right text-tiny font-semibold text-slate-800" numberOfLines={1}>
+                          {selectedOrder.employee_name}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {isManualOrder(selectedOrder) ? (
+                      <View className="flex-row justify-between py-1 items-center">
+                        <Text className="text-tiny text-slate-500 font-medium">Nguồn:</Text>
+                        <Badge variant="warning" label="Ghi thủ công" size="sm" />
+                      </View>
+                    ) : null}
                     <View className="flex-row justify-between py-1 items-center">
                       <Text className="text-tiny text-slate-500 font-medium">Mã hóa đơn:</Text>
                       <TouchableOpacity

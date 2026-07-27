@@ -102,6 +102,7 @@ export const orders = sqliteTable('orders', {
   order_no: text('order_no'),
   reference_no: text('reference_no'), // Original local ID (e.g. ORD-R-...) preserved for traceability
   status: text('status').notNull().default('completed'), // completed | returning | returned
+  channel: text('channel').notNull().default('pos-mobile'),
   customer_id: text('customer_id'),
   customer_name: text('customer_name'),
   total_amount: integer('total_amount').notNull().default(0),
@@ -206,4 +207,3 @@ export const localCaches = sqliteTable('local_caches', {
   cache_value: text('cache_value').notNull(),
   updated_at: integer('updated_at').notNull(),
 });
-

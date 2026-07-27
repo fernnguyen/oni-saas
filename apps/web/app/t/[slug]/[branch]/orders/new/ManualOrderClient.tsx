@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CalendarClock, Search, X } from 'lucide-react'
+import { ArrowLeftIcon, CalendarClock, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
+import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 
 type Row = Record<string, any>
 type CartLine = { product: Row; qty: number }
@@ -50,6 +51,7 @@ export function ManualOrderClient({
   backHref: string
 }) {
   const router = useRouter()
+  const confirm = useConfirm()
   const [customerQuery, setCustomerQuery] = useState('')
   const [customers, setCustomers] = useState<Row[]>([])
   const [customer, setCustomer] = useState<Row | null>(null)
@@ -179,6 +181,32 @@ export function ManualOrderClient({
     if (discountAmount > subtotal) return toast.error('Giảm giá không được lớn hơn tiền hàng.')
     if (matchingFunds.length > 0 && !fundId) return toast.error('Hãy chọn sổ quỹ nhận tiền.')
 
+    const invoiceDate = new Date(occurredAt)
+    if (Number.isNaN(invoiceDate.getTime())) return toast.error('Ngày giờ hóa đơn không hợp lệ.')
+    if (invoiceDate.getTime() > Date.now() + 5 * 60 * 1000) return toast.error('Không thể ghi hóa đơn ở thời điểm tương lai.')
+
+    const paymentLabel = PAYMENT_METHODS.find((method) => method.value === paymentMethod)?.label || paymentMethod
+    const selectedFund = matchingFunds.find((fund) => fund.id === fundId)
+    const totalQuantity = lines.reduce((sum, line) => sum + line.qty, 0)
+    const accepted = await confirm({
+      title: 'Xác nhận ghi đơn thủ công',
+      description: 'Vui lòng kiểm tra kỹ trước khi tạo. Thao tác này sẽ ghi nhận doanh thu, thu tiền và xuất kho theo ngày giờ hóa đơn đã chọn.',
+      confirmLabel: 'Tạo đơn',
+      cancelLabel: 'Kiểm tra lại',
+      children: (
+        <dl className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+          <div className="flex justify-between gap-4"><dt className="text-slate-500">Khách hàng</dt><dd className="text-right font-medium text-slate-900">{customer?.name || 'Khách lẻ'}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-slate-500">Mặt hàng</dt><dd className="text-right font-medium text-slate-900">{lines.length} loại / {totalQuantity} sản phẩm</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-slate-500">Ngày hóa đơn</dt><dd className="text-right font-medium text-slate-900">{invoiceDate.toLocaleString('vi-VN')}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-slate-500">Thanh toán</dt><dd className="text-right font-medium text-slate-900">{paymentLabel}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-slate-500">Sổ quỹ</dt><dd className="text-right font-medium text-slate-900">{selectedFund?.name || 'Sổ quỹ mặc định'}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-slate-500">Giảm giá</dt><dd className="text-right font-medium text-slate-900">-{money(discountAmount)}</dd></div>
+          <div className="flex justify-between gap-4 border-t border-slate-200 pt-2"><dt className="font-semibold text-slate-700">Thành tiền</dt><dd className="text-right font-bold text-primary">{money(total)}</dd></div>
+        </dl>
+      ),
+    })
+    if (!accepted) return
+
     setSaving(true)
     try {
       const res = await fetch(`/api/shops/${shopId}/manual-orders`, {
@@ -209,15 +237,16 @@ export function ManualOrderClient({
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="mx-auto space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[.18em] text-slate-400">{shopName}</p>
-          <h1 className="mt-1 text-xl font-bold text-slate-900">Ghi đơn bán thủ công</h1>
-          <p className="mt-1 text-sm text-slate-500">Nhập bù đơn bán lẻ; đơn được đánh dấu riêng, không đi qua POS.</p>
+          <h1 className="mt-1 text-xl font-bold text-slate-900">Ghi đơn thủ công</h1>
+          <p className="mt-1 text-sm text-slate-500">Nhập bù đơn bán lẻ và được đánh dấu riêng. Các phiếu thu trong sổ quỹ, phiếu kho sẽ được tạo với thời gian tương ứng.</p>
         </div>
         <Link href={backHref} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-          Quay lại
+          <div className="flex items-center">
+            <ArrowLeftIcon className="w-4 h-4 mr-1" /> Quay lại
+          </div>
         </Link>
       </div>
 

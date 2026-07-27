@@ -24,5 +24,5 @@ export default async function NewManualOrderPage({ params }: Props) {
     : { data: null }
   if ((role?.code !== 'owner' && role?.code !== 'admin') || settings?.enable_manual_orders === false) notFound()
 
-  return <ManualOrderClient shopId={shop.id} shopName={shop.name} backHref={`/t/${slug}/${branch}/orders`} />
+  return <ManualOrderClient shopId={shop.id} shopName={shop.name} backHref={`/${branch}/orders`} />
 }

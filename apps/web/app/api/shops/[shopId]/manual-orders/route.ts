@@ -77,7 +77,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
       return NextResponse.json({ message: 'Shop này đã tắt tính năng ghi đơn thủ công.' }, { status: 403 })
     }
     if (await isDateLocked(connector, shopId, occurredAt.toISOString())) {
-      return NextResponse.json({ message: 'Kỳ thuế của ngày hóa đơn này đã bị khóa sổ.' }, { status: 400 })
+      return NextResponse.json({
+        code: 'TAX_PERIOD_LOCKED',
+        message: 'Ngày hóa đơn thuộc kỳ thuế đã chốt sổ. Vui lòng mở khóa sổ trước khi ghi đơn thủ công.',
+      }, { status: 400 })
     }
 
     tx = new RollbackContext()
@@ -127,6 +130,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
       }
     }
 
+    // Database timestamps are timezone-naive GMT+7 throughout the adapters.
+    // Convert the selected absolute instant before writing to avoid a 7-hour shift.
+    const accountingTimestamp = getGMT7Time(occurredAt)
+    const recordedByName = user.user_metadata?.display_name
+      || user.user_metadata?.full_name
+      || user.user_metadata?.name
+      || user.email
+      || 'Nhân viên'
+
     // Use the accounting time selected by the owner/admin as created_at. The
     // immutable entry time and actor stay in metadata/audit_logs for traceability.
     const created = await connector.create('orders', {
@@ -135,8 +147,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
       employee_id: user.id, subtotal: String(subtotal), discount_amount: String(input.data.discount_amount),
       tax_amount: String(taxAmount), total_amount: String(totalAmount), paid_amount: String(totalAmount),
       debt_amount: '0', points_earned: '0', points_redeemed: '0', note: input.data.note,
-      payment_method: input.data.payment_method, created_at: occurredAt.toISOString(),
-      metadata: JSON.stringify({ entry_source: 'manual', recorded_at: getGMT7Time(), recorded_by: user.id, invoice_at: occurredAt.toISOString() }),
+      payment_method: input.data.payment_method, created_at: accountingTimestamp,
+      metadata: JSON.stringify({
+        entry_source: 'manual',
+        recorded_at: getGMT7Time(),
+        recorded_by: user.id,
+        recorded_by_name: recordedByName,
+        recorded_by_email: user.email || '',
+        invoice_at: occurredAt.toISOString(),
+      }),
     }) as Row
     const orderId = created.order_id || created.id
     const orderNo = created.order_no || orderId
@@ -154,7 +173,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
 
     const payment = await connector.create('payments', {
       id: `PAY-MANUAL-${orderId}`, order_id: orderId, order_no: orderNo, method: input.data.payment_method,
-      amount: String(totalAmount), reference_no: input.data.payment_reference_no, note: 'Ghi nhận đơn thủ công', paid_at: occurredAt.toISOString(),
+      amount: String(totalAmount), reference_no: input.data.payment_reference_no, note: 'Ghi nhận đơn thủ công',
+      paid_at: accountingTimestamp, created_at: accountingTimestamp,
     }) as Row
     tx.add(async () => { await connector.delete('payments', idOf(payment)).catch(() => {}) })
     const fund = await resolveAndRecordPayment(connector, shopId, {
@@ -166,7 +186,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
       type: 'receipt', amount: String(totalAmount), method: input.data.payment_method, category: 'sales',
       reference_id: orderId, reference_name: customerName, note: `Thu tiền đơn thủ công ${orderNo}`,
       employee_id: user.id, branch_id: shopId, fund_id: fund.fundId, balance_after_transaction: fund.balanceAfter,
-      created_at: occurredAt.toISOString(),
+      created_at: accountingTimestamp,
     }) as Row
     tx.add(async () => { await connector.delete('cashbook', idOf(cashbook)).catch(() => {}) })
 
@@ -208,7 +228,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
       const movement = await connector.create('stock-movements', {
         type: 'sale_out', movement_no: `PX-M-${orderNo}-${productId}`, product_id: productId, sku: stockLine.product.sku || '', qty: String(stockLine.qty),
         branch_id: shopId, warehouse_id: warehouseId, reference_no: orderNo, reason: stockLine.reason,
-        employee_id: user.id, created_at: occurredAt.toISOString(),
+        employee_id: user.id, created_at: accountingTimestamp,
       }) as Row
       tx.add(async () => { await connector.delete('stock-movements', idOf(movement)).catch(() => {}) })
 

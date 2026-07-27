@@ -35,7 +35,7 @@ export default async function OrdersPage({ params }: Props) {
       shopName={shop.name}
       permissions={permissions}
       canCreateManual={canCreateManual}
-      manualOrderHref={`/t/${slug}/${branch}/orders/new`}
+      manualOrderHref={`/${branch}/orders/new`}
     />
   )
 }

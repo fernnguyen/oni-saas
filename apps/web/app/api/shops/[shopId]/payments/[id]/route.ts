@@ -3,6 +3,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { isDateLocked } from '@/lib/server/taxLock'
 
 export async function PUT(
   req: NextRequest,
@@ -31,6 +32,14 @@ export async function PUT(
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng tương ứng' }, { status: 404 })
     }
 
+    const accountingDate = payment.paid_at || order.created_at || payment.created_at
+    if (accountingDate && await isDateLocked(connector, shopId, accountingDate)) {
+      return NextResponse.json({
+        code: 'TAX_PERIOD_LOCKED',
+        error: 'Thanh toán thuộc kỳ thuế đã chốt sổ. Vui lòng mở khóa sổ trước khi thay đổi phương thức hoặc sổ quỹ.',
+      }, { status: 400 })
+    }
+
     // 1.5. Kiểm tra giới hạn 30 phút kể từ lúc tạo đơn hàng
     const orderCreatedAt = new Date(order.created_at || payment.created_at).getTime()
     const isOvertime = (Date.now() - orderCreatedAt) > (30 * 60 * 1000) // 30 phút
@@ -53,7 +62,7 @@ export async function PUT(
     const isShiftEnabled = settings?.enable_shift_management ?? false
     if (isShiftEnabled) {
       const cashierEmail = payment.cashier_id || ''
-      const paymentTimeStr = payment.created_at || payment.paid_at
+      const paymentTimeStr = payment.paid_at || payment.created_at
 
       if (cashierEmail && paymentTimeStr) {
         const shiftsRes = await connector.list('shop-shifts', {
@@ -174,6 +183,7 @@ export async function PUT(
     invalidate(shopId, 'payments')
     invalidate(shopId, 'orders')
     invalidate(shopId, 'cashbook')
+    invalidate(shopId, 'payment-funds')
 
     return NextResponse.json({ success: true })
   } catch (e) {

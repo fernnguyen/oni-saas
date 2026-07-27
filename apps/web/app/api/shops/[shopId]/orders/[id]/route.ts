@@ -3,6 +3,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { orderUpdateSchema } from '@/lib/validators/orders'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
+import { withOrderEmployeeNames } from '@/lib/server/orderEmployees'
 
 // Returns the signed delta needed to REVERSE a movement (undo its inventory impact)
 function calcReverseDelta(type: string, qty: number): number {
@@ -17,7 +18,7 @@ export async function GET(
 ) {
   try {
     const { shopId, id } = await params
-    const { connector } = await requireShopAccess(shopId, 'orders.view')
+    const { connector, shop } = await requireShopAccess(shopId, 'orders.view')
 
     let row = await connector.findById('orders', id)
     
@@ -46,7 +47,8 @@ export async function GET(
     }
 
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    return NextResponse.json(row)
+    const [enrichedRow] = await withOrderEmployeeNames(connector, shop.tenant_id, [row])
+    return NextResponse.json(enrichedRow)
   } catch (e) {
     return handleApiError(e, 'GET order')
   }
@@ -71,7 +73,10 @@ export async function PUT(
     const orderDate = (existingOrder as any).created_at
     if (await isDateLocked(connector, shopId, orderDate)) {
       return NextResponse.json(
-        { error: 'Đơn hàng này thuộc kỳ thuế đã bị khóa sổ. Không thể sửa đổi!' },
+        {
+          code: 'TAX_PERIOD_LOCKED',
+          error: 'Đơn hàng thuộc kỳ thuế đã chốt sổ. Vui lòng mở khóa sổ trước khi sửa đổi.',
+        },
         { status: 400 }
       )
     }
@@ -101,7 +106,10 @@ export async function DELETE(
     const orderDate = (order as any).created_at
     if (await isDateLocked(connector, shopId, orderDate)) {
       return NextResponse.json(
-        { error: 'Đơn hàng này thuộc kỳ thuế đã bị khóa sổ. Không thể xóa!' },
+        {
+          code: 'TAX_PERIOD_LOCKED',
+          error: 'Đơn hàng thuộc kỳ thuế đã chốt sổ. Vui lòng mở khóa sổ trước khi hủy hoặc xóa.',
+        },
         { status: 400 }
       )
     }
