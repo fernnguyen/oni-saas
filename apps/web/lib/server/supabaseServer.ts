@@ -17,11 +17,13 @@ export async function getSupabaseServerClient() {
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'localhost:3000';
   const cookieDomain = getAuthCookieDomainForHost(requestHost, rootDomain);
   const globalCookieDomain = getGlobalAuthCookieDomain(rootDomain);
-  const cookieName = getScopedAuthCookieName(requestHost, rootDomain, env.SUPABASE_URL);
+  const supabaseUrl = env.SUPABASE_URL || 'https://placeholder.supabase.co';
+  const supabaseKey = env.SUPABASE_ANON_KEY || 'placeholder-anon-key-for-build';
+  const cookieName = getScopedAuthCookieName(requestHost, rootDomain, supabaseUrl);
   const staleCookieNames = getStaleSupabaseAuthCookieNames(
     cookieStore.getAll().map((cookie) => cookie.name),
     cookieName,
-    env.SUPABASE_URL,
+    supabaseUrl,
   );
 
   function clearCookie(name: string, options: any) {
@@ -32,7 +34,7 @@ export async function getSupabaseServerClient() {
     }
   }
 
-  const supabase = createServerClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+  const supabase = createServerClient(supabaseUrl, supabaseKey, {
     cookieOptions: {
       name: cookieName,
     },

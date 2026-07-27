@@ -8,7 +8,9 @@ let _adminClient: SupabaseClient | null = null;
 
 export function getSupabaseAdminClient(): SupabaseClient {
   if (!_adminClient) {
-    _adminClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    const url = env.SUPABASE_URL || 'https://placeholder.supabase.co';
+    const key = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY || 'placeholder-service-role-key-for-build';
+    _adminClient = createClient(url, key, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
   }

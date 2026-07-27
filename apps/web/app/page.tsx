@@ -91,13 +91,20 @@ export const revalidate = 3600;
 
 const getPublicPlans = unstable_cache(
   async () => {
-    const admin = getSupabaseAdminClient();
-    const { data } = await admin
-      .from('plans')
-      .select('name, code, price_monthly, price_yearly, metadata')
-      .order('id', { ascending: true });
+    try {
+      if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        return [];
+      }
+      const admin = getSupabaseAdminClient();
+      const { data } = await admin
+        .from('plans')
+        .select('name, code, price_monthly, price_yearly, metadata')
+        .order('id', { ascending: true });
 
-    return data || [];
+      return data || [];
+    } catch {
+      return [];
+    }
   },
   ['public_plans'],
   { tags: ['plans'], revalidate: 3600 }

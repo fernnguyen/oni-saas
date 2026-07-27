@@ -5,12 +5,13 @@ export function getSupabaseBrowserClient() {
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'localhost:3000';
   const currentHost = typeof window === 'undefined' ? rootDomain : window.location.host;
   const cookieDomain = getAuthCookieDomainForHost(currentHost, rootDomain);
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'placeholder-anon-key-for-build';
   const cookieName = getScopedAuthCookieName(currentHost, rootDomain, supabaseUrl);
 
   return createBrowserClient(
     supabaseUrl,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    supabaseKey,
     {
       cookieOptions: {
         name: cookieName,
