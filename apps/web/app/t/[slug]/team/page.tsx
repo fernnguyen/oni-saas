@@ -108,6 +108,7 @@ export default async function TeamPage({ params }: Props) {
           roles={roles}
           canInvite={permissions.includes('users.invite') as boolean}
           canRemove={permissions.includes('users.remove') as boolean}
+          canResetAuth={permissions.includes('tenants.manage') as boolean}
           currentUserId={authData.user.id}
           maxUsers={maxUsers}
         />

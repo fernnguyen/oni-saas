@@ -43,11 +43,12 @@ interface Props {
   roles: Role[];
   canInvite: boolean;
   canRemove: boolean;
+  canResetAuth: boolean; // requires tenants.manage (owner only)
   currentUserId: string;
   maxUsers?: number;
 }
 
-export function TeamClient({ tenantId, initialUsers, shops, roles, canInvite, canRemove, currentUserId, maxUsers }: Props) {
+export function TeamClient({ tenantId, initialUsers, shops, roles, canInvite, canRemove, canResetAuth, currentUserId, maxUsers }: Props) {
   const [users, setUsers] = useState<TenantUser[]>(initialUsers);
   const [showModal, setShowModal] = useState(false);
   const [resetTarget, setResetTarget] = useState<TenantUser | null>(null);
@@ -170,7 +171,9 @@ export function TeamClient({ tenantId, initialUsers, shops, roles, canInvite, ca
                             Phân quyền
                           </button>
                         )}
-                        {canInvite && u.account_type === 'workspace' && (
+                        {/* [H-1/C-1] Only workspace accounts can have password reset directly.
+                            Only tenant owner (canResetAuth) can perform this action. */}
+                        {canResetAuth && u.account_type === 'workspace' && (
                           <button
                             onClick={() => setResetTarget(u)}
                             className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors"
@@ -605,11 +608,17 @@ function ResetPasswordModal({ tenantId, user, onClose, onSuccess, onError }: {
   onError: (msg: string) => void;
 }) {
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const displayLabel = user.display_name || user.username || 'Thành viên';
+  const passwordsMatch = password === confirmPassword || confirmPassword === '';
+  const isValid = password.length >= 8 && password === confirmPassword;
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!isValid) return;
     setLoading(true);
     const res = await fetch(`/api/tenants/${tenantId}/users/${user.user_id}`, {
       method: 'PATCH',
@@ -623,34 +632,100 @@ function ResetPasswordModal({ tenantId, user, onClose, onSuccess, onError }: {
   }
 
   return (
-    <Modal title={`Đặt lại mật khẩu — ${user.display_name ?? user.username}`} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
-        <Field label="Mật khẩu mới">
-          <div className="relative">
+    <Modal title="Đặt lại mật khẩu" onClose={onClose}>
+      <div className="space-y-4">
+
+        {/* Account info card */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-full bg-slate-200 flex items-center justify-center shrink-0">
+              <svg className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-slate-900 truncate">{displayLabel}</p>
+              {user.username && (
+                <p className="text-xs text-slate-500 truncate">@{user.username}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Full login email (fake email visible for audit) */}
+          <div className="space-y-1">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Tài khoản đăng nhập</p>
+            <div className="flex items-center gap-2 rounded-lg bg-white border border-slate-200 px-3 py-2">
+              <svg className="h-4 w-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+              </svg>
+              <code className="text-xs text-slate-700 break-all">{user.login_email}</code>
+            </div>
+          </div>
+        </div>
+
+        {/* Workspace authority banner */}
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 flex gap-3">
+          <svg className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+          </svg>
+          <div className="space-y-0.5">
+            <p className="text-xs font-semibold text-amber-800">Tài khoản workspace</p>
+            <p className="text-xs text-amber-700 leading-relaxed">
+              Tài khoản này được tạo trong workspace của bạn với email nội bộ. Với tư cách chủ sở hữu, bạn có quyền đặt lại mật khẩu trực tiếp. Thao tác này sẽ được ghi vào nhật ký hệ thống.
+            </p>
+          </div>
+        </div>
+
+        {/* Password form */}
+        <form onSubmit={onSubmit} className="space-y-3">
+          <Field label="Mật khẩu mới">
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Tối thiểu 8 ký tự"
+                required
+                minLength={8}
+                className={inputCls + ' pr-10'}
+              />
+              <button type="button" tabIndex={-1} onClick={() => setShowPassword((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                {showPassword ? <IconEyeOff /> : <IconEye />}
+              </button>
+            </div>
+          </Field>
+
+          <Field label="Xác nhận mật khẩu">
             <input
               type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Tối thiểu 6 ký tự"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Nhập lại mật khẩu"
               required
-              minLength={6}
-              className={inputCls + ' pr-10'}
+              minLength={8}
+              className={inputCls + (!passwordsMatch && confirmPassword ? ' border-red-300 focus:border-red-400' : '')}
             />
-            <button type="button" tabIndex={-1} onClick={() => setShowPassword((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-              {showPassword ? <IconEyeOff /> : <IconEye />}
+            {!passwordsMatch && confirmPassword && (
+              <p className="mt-1 text-xs text-red-500">Mật khẩu không khớp</p>
+            )}
+          </Field>
+
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50">Hủy</button>
+            <button
+              type="submit"
+              disabled={loading || !isValid}
+              className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-60"
+            >
+              {loading ? 'Đang lưu...' : 'Đặt lại mật khẩu'}
             </button>
           </div>
-        </Field>
-        <div className="flex gap-3 pt-1">
-          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50">Hủy</button>
-          <button type="submit" disabled={loading} className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-60">
-            {loading ? 'Đang lưu...' : 'Đặt lại mật khẩu'}
-          </button>
-        </div>
-      </form>
+        </form>
+      </div>
     </Modal>
   );
 }
+
 
 // ─── Edit Role Modal ──────────────────────────────────────────────────────────
 

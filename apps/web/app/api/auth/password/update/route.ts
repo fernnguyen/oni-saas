@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getSupabaseAdminClient } from '../../../../../lib/server/supabaseAdmin';
 import { getSupabaseServerClient } from '../../../../../lib/server/supabaseServer';
 import { env } from '../../../../../lib/env';
+import { checkRateLimit, rateLimitKey } from '../../../../../lib/server/rateLimit';
 
 const bodySchema = z
   .object({
@@ -63,6 +64,15 @@ export async function POST(req: NextRequest) {
 
     if (userError || !user) {
       return NextResponse.json({ error: 'Phiên đăng nhập không hợp lệ' }, { status: 401 });
+    }
+
+    // [H-2] Rate limit: 5 password changes per user per 5 minutes
+    const rlAllowed = await checkRateLimit(rateLimitKey('password_update', user.id), 5, 300);
+    if (!rlAllowed) {
+      return NextResponse.json(
+        { error: 'Quá nhiều yêu cầu. Vui lòng thử lại sau 5 phút.' },
+        { status: 429, headers: { 'Retry-After': '300' } },
+      );
     }
 
     const admin = getSupabaseAdminClient();

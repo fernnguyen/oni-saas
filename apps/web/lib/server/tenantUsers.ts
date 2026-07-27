@@ -30,44 +30,59 @@ async function findAuthUserByEmail(
   admin: ReturnType<typeof getSupabaseAdminClient>,
   email: string,
 ): Promise<AuthUserIdentity | null> {
-  const perPage = 1000;
   const normalizedEmail = email.toLowerCase();
 
-  for (let page = 1; page <= 100; page += 1) {
+  // ── Fast path (M-2 fix): query tenant_user_profiles first ─────────────────
+  // Covers ~99% of cases: existing users already have a login_email record.
+  // This avoids scanning up to 100k auth.users for every lookup.
+  const { data: profileByLoginEmail } = await admin
+    .from('tenant_user_profiles')
+    .select('user_id, login_email')
+    .ilike('login_email', normalizedEmail)
+    .limit(1)
+    .maybeSingle();
+
+  if (profileByLoginEmail?.user_id) {
+    const { data: authData, error: authError } = await admin.auth.admin.getUserById(profileByLoginEmail.user_id);
+    if (authError || !authData.user) {
+      // Auth user may have been deleted — return profile data as fallback
+      return {
+        id: profileByLoginEmail.user_id,
+        email: profileByLoginEmail.login_email,
+        phone: null,
+        user_metadata: {},
+      };
+    }
+    return {
+      id: authData.user.id,
+      email: authData.user.email ?? profileByLoginEmail.login_email,
+      phone: authData.user.phone ?? null,
+      user_metadata: authData.user.user_metadata,
+    };
+  }
+
+  // ── Slow path: scan auth.users for users not yet in any tenant ─────────────
+  // Reduced from 100 pages (100k users) to 5 pages (5k users) to limit latency.
+  // This handles the case of a user who signed up directly but has no tenant yet.
+  const perPage = 1000;
+  for (let page = 1; page <= 5; page += 1) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
     if (error) throw new Error(error.message);
 
     const users = data?.users ?? [];
     const existingUser = users.find((u) => u.email?.toLowerCase() === normalizedEmail);
-    if (existingUser) return existingUser;
+    if (existingUser) {
+      return {
+        id: existingUser.id,
+        email: existingUser.email ?? null,
+        phone: existingUser.phone ?? null,
+        user_metadata: existingUser.user_metadata,
+      };
+    }
     if (users.length < perPage) break;
   }
 
-  const { data: profileByLoginEmail } = await admin
-    .from('tenant_user_profiles')
-    .select('user_id, login_email')
-    .ilike('login_email', email)
-    .limit(1)
-    .maybeSingle();
-
-  if (!profileByLoginEmail?.user_id) return null;
-
-  const { data: authData, error: authError } = await admin.auth.admin.getUserById(profileByLoginEmail.user_id);
-  if (authError || !authData.user) {
-    return {
-      id: profileByLoginEmail.user_id,
-      email: profileByLoginEmail.login_email,
-      phone: null,
-      user_metadata: {},
-    };
-  }
-
-  return {
-    id: authData.user.id,
-    email: authData.user.email ?? profileByLoginEmail.login_email,
-    phone: authData.user.phone ?? null,
-    user_metadata: authData.user.user_metadata,
-  };
+  return null;
 }
 
 export type TenantUserRole = 'owner' | 'admin' | 'staff' | 'viewer';
@@ -569,6 +584,28 @@ async function assertUserBelongsToTenant(userId: string, tenantId: string) {
 export async function resetTenantUserPassword(userId: string, tenantId: string, newPassword: string) {
   const admin = getSupabaseAdminClient();
   await assertUserBelongsToTenant(userId, tenantId);
+
+  // [C-1] Security guard: only workspace accounts (fake email) may have their
+  // password set directly by a tenant admin. Personal and phone accounts are
+  // global auth identities — only the user themselves can change their own
+  // password (via forgot-password email flow).
+  const { data: profile } = await admin
+    .from('tenant_user_profiles')
+    .select('account_type')
+    .eq('user_id', userId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (!profile) {
+    throw new Error('Người dùng không thuộc workspace này');
+  }
+
+  if (profile.account_type !== 'workspace') {
+    throw new Error(
+      'Không thể đặt mật khẩu trực tiếp cho tài khoản cá nhân (email/số điện thoại). ' +
+      'Hãy dùng tính năng gửi email đặt lại mật khẩu để user tự cập nhật.',
+    );
+  }
 
   const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword });
   if (error) throw new Error(error.message);

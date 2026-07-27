@@ -4,6 +4,7 @@ import { getSupabaseServerClient } from '../../../../../lib/server/supabaseServe
 import { hasPermission } from '../../../../../lib/server/permissions';
 import { createTenantUser, listTenantUsers, lookupTenantUserIdentity } from '../../../../../lib/server/tenantUsers';
 import { isValidVNPhone } from '../../../../../lib/utils/phone';
+import { checkRateLimit, rateLimitKey } from '../../../../../lib/server/rateLimit';
 
 const baseSchema = z.object({
   display_name: z.string().min(1).max(100).optional(),
@@ -16,7 +17,7 @@ const workspaceSchema = baseSchema.extend({
   username: z.string().regex(/^[a-z0-9_]{3,30}$/, {
     message: 'Tên đăng nhập chỉ được dùng chữ thường, số, dấu gạch dưới (_), 3–30 ký tự',
   }),
-  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự'),
+  password: z.string().min(8, 'Mật khẩu tối thiểu 8 ký tự'),  // [M-1] unified to 8
   tenant_slug: z.string().min(1),
 });
 
@@ -56,6 +57,16 @@ export async function GET(
   if (lookupAccountType || lookupIdentifier) {
     const allowed = await hasPermission(user.id, tenantId, 'users.invite');
     if (!allowed) return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+
+    // [H-3] Rate limit identity lookups to prevent email/phone enumeration.
+    // 20 lookups per user per minute is generous for normal use but blocks bulk probing.
+    const rlAllowed = await checkRateLimit(rateLimitKey('identity_lookup', user.id), 20, 60);
+    if (!rlAllowed) {
+      return NextResponse.json(
+        { message: 'Quá nhiều yêu cầu kiểm tra. Vui lòng thử lại sau.' },
+        { status: 429, headers: { 'Retry-After': '60' } },
+      );
+    }
 
     if ((lookupAccountType !== 'email' && lookupAccountType !== 'phone') || !lookupIdentifier) {
       return NextResponse.json({ message: 'Dữ liệu kiểm tra không hợp lệ' }, { status: 400 });
