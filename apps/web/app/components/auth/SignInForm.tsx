@@ -157,10 +157,10 @@ export function SignInForm({
   }, [effectiveTenantSlug]);
 
   function handleForgotPassword() {
-    const displayName = tenantName || effectiveTenantSlug || 'hệ thống';
-    toast.info(`Vui lòng liên hệ người quản trị của ${displayName} để lấy lại mật khẩu.`, {
-      duration: 6000,
-    });
+    // Preserve identifier if already typed so the forgot-password page can pre-fill
+    const params = new URLSearchParams();
+    if (identifier) params.set('identifier', identifier);
+    window.location.href = `/auth/forgot-password${params.size ? `?${params}` : ''}`;
   }
 
   useEffect(() => {

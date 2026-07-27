@@ -737,10 +737,7 @@ export default function LoginScreen() {
       activeOpacity={0.6} 
       onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        Alert.alert(
-          'Quên mật khẩu', 
-          `Vui lòng liên hệ chủ Doanh nghiệp ${tenantCode ? `'${tenantCode}'` : 'của bạn'} để được cấp lại mật khẩu.`
-        );
+        router.push('/(auth)/forgot-password');
       }}
     >
       <Text style={{ fontSize: 13, color: '#fa5908', fontWeight: '600' }}>

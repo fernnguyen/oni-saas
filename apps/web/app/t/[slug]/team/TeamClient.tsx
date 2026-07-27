@@ -54,6 +54,8 @@ export function TeamClient({ tenantId, initialUsers, shops, roles, canInvite, ca
   const [resetTarget, setResetTarget] = useState<TenantUser | null>(null);
   const [editRoleTarget, setEditRoleTarget] = useState<TenantUser | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TenantUser | null>(null);
+  const [sendResetTarget, setSendResetTarget] = useState<TenantUser | null>(null);
+  const [sendResetLoading, setSendResetLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -78,6 +80,21 @@ export function TeamClient({ tenantId, initialUsers, shops, roles, canInvite, ca
     setDeleteTarget(null);
     flash(data.deletedAuthUser ? 'Đã gỡ thành viên và xóa tài khoản không còn liên kết nào khác' : 'Đã gỡ thành viên khỏi workspace hiện tại');
     startTransition(() => { refreshUsers(); });
+  }
+
+  async function handleSendReset(user: TenantUser) {
+    setSendResetLoading(true);
+    const res = await fetch(`/api/tenants/${tenantId}/users/${user.user_id}/send-reset`, {
+      method: 'POST',
+    });
+    const data = await res.json().catch(() => ({}));
+    setSendResetLoading(false);
+    setSendResetTarget(null);
+    if (!res.ok) {
+      flash(data.message || 'Không thể gửi email đặt lại mật khẩu', 'err');
+    } else {
+      flash(data.message || 'Đã gửi email đặt lại mật khẩu');
+    }
   }
 
   return (
@@ -171,14 +188,22 @@ export function TeamClient({ tenantId, initialUsers, shops, roles, canInvite, ca
                             Phân quyền
                           </button>
                         )}
-                        {/* [H-1/C-1] Only workspace accounts can have password reset directly.
-                            Only tenant owner (canResetAuth) can perform this action. */}
+                        {/* Workspace: owner can reset password directly */}
                         {canResetAuth && u.account_type === 'workspace' && (
                           <button
                             onClick={() => setResetTarget(u)}
                             className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors"
                           >
-                            Mật khẩu
+                            Đặt lại mật khẩu
+                          </button>
+                        )}
+                        {/* Personal/phone: anyone with users.invite can trigger email reset */}
+                        {canInvite && u.account_type !== 'workspace' && (
+                          <button
+                            onClick={() => setSendResetTarget(u)}
+                            className="rounded-lg px-3 py-1.5 text-xs font-medium text-violet-600 border border-violet-100 bg-violet-50 hover:bg-violet-100 transition-colors"
+                          >
+                            Đặt lại mật khẩu
                           </button>
                         )}
                         {canRemove && u.user_id !== currentUserId && (
@@ -214,7 +239,17 @@ export function TeamClient({ tenantId, initialUsers, shops, roles, canInvite, ca
         />
       )}
 
-      {/* Reset password modal */}
+      {/* Send reset email confirm dialog */}
+      {sendResetTarget && (
+        <SendResetConfirmDialog
+          user={sendResetTarget}
+          loading={sendResetLoading}
+          onConfirm={() => handleSendReset(sendResetTarget)}
+          onClose={() => setSendResetTarget(null)}
+        />
+      )}
+
+      {/* Reset password modal (workspace only) */}
       {resetTarget && (
         <ResetPasswordModal
           tenantId={tenantId}
@@ -727,7 +762,82 @@ function ResetPasswordModal({ tenantId, user, onClose, onSuccess, onError }: {
 }
 
 
+// ─── Send Reset Email Confirm Dialog ─────────────────────────────────────────
+
+function SendResetConfirmDialog({ user, loading, onConfirm, onClose }: {
+  user: TenantUser;
+  loading: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const displayLabel = user.display_name || user.username || 'thành viên này';
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl p-6 space-y-4">
+        {/* Icon */}
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-violet-50 mx-auto">
+          <svg className="h-6 w-6 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+          </svg>
+        </div>
+
+        {/* Content */}
+        <div className="text-center space-y-1.5">
+          <h2 className="text-base font-semibold text-slate-900">Gửi email đặt lại mật khẩu?</h2>
+          <p className="text-sm text-slate-500 leading-relaxed">
+            Sẽ gửi hướng dẫn đặt lại mật khẩu đến{' '}
+            <span className="font-medium text-slate-700">{displayLabel}</span>
+            {user.login_email && (
+              <>
+                {' '}tại{' '}
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-slate-700">
+                  {user.login_email}
+                </code>
+              </>
+            )}
+            .
+          </p>
+          <p className="text-xs text-slate-400">
+            Đây là tài khoản cá nhân — người dùng sẽ tự đặt lại mật khẩu bằng link trong email.
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Hủy
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-violet-600 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+          >
+            {loading ? (
+              <>
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Đang gửi...
+              </>
+            ) : (
+              'Gửi email'
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Edit Role Modal ──────────────────────────────────────────────────────────
+
 
 function EditRoleModal({ tenantId, user, roles, shops, onClose, onSuccess, onError }: {
   tenantId: string;

@@ -79,10 +79,13 @@ export async function proxy(req: NextRequest) {
       pathname.startsWith('/logos/') ||
       pathname.startsWith('/fonts/') ||
       pathname.startsWith('/auth/zalo-success') ||
+      pathname.startsWith('/auth/forgot-password') ||
+      pathname.startsWith('/auth/reset-password') ||
       pathname.startsWith('/.well-known/')
     ) {
       return withSupabaseSession(req, NextResponse.next());
     }
+
 
     // These paths belong only on the main domain
     if (
