@@ -28,4 +28,5 @@ apps/mobile/.expo/
 *.ipa
 build-*
 backups/
-
+AGENTS.md
+CLAUDE.md
