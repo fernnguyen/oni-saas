@@ -420,8 +420,17 @@ async function _finalizeUser({
       const { error: e } = await admin.from('user_shops').insert({ user_id: userId, shop_id: shopId, role_id: role.id });
       if (e) throw new Error(e.message);
     } else {
+      const { count: existingMembershipCount, error: membershipCountError } = await admin
+        .from('user_tenants')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId);
+      if (membershipCountError) throw new Error(membershipCountError.message);
+
       const { error: e } = await admin.from('user_tenants').insert({
-        user_id: userId, tenant_id: tenantId, role_id: role.id, is_default: true,
+        user_id: userId,
+        tenant_id: tenantId,
+        role_id: role.id,
+        is_default: (existingMembershipCount ?? 0) === 0,
       });
       if (e) throw new Error(e.message);
     }
@@ -623,6 +632,14 @@ export async function updateTenantUserRole(userId: string, tenantId: string, rol
     .maybeSingle();
   if (!profile) throw new Error('Người dùng không thuộc workspace này');
 
+  const { data: existingTenantMembership, error: existingMembershipError } = await admin
+    .from('user_tenants')
+    .select('is_default')
+    .eq('user_id', userId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (existingMembershipError) throw new Error(existingMembershipError.message);
+
   const { data: role } = await admin.from('roles').select('id, scope').eq('code', roleCode).maybeSingle();
   if (!role) throw new Error('Vai trò không tồn tại');
 
@@ -639,8 +656,19 @@ export async function updateTenantUserRole(userId: string, tenantId: string, rol
     const { error: e } = await admin.from('user_shops').insert({ user_id: userId, shop_id: shopId, role_id: role.id });
     if (e) throw new Error(e.message);
   } else {
+    const { count: remainingDefaultCount, error: defaultCountError } = await admin
+      .from('user_tenants')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('is_default', true);
+    if (defaultCountError) throw new Error(defaultCountError.message);
+
     const { error: e } = await admin.from('user_tenants').insert({
-      user_id: userId, tenant_id: tenantId, role_id: role.id, is_default: true,
+      user_id: userId,
+      tenant_id: tenantId,
+      role_id: role.id,
+      is_default:
+        existingTenantMembership?.is_default === true || (remainingDefaultCount ?? 0) === 0,
     });
     if (e) throw new Error(e.message);
   }

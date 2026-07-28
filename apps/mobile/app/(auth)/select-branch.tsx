@@ -36,6 +36,13 @@ interface TenantMembership {
  isDefault: boolean;
 }
 
+interface TenantCreationLimit {
+ ownedCount: number;
+ maxPerAccount: number;
+ canCreate: boolean;
+ message: string | null;
+}
+
 export default function SelectBranchScreen() {
  const router = useRouter();
  const { targetShopId } = useLocalSearchParams();
@@ -79,6 +86,13 @@ export default function SelectBranchScreen() {
  const [tenants, setTenants] = useState<TenantMembership[]>([]);
  const [selectedTenantId, setSelectedTenantId] = useState('');
  const [isChoosingTenant, setIsChoosingTenant] = useState(false);
+ const [tenantCreationLimit, setTenantCreationLimit] = useState<TenantCreationLimit>({
+   ownedCount: 0,
+   maxPerAccount: 1,
+   canCreate: true,
+   message: null,
+ });
+ const tenantLimitReached = !tenantCreationLimit.canCreate;
 
  // States quản lý ca làm việc (Shift Management)
  const [showShiftModal, setShowShiftModal] = useState(false);
@@ -155,7 +169,20 @@ export default function SelectBranchScreen() {
             provider: meData.user.provider ?? null,
           });
         }
-        let availableTenants: TenantMembership[] = Array.isArray(meData.tenants)
+        const creationStatus = meData.tenant_creation;
+        setTenantCreationLimit({
+          ownedCount: Number.isFinite(Number(creationStatus?.owned_count))
+            ? Number(creationStatus.owned_count)
+            : 0,
+          maxPerAccount: Number.isFinite(Number(creationStatus?.max_per_account))
+            ? Math.max(1, Number(creationStatus.max_per_account))
+            : 1,
+          // Backward compatible with servers that do not expose tenant_creation yet.
+          canCreate: creationStatus?.can_create !== false,
+          message: typeof creationStatus?.message === 'string' ? creationStatus.message : null,
+        });
+
+        const mappedTenants: TenantMembership[] = Array.isArray(meData.tenants)
           ? meData.tenants.map((tenant: any) => ({
               id: tenant.id,
               name: tenant.name || 'Gian hàng chưa đặt tên',
@@ -164,6 +191,12 @@ export default function SelectBranchScreen() {
               isDefault: tenant.is_default === true,
             }))
           : [];
+        const storedDefaultIndex = mappedTenants.findIndex((tenant) => tenant.isDefault);
+        const defaultIndex = storedDefaultIndex >= 0 ? storedDefaultIndex : 0;
+        let availableTenants = mappedTenants.map((tenant, index) => ({
+          ...tenant,
+          isDefault: index === defaultIndex,
+        }));
         // Tương thích ngắn hạn khi mobile mới gọi backend chưa deploy field tenants[].
         if (availableTenants.length === 0 && meData.tenant_id) {
           availableTenants = [{
@@ -811,12 +844,32 @@ export default function SelectBranchScreen() {
      </TouchableOpacity>
    ))}
    <TouchableOpacity
-     className="mt-2 mb-4 rounded-3xl border border-dashed border-orange-300 bg-orange-50 p-4 flex-row items-center justify-center active:bg-orange-100"
+     disabled={tenantLimitReached}
+     className={`mt-2 rounded-3xl border border-dashed p-4 flex-row items-center justify-center ${
+       tenantLimitReached
+         ? 'border-slate-200 bg-slate-100 opacity-60'
+         : 'mb-4 border-orange-300 bg-orange-50 active:bg-orange-100'
+     }`}
      onPress={() => router.push('/(auth)/create-store')}
    >
-     <Ionicons name="add-circle-outline" size={19} color="#fa5908" />
-     <Text className="ml-2 text-sm font-bold text-orange-600">Tạo gian hàng mới</Text>
+     <Ionicons
+       name={tenantLimitReached ? 'lock-closed-outline' : 'add-circle-outline'}
+       size={19}
+       color={tenantLimitReached ? '#94a3b8' : '#fa5908'}
+     />
+     <Text className={`ml-2 text-sm font-bold ${tenantLimitReached ? 'text-slate-400' : 'text-orange-600'}`}>
+       Tạo gian hàng mới
+     </Text>
    </TouchableOpacity>
+   {tenantLimitReached && (
+     <View className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 flex-row items-start">
+       <Ionicons name="information-circle-outline" size={17} color="#b45309" style={{marginRight: 7, marginTop: 1}} />
+       <Text selectable className="flex-1 text-[12px] font-medium text-amber-800 leading-relaxed">
+         {tenantCreationLimit.message
+           || `Bạn đã đạt giới hạn ${tenantCreationLimit.maxPerAccount} gian hàng cho mỗi tài khoản. Vui lòng sử dụng tài khoản khác để tạo thêm gian hàng.`}
+       </Text>
+     </View>
+   )}
  </ScrollView>
  ) : branches.length === 0 ? (
  <ScrollView className="flex-1" contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: 24}} showsVerticalScrollIndicator={false}>
@@ -860,13 +913,29 @@ export default function SelectBranchScreen() {
  )}
 
  {hasTenantMembership === false && !loadError && (
-   <TouchableOpacity
-     className="mt-5 bg-orange-500 active:bg-orange-600 px-7 py-3.5 rounded-2xl flex-row items-center shadow-sm"
-     onPress={() => router.push('/(auth)/create-store')}
-   >
-     <Ionicons name="add-circle-outline" size={19} color="white" style={{marginRight: 7}} />
-     <Text className="text-white text-sm font-semibold">Tạo gian hàng ngay</Text>
-   </TouchableOpacity>
+   <>
+     <TouchableOpacity
+       disabled={tenantLimitReached}
+       className={`mt-5 px-7 py-3.5 rounded-2xl flex-row items-center shadow-sm ${
+         tenantLimitReached ? 'bg-slate-300 opacity-60' : 'bg-orange-500 active:bg-orange-600'
+       }`}
+       onPress={() => router.push('/(auth)/create-store')}
+     >
+       <Ionicons
+         name={tenantLimitReached ? 'lock-closed-outline' : 'add-circle-outline'}
+         size={19}
+         color="white"
+         style={{marginRight: 7}}
+       />
+       <Text className="text-white text-sm font-semibold">Tạo gian hàng ngay</Text>
+     </TouchableOpacity>
+     {tenantLimitReached && (
+       <Text selectable className="mt-3 px-4 text-center text-[12px] font-medium text-amber-700 leading-relaxed">
+         {tenantCreationLimit.message
+           || `Bạn đã đạt giới hạn ${tenantCreationLimit.maxPerAccount} gian hàng cho mỗi tài khoản. Vui lòng sử dụng tài khoản khác để tạo thêm gian hàng.`}
+       </Text>
+     )}
+   </>
  )}
 
  {loadError && (

@@ -5,6 +5,11 @@ import { getSupabaseServerClient } from '../../../lib/server/supabaseServer';
 import { verifyTurnstileToken } from '../../../lib/server/turnstile';
 import { INDUSTRY_TYPES } from '@oni/core';
 import { normalizeVNPhone } from '../../../lib/utils/phone';
+import {
+  getMaxTenantMessage,
+  getTenantCreationStatus,
+  MAX_TENANTS_PER_ACCOUNT_CODE,
+} from '../../../lib/server/tenantCreationPolicy';
 
 // Reject fake tenant emails — these are reserved for tenant user accounts
 const ONI_FAKE_EMAIL_RE = /^[^@]+@[^.]+\.oni\.vn$/i;
@@ -98,6 +103,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const tenantCreationStatus = await getTenantCreationStatus(userId, admin, config);
+  if (!tenantCreationStatus.canCreate) {
+    return NextResponse.json(
+      {
+        code: MAX_TENANTS_PER_ACCOUNT_CODE,
+        message: tenantCreationStatus.message,
+        owned_tenant_count: tenantCreationStatus.ownedCount,
+        max_tenants_per_account: tenantCreationStatus.maxPerAccount,
+      },
+      { status: 409 },
+    );
+  }
+
   let codeData: any = null;
   if (invitation_code && invitation_code.trim()) {
     const trimmedCode = invitation_code.trim();
@@ -187,6 +205,18 @@ export async function POST(req: NextRequest) {
     p_industry_type: industry_type,
   });
   if (tenantError) {
+    // The database function performs the same check under an owner-scoped lock,
+    // preventing concurrent requests from exceeding the configured quota.
+    if (tenantError.message.includes(MAX_TENANTS_PER_ACCOUNT_CODE)) {
+      return NextResponse.json(
+        {
+          code: MAX_TENANTS_PER_ACCOUNT_CODE,
+          message: getMaxTenantMessage(tenantCreationStatus.maxPerAccount),
+          max_tenants_per_account: tenantCreationStatus.maxPerAccount,
+        },
+        { status: 409 },
+      );
+    }
     // The endpoint provisions a tenant for an already authenticated account.
     // Never delete that existing social/email account when tenant provisioning fails.
     return NextResponse.json({ message: tenantError.message }, { status: 400 });

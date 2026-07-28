@@ -3,15 +3,20 @@
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { getSuperAdminUser } from '@/lib/server/auth'
 import { revalidatePath, revalidateTag } from 'next/cache'
+import { normalizeMaxTenantsPerAccount } from '@/lib/server/tenantCreationPolicy'
 
 export async function updateSystemSettings(config: Record<string, any>) {
   const user = await getSuperAdminUser()
   if (!user) throw new Error('Unauthorized')
 
+  const normalizedConfig = {
+    ...config,
+    max_tenants_per_account: normalizeMaxTenantsPerAccount(config.max_tenants_per_account),
+  }
   const supabase = getSupabaseAdminClient()
   const { error } = await supabase
     .from('system_settings')
-    .upsert({ id: 'global', config })
+    .upsert({ id: 'global', config: normalizedConfig })
 
   if (error) throw error
   // @ts-ignore - Next.js 16 signature mismatch

@@ -16,6 +16,9 @@ export function SettingsClient({
   const [config, setConfig] = useState(initialConfig)
   const [isPending, startTransition] = useTransition()
   const [starterTrialDays, setStarterTrialDays] = useState<number>(initialConfig.starter_trial_days ?? 90)
+  const [maxTenantsPerAccount, setMaxTenantsPerAccount] = useState<number>(
+    initialConfig.max_tenants_per_account ?? 1
+  )
 
   // System tax groups states
   const [taxGroups, setTaxGroups] = useState<any[]>(initialTaxGroups)
@@ -130,6 +133,24 @@ export function SettingsClient({
     })
   }
 
+  const handleMaxTenantsPerAccountSave = (value: number) => {
+    const normalizedValue = Math.min(100, Math.max(1, Math.trunc(value || 1)))
+    const previousValue = config.max_tenants_per_account ?? 1
+    const newConfig = { ...config, max_tenants_per_account: normalizedValue }
+    setMaxTenantsPerAccount(normalizedValue)
+    setConfig(newConfig)
+    startTransition(async () => {
+      try {
+        await updateSystemSettings(newConfig)
+        toast.success('Đã cập nhật giới hạn gian hàng cho mỗi tài khoản')
+      } catch (err) {
+        toast.error('Lỗi khi cập nhật giới hạn gian hàng')
+        setConfig(config)
+        setMaxTenantsPerAccount(previousValue)
+      }
+    })
+  }
+
   const handleEmailVerificationToggle = (checked: boolean) => {
     const newConfig = { ...config, require_email_verification: checked }
     setConfig(newConfig)
@@ -218,6 +239,32 @@ export function SettingsClient({
                 );
               })}
             </div>
+          </div>
+
+          {/* Tenant creation limit */}
+          <div className="px-6 py-5 space-y-3">
+            <div>
+              <h4 className="text-sm font-medium text-slate-800">Số gian hàng tối đa mỗi tài khoản</h4>
+              <p className="text-xs text-slate-500 mt-0.5 max-w-2xl">
+                Giới hạn số tenant mà một tài khoản được sở hữu và tự tạo. Các tenant mà người dùng chỉ được mời tham gia không tính vào giới hạn này.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 pt-1">
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={maxTenantsPerAccount}
+                onChange={(e) => setMaxTenantsPerAccount(parseInt(e.target.value) || 0)}
+                onBlur={(e) => handleMaxTenantsPerAccountSave(parseInt(e.target.value) || 1)}
+                disabled={isPending}
+                className="w-32 rounded-xl border border-slate-200 px-3.5 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 font-medium"
+              />
+              <span className="text-sm text-slate-500 font-medium">gian hàng / tài khoản</span>
+            </div>
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 inline-block">
+              Khi đạt giới hạn, nút tạo gian hàng mới sẽ bị khóa. Người dùng vẫn truy cập được các gian hàng hiện có.
+            </p>
           </div>
 
           {/* Starter Plan Default Trial Days */}
