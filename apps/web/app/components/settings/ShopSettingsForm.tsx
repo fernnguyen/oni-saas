@@ -59,6 +59,12 @@ interface ShopSettings {
   tier_evaluation_years?: number;
   membership_tiers?: { name: string; threshold: number | string; discount: number | string; color?: string }[];
   share_customers?: boolean;
+  // Tax Settings
+  tax_owner_name?: string | null;
+  tax_email?: string | null;
+  tax_industry_group?: string;
+  tax_period_type?: string;
+  tax_method_tncn?: string;
 }
 
 interface Shop {
@@ -173,6 +179,12 @@ export function ShopSettingsForm({
           { name: 'Vàng', threshold: 35000000, discount: 10, color: 'gold' }
         ]) as { name: string; threshold: number | string; discount: number | string; color?: string }[],
     share_customers: initial.share_customers ?? false,
+    // Tax
+    tax_owner_name: initial.tax_owner_name ?? '',
+    tax_email: initial.tax_email ?? '',
+    tax_industry_group: initial.tax_industry_group ?? 'phan_phoi',
+    tax_period_type: initial.tax_period_type ?? 'annual',
+    tax_method_tncn: initial.tax_method_tncn ?? 'rate_on_revenue',
   });
 
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({
@@ -180,11 +192,12 @@ export function ShopSettingsForm({
     sales: 'idle',
     debt: 'idle',
     sepay: 'idle',
-    crm: 'idle'
+    crm: 'idle',
+    'tax-profile': 'idle'
   });
 
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'general' | 'inventory-and-pos' | 'debt' | 'sepay' | 'crm' | 'notification' | 'payment-methods' | 'data-manage'>((initialTab as any) || 'general');
+  const [activeTab, setActiveTab] = useState<'general' | 'inventory-and-pos' | 'debt' | 'sepay' | 'crm' | 'notification' | 'payment-methods' | 'data-manage' | 'tax-profile'>((initialTab as any) || 'general');
 
   const [isIndustryUnlocked, setIsIndustryUnlocked] = useState(false);
   const [isEditingIndustry, setIsEditingIndustry] = useState(false);
@@ -632,7 +645,7 @@ export function ShopSettingsForm({
     setIsIndustryUnlocked(false);
   }
 
-  async function handleSaveSubForm(tab: 'general' | 'sales' | 'debt' | 'sepay' | 'crm') {
+  async function handleSaveSubForm(tab: 'general' | 'sales' | 'debt' | 'sepay' | 'crm' | 'tax-profile') {
     setSaveStates(prev => ({ ...prev, [tab]: 'saving' }));
     try {
       let payload: any = {};
@@ -713,6 +726,14 @@ export function ShopSettingsForm({
           })),
           share_customers: form.share_customers,
         };
+      } else if (tab === 'tax-profile') {
+        payload = {
+          tax_owner_name: form.tax_owner_name || undefined,
+          tax_email: form.tax_email || undefined,
+          tax_industry_group: form.tax_industry_group,
+          tax_period_type: form.tax_period_type,
+          tax_method_tncn: form.tax_method_tncn,
+        };
       }
 
       const res = await fetch(`/api/shops/${shop.id}/settings`, {
@@ -723,7 +744,7 @@ export function ShopSettingsForm({
 
       if (!res.ok) throw new Error();
       setSaveStates(prev => ({ ...prev, [tab]: 'saved' }));
-      toast.success(`Đã lưu ${tab === 'general' ? 'Cài đặt chung' : tab === 'sales' ? 'Cấu hình Bán hàng & Kho' : tab === 'debt' ? 'Cài đặt Công nợ & Cảnh báo' : tab === 'sepay' ? 'Cổng đối soát SePay' : 'Cài đặt CRM'} thành công!`);
+      toast.success(`Đã lưu ${tab === 'general' ? 'Cài đặt chung' : tab === 'sales' ? 'Cấu hình Bán hàng & Kho' : tab === 'debt' ? 'Cài đặt Công nợ & Cảnh báo' : tab === 'sepay' ? 'Cổng đối soát SePay' : tab === 'tax-profile' ? 'Cấu hình Thuế' : 'Cài đặt CRM'} thành công!`);
       setTimeout(() => setSaveStates(prev => ({ ...prev, [tab]: 'idle' })), 2500);
     } catch {
       setSaveStates(prev => ({ ...prev, [tab]: 'error' }));
@@ -899,6 +920,17 @@ export function ShopSettingsForm({
               </svg>
             ), 
             desc: 'Tích điểm & Hạng hội viên', 
+            permission: canManage 
+          },
+          { 
+            id: 'tax-profile', 
+            label: 'Hồ sơ Thuế', 
+            icon: (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            ), 
+            desc: 'Cấu hình tờ khai, nhóm ngành', 
             permission: canManage 
           },
           { 
@@ -2353,6 +2385,92 @@ export function ShopSettingsForm({
             )}
           </form>
         )
+      )}
+
+
+      {/* ── TAB: TAX ── */}
+      {activeTab === 'tax-profile' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div>
+              <h2 className="text-xl font-bold text-slate-800">
+                Hồ sơ Thuế & Khai báo
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Thông tin người nộp thuế, nhóm ngành và kỳ khai thuế.
+              </p>
+            </div>
+            <button
+              onClick={() => handleSaveSubForm('tax-profile')}
+              disabled={saveStates['tax-profile'] === 'saving'}
+              className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {saveStates['tax-profile'] === 'saving' ? 'Đang lưu...' : 'Lưu Hồ sơ Thuế'}
+            </button>
+          </div>
+
+          <Section title="Thông tin người nộp thuế" description="Dùng để điền vào tờ khai tự động">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Tên chủ hộ / Người nộp thuế</label>
+                <input
+                  type="text"
+                  value={form.tax_owner_name || ''}
+                  onChange={(e: any) => set('tax_owner_name', e.target.value)}
+                  placeholder="Nguyễn Văn A"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Mã số thuế</label>
+                <input
+                  type="text"
+                  value={form.tax_id || ''}
+                  onChange={(e: any) => set('tax_id', e.target.value)}
+                  placeholder="Ví dụ: 0123456789"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Email thông báo thuế</label>
+                <input
+                  type="email"
+                  value={form.tax_email || ''}
+                  onChange={(e: any) => set('tax_email', e.target.value)}
+                  placeholder="email@example.com"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Ngành nghề tính thuế</label>
+                <select
+                  value={form.tax_industry_group}
+                  onChange={(e: any) => set('tax_industry_group', e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="phan_phoi">Phân phối, cung cấp hàng hóa</option>
+                  <option value="dich_vu">Dịch vụ, xây dựng không bao thầu</option>
+                  <option value="san_xuat">Sản xuất, vận tải, dịch vụ kèm hàng hóa</option>
+                  <option value="cho_thue">Cho thuê tài sản</option>
+                  <option value="noi_dung_so">Sản xuất nội dung số</option>
+                  <option value="khac">Hoạt động kinh doanh khác</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Kỳ khai thuế</label>
+                <select
+                  value={form.tax_period_type}
+                  onChange={(e: any) => set('tax_period_type', e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="annual">Khai theo năm</option>
+                  <option value="monthly">Khai theo tháng</option>
+                  <option value="quarterly">Khai theo quý</option>
+                </select>
+              </div>
+            </div>
+          </Section>
+        </div>
       )}
 
       {activeTab === 'notification' && (

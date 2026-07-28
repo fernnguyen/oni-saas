@@ -51,6 +51,11 @@ const DEFAULT_SETTINGS = {
     { name: 'Bạc', threshold: 15000000, discount: 5, color: 'sapphire' },
     { name: 'Vàng', threshold: 35000000, discount: 10, color: 'gold' }
   ],
+  tax_owner_name: '',
+  tax_email: '',
+  tax_industry_group: 'phan_phoi',
+  tax_period_type: 'annual',
+  tax_method_tncn: 'rate_on_revenue',
   updated_at: new Date().toISOString(),
 };
 
@@ -106,6 +111,11 @@ const putSchema = z.object({
     discount: z.number().min(0).max(100),
     color: z.string().optional()
   })).optional(),
+  tax_owner_name: z.string().max(100).optional().nullable(),
+  tax_email: z.string().max(100).optional().nullable(),
+  tax_industry_group: z.string().max(50).optional(),
+  tax_period_type: z.enum(['monthly', 'quarterly', 'annual']).optional(),
+  tax_method_tncn: z.enum(['rate_on_revenue', 'rate_on_income']).optional(),
 });
 
 

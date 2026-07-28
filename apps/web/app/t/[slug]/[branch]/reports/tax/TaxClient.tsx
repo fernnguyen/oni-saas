@@ -1,7 +1,17 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '@/app/components/ui/PageHeader'
+import { TKNForm } from './TKNForm'
+import { CNKDForm } from './CNKDForm'
+import {
+  asTaxPeriodType,
+  getTaxPeriodRange,
+  requiresPeriodicCnkd,
+  TAX_EXEMPT_REVENUE_THRESHOLD,
+  type AnnualTaxData,
+  type TaxProfile,
+} from '@/lib/taxReporting'
 
 interface Props { shopId: string; hasAccess: boolean }
 
@@ -14,8 +24,9 @@ interface TaxData {
   totalSubtotal:  number
   totalTax:       number
   totalRevenue:   number
+  totalReturns:   number
   byRate:         Record<string, { subtotal: number; tax: number }>
-  period:         { from: string; to: string }
+  period:         { from: string; to: string; type: string; label: string }
 }
 
 function fmtVND(v: number) { return v.toLocaleString('vi-VN') + 'đ' }
@@ -64,30 +75,6 @@ function formatDate(dateStr: string): string {
     return `${day}/${month}/${year}`;
   }
   return dateStr;
-}
-
-// CSV export helper — runs entirely client-side, no server needed
-function exportCSV(invoices: Invoice[], period: { from: string; to: string }) {
-  const header = 'Mã đơn,Ngày,Khách hàng,Doanh thu chưa VAT,Thuế suất (%),Tiền thuế,Tổng cộng'
-  const rows = invoices.map((i) =>
-    [
-      cleanOrderNo(i.order_no, i.order_id),
-      formatDate(i.date),
-      i.customer_name,
-      i.subtotal.toFixed(0),
-      i.tax_rate.toFixed(0),
-      i.tax_amount.toFixed(0),
-      i.total.toFixed(0),
-    ].join(',')
-  )
-  const csv  = [header, ...rows].join('\n')
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href     = url
-  a.download = `bao-cao-thue-${period.from}_${period.to}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 // S1a-HKD simplified sales book export (Thông tư 152/2025/TT-BTC)
@@ -152,20 +139,29 @@ function UpgradeGate() {
 }
 
 export function TaxClient({ shopId, hasAccess }: Props) {
-  const now  = new Date()
-  const [from, setFrom] = useState(
-    new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
-  )
-  const [to, setTo] = useState(
-    new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10)
-  )
-  const [activeTab, setActiveTab] = useState<'s1a' | 'deduction'>('s1a')
+  const now = new Date()
+  const [periodAnchor, setPeriodAnchor] = useState(now.toISOString().slice(0, 10))
+  const [activeTab, setActiveTab] = useState<'s1a' | 'deduction' | 'tkn'>('s1a')
   const [searchQuery, setSearchQuery] = useState('')
 
-  const { data, isLoading, isError } = useQuery<TaxData>({
-    queryKey: ['reports-tax', shopId, from, to],
+  const { data: taxSettings } = useQuery<TaxProfile>({
+    queryKey: ['shop-settings', shopId],
     queryFn: async () => {
-      const sp  = new URLSearchParams({ from, to })
+      const res = await fetch(`/api/shops/${shopId}/settings`)
+      if (!res.ok) throw new Error('Lỗi tải cài đặt thuế')
+      return res.json()
+    },
+    enabled: hasAccess,
+  })
+
+  const periodType = asTaxPeriodType(taxSettings?.tax_period_type)
+  const selectedPeriod = getTaxPeriodRange(periodType, periodAnchor)
+  const { from, to } = selectedPeriod
+
+  const { data, isLoading, isError } = useQuery<TaxData>({
+    queryKey: ['reports-tax', shopId, periodType, periodAnchor],
+    queryFn: async () => {
+      const sp = new URLSearchParams({ periodType, anchor: periodAnchor })
       const res = await fetch(`/api/shops/${shopId}/reports/tax?${sp}`)
       if (!res.ok) throw new Error((await res.json()).error ?? 'Lỗi tải báo cáo')
       return res.json()
@@ -174,9 +170,27 @@ export function TaxClient({ shopId, hasAccess }: Props) {
     staleTime: 300_000,
   })
 
-  const totalRevenue = data?.totalRevenue ?? 0
-  const THRESHOLD = 1_000_000_000 // 1 Billion VND
-  const percent = Math.min((totalRevenue / THRESHOLD) * 100, 100)
+  const { data: annualData } = useQuery<AnnualTaxData>({
+    queryKey: ['reports-tax-annual', shopId, selectedPeriod.year],
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${shopId}/reports/tax/annual?year=${selectedPeriod.year}`)
+      if (!res.ok) throw new Error('Lỗi tải báo cáo năm')
+      return res.json()
+    },
+    enabled: hasAccess,
+    staleTime: 300_000,
+  })
+
+  // Use annual YTD revenue for the threshold progress bar, fallback to period totalRevenue
+  const periodRevenue = data?.totalRevenue ?? 0
+  const totalRevenue = annualData?.yearToDateRevenue ?? periodRevenue
+  const percent = Math.min((totalRevenue / TAX_EXEMPT_REVENUE_THRESHOLD) * 100, 100)
+  const requiresCnkd = requiresPeriodicCnkd(totalRevenue)
+
+  useEffect(() => {
+    if (requiresCnkd && activeTab === 'tkn') setActiveTab('s1a')
+    if (!requiresCnkd && activeTab === 'deduction') setActiveTab('s1a')
+  }, [activeTab, requiresCnkd])
 
   // Filter invoices client-side based on search query
   const filteredInvoices = data?.invoices.filter((inv) => {
@@ -214,38 +228,62 @@ export function TaxClient({ shopId, hasAccess }: Props) {
           {/* Period picker & Export button */}
           <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
             <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-500">Từ ngày</label>
-              <input
-                type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
-              />
+              <label className="text-sm text-slate-500">
+                Kỳ khai {periodType === 'monthly' ? 'tháng' : periodType === 'quarterly' ? 'quý' : 'năm'}
+              </label>
+              {periodType === 'monthly' ? (
+                <input
+                  type="month"
+                  value={periodAnchor.slice(0, 7)}
+                  onChange={(e) => setPeriodAnchor(`${e.target.value}-01`)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+                />
+              ) : periodType === 'quarterly' ? (
+                <>
+                  <select
+                    value={selectedPeriod.quarter}
+                    onChange={(e) => {
+                      const firstMonth = (Number(e.target.value) - 1) * 3 + 1
+                      setPeriodAnchor(`${selectedPeriod.year}-${String(firstMonth).padStart(2, '0')}-01`)
+                    }}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+                  >
+                    {[1, 2, 3, 4].map((quarter) => (
+                      <option key={quarter} value={quarter}>Quý {quarter}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min="2000"
+                    max="2100"
+                    value={selectedPeriod.year}
+                    onChange={(e) => setPeriodAnchor(`${e.target.value}-${periodAnchor.slice(5, 7)}-01`)}
+                    className="w-24 rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+                  />
+                </>
+              ) : (
+                <input
+                  type="number"
+                  min="2000"
+                  max="2100"
+                  value={selectedPeriod.year}
+                  onChange={(e) => setPeriodAnchor(`${e.target.value}-01-01`)}
+                  className="w-24 rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+                />
+              )}
+              <span className="text-xs text-slate-400">
+                {formatDate(from)} – {formatDate(to)}
+              </span>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-500">Đến ngày</label>
-              <input
-                type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
-              />
-            </div>
-            {data && (
+            {data && activeTab === 's1a' && (
               <button
-                onClick={() => {
-                  if (activeTab === 's1a') {
-                    exportS1aCSV(filteredInvoices, data.period)
-                  } else {
-                    exportCSV(filteredInvoices, data.period)
-                  }
-                }}
+                onClick={() => exportS1aCSV(data.invoices, data.period)}
                 className="ml-auto flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Xuất {activeTab === 's1a' ? 'Sổ S1a-HKD' : 'Bảng kê CSV'}
+                Xuất Sổ S1a-HKD
               </button>
             )}
           </div>
@@ -273,11 +311,11 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                       Theo dõi hạn mức doanh thu miễn thuế
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Theo Nghị định 141/2026/NĐ-CP (áp dụng từ 01/01/2026), hộ kinh doanh có doanh thu dưới 1 tỷ đồng/năm được miễn thuế GTGT & TNCN.
+                      Hộ kinh doanh có doanh thu không quá 1 tỷ đồng/năm thuộc diện miễn thuế GTGT và TNCN.
                     </p>
                   </div>
                   <div className="text-right">
-                    <span className="text-sm font-medium text-slate-500">Doanh thu trong kỳ:</span>
+                    <span className="text-sm font-medium text-slate-500">Doanh thu cả năm {selectedPeriod.year}:</span>
                     <p className="text-lg font-bold text-indigo-600">{fmtVND(totalRevenue)}</p>
                   </div>
                 </div>
@@ -290,14 +328,14 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                   <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden">
                     <div 
                       className={`h-full rounded-full transition-all duration-500 ${
-                        totalRevenue >= THRESHOLD ? 'bg-amber-500' : 'bg-indigo-600'
+                        requiresCnkd ? 'bg-amber-500' : 'bg-indigo-600'
                       }`}
                       style={{ width: `${percent}%` }}
                     />
                   </div>
                 </div>
 
-                {totalRevenue < THRESHOLD ? (
+                {!requiresCnkd ? (
                   <div className="flex gap-3 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl p-3.5 text-xs">
                     <svg className="h-5 w-5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -305,7 +343,7 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                     <div>
                       <p className="font-semibold mb-0.5">Trong diện miễn thuế</p>
                       <p className="text-emerald-700 leading-relaxed">
-                        Doanh thu trong kỳ của bạn nằm dưới hạn mức 1 tỷ đồng/năm. Bạn được miễn thuế GTGT & TNCN, chỉ cần duy trì <strong>Sổ doanh thu bán hàng hóa, dịch vụ (Mẫu S1a-HKD)</strong> và nộp Tờ khai thông báo doanh thu năm.
+                        Doanh thu cả năm của bạn không vượt quá 1 tỷ đồng. Bạn được miễn thuế GTGT và TNCN, cần duy trì <strong>Sổ doanh thu bán hàng hóa, dịch vụ (Mẫu S1a-HKD)</strong> và nộp Tờ khai thông báo doanh thu năm.
                       </p>
                     </div>
                   </div>
@@ -317,7 +355,7 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                     <div>
                       <p className="font-semibold mb-0.5">Vượt hạn mức miễn thuế</p>
                       <p className="text-amber-700 leading-relaxed">
-                        Doanh thu đã đạt mức 1 tỷ đồng. Bạn cần chuyển sang phương pháp kê khai khấu trừ thuế thông thường (Mẫu 01/GTGT) và thực hiện đầy đủ nghĩa vụ thuế theo quy định.
+                        Doanh thu cả năm đã vượt 1 tỷ đồng. Hệ thống mở Tờ khai kỳ Mẫu 01/CNKD và tính số liệu theo đúng ngành nghề, kỳ khai đã cấu hình.
                       </p>
                     </div>
                   </div>
@@ -337,20 +375,36 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                   >
                     Sổ doanh thu (Mẫu S1a-HKD)
                   </button>
-                  <button
-                    onClick={() => setActiveTab('deduction')}
-                    className={`border-b-2 py-3 px-1 text-sm font-medium transition-colors ${
-                      activeTab === 'deduction'
-                        ? 'border-indigo-600 text-indigo-600'
-                        : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
-                    }`}
-                  >
-                    Kê khai khấu trừ (Mẫu 01/GTGT)
-                  </button>
+                  {requiresCnkd && (
+                    <button
+                      onClick={() => setActiveTab('deduction')}
+                      className={`border-b-2 py-3 px-1 text-sm font-medium transition-colors ${
+                        activeTab === 'deduction'
+                          ? 'border-indigo-600 text-indigo-600'
+                          : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
+                      }`}
+                    >
+                      Tờ khai kỳ (Mẫu 01/CNKD)
+                    </button>
+                  )}
+                  {!requiresCnkd && (
+                    <button
+                      onClick={() => setActiveTab('tkn')}
+                      className={`border-b-2 py-3 px-1 text-sm font-medium transition-colors ${
+                        activeTab === 'tkn'
+                          ? 'border-indigo-600 text-indigo-600'
+                          : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
+                      }`}
+                    >
+                      Tờ khai năm (Mẫu 01/TKN-CNKD)
+                    </button>
+                  )}
                 </nav>
               </div>
 
-              {activeTab === 's1a' ? (
+              {activeTab === 'tkn' ? (
+                annualData ? <TKNForm shopId={shopId} annualData={annualData} /> : <div className="py-8 text-center text-sm text-slate-400">Đang tải dữ liệu năm...</div>
+              ) : activeTab === 's1a' ? (
                 /* S1a-HKD Sổ Doanh Thu Table */
                 <div className="rounded-xl border border-slate-100 bg-white shadow-sm overflow-hidden">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
@@ -422,8 +476,16 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                 </div>
               ) : (
                 <>
+                  <CNKDForm 
+                    shopId={shopId} 
+                    data={{
+                      totalRevenue: data.totalRevenue,
+                      period: data.period
+                    }} 
+                  />
+
                   {/* Summary */}
-                  <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-4 md:grid-cols-3 mt-6">
                     <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
                       <p className="text-sm text-slate-500">Doanh thu chưa VAT</p>
                       <p className="mt-1 text-xl font-bold text-slate-800">{fmtVND(filteredSubtotal)}</p>
