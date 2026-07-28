@@ -634,12 +634,18 @@ export default function SelectBranchScreen() {
  </View>
 
   <Text className="text-xl font-medium text-slate-800">
-    {isChoosingTenant ? 'Chọn gian hàng làm việc' : 'Chọn chi nhánh làm việc'}
+    {isChoosingTenant
+      ? 'Chọn gian hàng làm việc'
+      : hasTenantMembership === false
+        ? 'Tạo gian hàng đầu tiên'
+        : 'Chọn chi nhánh làm việc'}
   </Text>
   <Text className="text-xs text-slate-450 mt-1 font-semibold leading-relaxed">
   {isChoosingTenant
     ? 'Tài khoản của bạn thuộc nhiều gian hàng. Hãy chọn gian hàng trước khi chọn chi nhánh.'
-    : 'Vui lòng chọn cơ sở kinh doanh để hệ thống đồng bộ dữ liệu đầu ca làm việc.'}
+    : hasTenantMembership === false
+      ? 'Bạn đã đăng nhập thành công. Chỉ còn vài bước để tạo gian hàng và bắt đầu sử dụng ONI.'
+      : 'Vui lòng chọn cơ sở kinh doanh để hệ thống đồng bộ dữ liệu đầu ca làm việc.'}
   </Text>
   {isOffline && (
     <View className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 mt-3.5 flex-row items-center">
@@ -804,6 +810,13 @@ export default function SelectBranchScreen() {
        <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
      </TouchableOpacity>
    ))}
+   <TouchableOpacity
+     className="mt-2 mb-4 rounded-3xl border border-dashed border-orange-300 bg-orange-50 p-4 flex-row items-center justify-center active:bg-orange-100"
+     onPress={() => router.push('/(auth)/create-store')}
+   >
+     <Ionicons name="add-circle-outline" size={19} color="#fa5908" />
+     <Text className="ml-2 text-sm font-bold text-orange-600">Tạo gian hàng mới</Text>
+   </TouchableOpacity>
  </ScrollView>
  ) : branches.length === 0 ? (
  <ScrollView className="flex-1" contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: 24}} showsVerticalScrollIndicator={false}>
@@ -816,7 +829,7 @@ export default function SelectBranchScreen() {
    {loadError
      ? loadError
      : hasTenantMembership === false
-       ? 'Tài khoản bên dưới đã đăng nhập thành công nhưng chưa được liên kết với tenant nào. Hãy đối chiếu thông tin trước khi yêu cầu quản trị viên phân quyền.'
+       ? 'Tài khoản của bạn chưa có gian hàng. Tạo gian hàng đầu tiên ngay trên ứng dụng để bắt đầu bán hàng và quản lý vận hành.'
        : 'Tenant của bạn hiện chưa có chi nhánh hoạt động.'}
  </Text>
 
@@ -844,6 +857,16 @@ export default function SelectBranchScreen() {
        </View>
      </View>
    </View>
+ )}
+
+ {hasTenantMembership === false && !loadError && (
+   <TouchableOpacity
+     className="mt-5 bg-orange-500 active:bg-orange-600 px-7 py-3.5 rounded-2xl flex-row items-center shadow-sm"
+     onPress={() => router.push('/(auth)/create-store')}
+   >
+     <Ionicons name="add-circle-outline" size={19} color="white" style={{marginRight: 7}} />
+     <Text className="text-white text-sm font-semibold">Tạo gian hàng ngay</Text>
+   </TouchableOpacity>
  )}
 
  {loadError && (

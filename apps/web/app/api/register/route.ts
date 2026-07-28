@@ -66,7 +66,9 @@ export async function POST(req: NextRequest) {
     userProvider = 'zalo';
   }
 
-  if (userProvider !== 'zalo') {
+  const isAuthenticatedSocialUser = ['zalo', 'google', 'apple'].includes(userProvider);
+
+  if (!isAuthenticatedSocialUser) {
     // Cloudflare Turnstile Verification
     const ip = req.headers.get('x-forwarded-for') || undefined;
     const isTurnstileValid = await verifyTurnstileToken(turnstile_token, ip);
@@ -185,7 +187,8 @@ export async function POST(req: NextRequest) {
     p_industry_type: industry_type,
   });
   if (tenantError) {
-    await admin.auth.admin.deleteUser(userId).catch(() => {});
+    // The endpoint provisions a tenant for an already authenticated account.
+    // Never delete that existing social/email account when tenant provisioning fails.
     return NextResponse.json({ message: tenantError.message }, { status: 400 });
   }
   const tenantId = (tenant as any).id as string;
@@ -240,7 +243,11 @@ export async function POST(req: NextRequest) {
     p_industry_type: industry_type,
   });
   if (shopError) {
-    await admin.auth.admin.deleteUser(userId).catch(() => {});
+    // Roll back only the tenant created by this request; the auth user existed before it.
+    const { error: cleanupError } = await admin.from('tenants').delete().eq('id', tenantId);
+    if (cleanupError) {
+      console.error('Failed to roll back tenant after shop provisioning error:', cleanupError);
+    }
     return NextResponse.json({ message: shopError.message }, { status: 400 });
   }
 

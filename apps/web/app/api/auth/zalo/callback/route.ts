@@ -1,22 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '../../../../../lib/server/supabaseAdmin';
-
-async function findAuthUserByEmail(admin: ReturnType<typeof getSupabaseAdminClient>, email: string) {
-  let page = 1;
-
-  while (page <= 5) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-    if (error) throw error;
-
-    const users = data?.users || [];
-    const matchedUser = users.find((user) => user.email?.toLowerCase() === email.toLowerCase());
-    if (matchedUser) return matchedUser;
-    if (users.length < 200) break;
-    page += 1;
-  }
-
-  return null;
-}
+import {
+  resolveOrCreateUser,
+  ZaloMobileAuthError,
+} from '../../../../../lib/server/zaloMobileAuth';
 
 export async function GET(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url);
@@ -90,78 +77,27 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(`${originalOrigin}/auth/signin?error=Failed to fetch Zalo profile`);
     }
 
-    const zaloId = profileData.id;
-    const zaloEmail = `zalo_${zaloId}@oni.vn`;
+    const user = await resolveOrCreateUser({
+      id: String(profileData.id),
+      name:
+        typeof profileData.name === 'string' && profileData.name.trim()
+          ? profileData.name.trim()
+          : 'Người dùng Zalo',
+      avatarUrl:
+        typeof profileData.picture?.data?.url === 'string' && profileData.picture.data.url.trim()
+          ? profileData.picture.data.url.trim()
+          : null,
+    });
+    const resolvedEmail = user.email;
+    if (!resolvedEmail) {
+      throw new ZaloMobileAuthError(
+        'Tài khoản Zalo chưa có email đăng nhập',
+        409,
+        'ZALO_EMAIL_MISSING',
+      );
+    }
+
     const admin = getSupabaseAdminClient();
-
-    let resolvedEmail = zaloEmail;
-    let resolvedUserId: string | null = null;
-
-    const { data: linkedIdentity } = await admin
-      .from('user_identities')
-      .select('user_id')
-      .eq('provider', 'zalo')
-      .eq('provider_id', zaloId)
-      .maybeSingle();
-
-    if (linkedIdentity?.user_id) {
-      const { data: linkedUser } = await admin.auth.admin.getUserById(linkedIdentity.user_id);
-      if (linkedUser.user?.email) {
-        resolvedEmail = linkedUser.user.email;
-        resolvedUserId = linkedUser.user.id;
-      }
-    }
-
-    if (!resolvedUserId) {
-      const canonicalUser = await findAuthUserByEmail(admin, zaloEmail);
-      if (canonicalUser?.email) {
-        resolvedEmail = canonicalUser.email;
-        resolvedUserId = canonicalUser.id;
-      }
-    }
-
-    if (!resolvedUserId) {
-      const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
-        email: zaloEmail,
-        email_confirm: true,
-        user_metadata: {
-          full_name: profileData.name,
-          avatar_url: profileData.picture?.data?.url || '',
-          zalo_id: zaloId,
-        }
-      });
-
-      if (createError || !createdUser.user) {
-        console.error('Supabase Create User Error:', createError);
-        return NextResponse.redirect(`${originalOrigin}/auth/signin?error=Failed to create auth user`);
-      }
-
-      resolvedEmail = createdUser.user.email || zaloEmail;
-      resolvedUserId = createdUser.user.id;
-    }
-
-    const { data: existingIdentity } = await admin
-      .from('user_identities')
-      .select('id')
-      .eq('provider', 'zalo')
-      .eq('provider_id', zaloId)
-      .maybeSingle();
-
-    if (!existingIdentity && resolvedUserId) {
-      const { error: insertIdentityError } = await admin.from('user_identities').insert({
-        id: `zalo_${zaloId}`,
-        user_id: resolvedUserId,
-        provider: 'zalo',
-        provider_id: zaloId,
-        name: profileData.name || null,
-        avatar: profileData.picture?.data?.url || null,
-      });
-
-      if (insertIdentityError) {
-        console.error('Failed to insert Zalo identity:', insertIdentityError);
-      }
-    }
-
     const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
       type: 'magiclink',
       email: resolvedEmail,
@@ -188,6 +124,11 @@ export async function GET(req: NextRequest) {
     return response;
   } catch (err) {
     console.error('Zalo Callback Catch Error:', err);
-    return NextResponse.redirect(`${resolvedOrigin}/auth/signin?error=Internal server error during callback`);
+    const errorCode = err instanceof ZaloMobileAuthError
+      ? err.code
+      : 'Internal server error during callback';
+    return NextResponse.redirect(
+      `${resolvedOrigin}/auth/signin?error=${encodeURIComponent(errorCode)}`,
+    );
   }
 }
