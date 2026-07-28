@@ -6,14 +6,17 @@ import { TKNForm } from './TKNForm'
 import { CNKDForm } from './CNKDForm'
 import {
   asTaxPeriodType,
+  getTaxIndustryGroup,
   getTaxPeriodRange,
   requiresPeriodicCnkd,
   TAX_EXEMPT_REVENUE_THRESHOLD,
+  TAX_INDUSTRY_CONFIG,
   type AnnualTaxData,
   type TaxProfile,
 } from '@/lib/taxReporting'
 
 interface Props { shopId: string; hasAccess: boolean }
+type TaxProfileWithMethod = TaxProfile & { tax_method_tncn?: string }
 
 interface Invoice {
   order_id: string; order_no: string; date: string; customer_name: string;
@@ -114,6 +117,61 @@ function exportS1aCSV(invoices: Invoice[], period: { from: string; to: string })
   URL.revokeObjectURL(url)
 }
 
+function csvCell(value: string | number) {
+  const text = String(value)
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
+}
+
+function exportS2aCSV(
+  invoices: Invoice[],
+  period: { from: string; to: string },
+  settings: TaxProfileWithMethod
+) {
+  const industry = getTaxIndustryGroup(settings.tax_industry_group)
+  const config = TAX_INDUSTRY_CONFIG[industry]
+  const revenue = invoices.reduce((sum, invoice) => sum + invoice.total, 0)
+  const taxableRevenue = Math.max(0, revenue)
+  const vatTax = Math.round(taxableRevenue * config.vatRate)
+  const pitTax = Math.round(taxableRevenue * config.pitRate)
+  const row = (...cells: Array<string | number>) => cells.map(csvCell).join(',')
+
+  const lines = [
+    row('Mẫu số S2a-HKD (Kèm theo Thông tư số 152/2025/TT-BTC)'),
+    row('HỘ, CÁ NHÂN KINH DOANH', settings.tax_owner_name || settings.shop_name || ''),
+    row('Địa chỉ', settings.address || ''),
+    row('Mã số thuế', settings.tax_id || ''),
+    row('SỔ DOANH THU BÁN HÀNG HÓA, DỊCH VỤ'),
+    row('Địa điểm kinh doanh', settings.address || ''),
+    row('Kỳ kê khai', `${formatDate(period.from)} - ${formatDate(period.to)}`),
+    '',
+    row('Số hiệu chứng từ', 'Ngày, tháng', 'Diễn giải', 'Số tiền'),
+    row('', '', `1. Ngành nghề: ${config.name}`, ''),
+    ...invoices.map((invoice) =>
+      row(
+        cleanOrderNo(invoice.order_no, invoice.order_id),
+        formatDate(invoice.date),
+        invoice.total < 0
+          ? `Điều chỉnh giảm doanh thu theo phiếu trả ${cleanOrderNo(invoice.order_no, invoice.order_id)}`
+          : `Doanh thu bán hàng hóa, dịch vụ theo chứng từ ${cleanOrderNo(invoice.order_no, invoice.order_id)}`,
+        invoice.total.toFixed(0)
+      )
+    ),
+    row('', '', 'Tổng cộng (1)', revenue.toFixed(0)),
+    row('', '', `Thuế GTGT (${config.vatRate * 100}%)`, vatTax),
+    row('', '', `Thuế TNCN (${config.pitRate * 100}%)`, pitTax),
+    row('', '', 'Tổng số thuế GTGT phải nộp', vatTax),
+    row('', '', 'Tổng số thuế TNCN phải nộp', pitTax),
+  ]
+
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `so-doanh-thu-S2a-HKD-${period.from}_${period.to}.csv`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Upgrade gate component ───────────────────────────────────────────────────
 function UpgradeGate() {
   return (
@@ -141,10 +199,10 @@ function UpgradeGate() {
 export function TaxClient({ shopId, hasAccess }: Props) {
   const now = new Date()
   const [periodAnchor, setPeriodAnchor] = useState(now.toISOString().slice(0, 10))
-  const [activeTab, setActiveTab] = useState<'s1a' | 'deduction' | 'tkn'>('s1a')
+  const [activeTab, setActiveTab] = useState<'s1a' | 's2a' | 'deduction' | 'tkn'>('s1a')
   const [searchQuery, setSearchQuery] = useState('')
 
-  const { data: taxSettings } = useQuery<TaxProfile>({
+  const { data: taxSettings } = useQuery<TaxProfileWithMethod>({
     queryKey: ['shop-settings', shopId],
     queryFn: async () => {
       const res = await fetch(`/api/shops/${shopId}/settings`)
@@ -186,11 +244,18 @@ export function TaxClient({ shopId, hasAccess }: Props) {
   const totalRevenue = annualData?.yearToDateRevenue ?? periodRevenue
   const percent = Math.min((totalRevenue / TAX_EXEMPT_REVENUE_THRESHOLD) * 100, 100)
   const requiresCnkd = requiresPeriodicCnkd(totalRevenue)
+  const usesRevenueRateMethod = taxSettings?.tax_method_tncn !== 'rate_on_income'
+  const s1aIsApplicable = !requiresCnkd
+  const s2aIsApplicable = requiresCnkd && Boolean(taxSettings) && usesRevenueRateMethod
+  const selectedIndustry = getTaxIndustryGroup(taxSettings?.tax_industry_group)
+  const selectedIndustryConfig = TAX_INDUSTRY_CONFIG[selectedIndustry]
+  const s2aVatTax = Math.round(Math.max(0, data?.totalRevenue ?? 0) * selectedIndustryConfig.vatRate)
+  const s2aPitTax = Math.round(Math.max(0, data?.totalRevenue ?? 0) * selectedIndustryConfig.pitRate)
 
   useEffect(() => {
-    if (requiresCnkd && activeTab === 'tkn') setActiveTab('s1a')
-    if (!requiresCnkd && activeTab === 'deduction') setActiveTab('s1a')
-  }, [activeTab, requiresCnkd])
+    if (requiresCnkd && activeTab === 'tkn') setActiveTab(s2aIsApplicable ? 's2a' : 'deduction')
+    if (s1aIsApplicable && activeTab === 'deduction') setActiveTab('s1a')
+  }, [activeTab, requiresCnkd, s1aIsApplicable, s2aIsApplicable])
 
   // Filter invoices client-side based on search query
   const filteredInvoices = data?.invoices.filter((inv) => {
@@ -275,15 +340,21 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                 {formatDate(from)} – {formatDate(to)}
               </span>
             </div>
-            {data && activeTab === 's1a' && (
+            {data && taxSettings && (activeTab === 's1a' || activeTab === 's2a') && (
               <button
-                onClick={() => exportS1aCSV(data.invoices, data.period)}
+                onClick={() => {
+                  if (activeTab === 's2a') {
+                    exportS2aCSV(data.invoices, data.period, taxSettings)
+                  } else {
+                    exportS1aCSV(data.invoices, data.period)
+                  }
+                }}
                 className="ml-auto flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Xuất Sổ S1a-HKD
+                Xuất Sổ {activeTab === 's2a' ? 'S2a-HKD' : 'S1a-HKD'}
               </button>
             )}
           </div>
@@ -355,7 +426,10 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                     <div>
                       <p className="font-semibold mb-0.5">Vượt hạn mức miễn thuế</p>
                       <p className="text-amber-700 leading-relaxed">
-                        Doanh thu cả năm đã vượt 1 tỷ đồng. Hệ thống mở Tờ khai kỳ Mẫu 01/CNKD và tính số liệu theo đúng ngành nghề, kỳ khai đã cấu hình.
+                        Doanh thu cả năm đã vượt 1 tỷ đồng. Hệ thống mở Tờ khai kỳ Mẫu 01/CNKD
+                        {s2aIsApplicable
+                          ? ' và Sổ S2a-HKD theo phương pháp tỷ lệ % trên doanh thu.'
+                          : ' và áp dụng hệ thống sổ theo phương pháp tính thuế đã cấu hình.'}
                       </p>
                     </div>
                   </div>
@@ -373,7 +447,27 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                         : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
                     }`}
                   >
-                    Sổ doanh thu (Mẫu S1a-HKD)
+                    S1a-HKD
+                    <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] ${
+                      s1aIsApplicable ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {s1aIsApplicable ? 'Đang áp dụng' : 'Tham khảo'}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('s2a')}
+                    className={`border-b-2 py-3 px-1 text-sm font-medium transition-colors ${
+                      activeTab === 's2a'
+                        ? 'border-indigo-600 text-indigo-600'
+                        : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
+                    }`}
+                  >
+                    S2a-HKD
+                    <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] ${
+                      s2aIsApplicable ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {s2aIsApplicable ? 'Đang áp dụng' : 'Tham khảo'}
+                    </span>
                   </button>
                   {requiresCnkd && (
                     <button
@@ -404,15 +498,29 @@ export function TaxClient({ shopId, hasAccess }: Props) {
 
               {activeTab === 'tkn' ? (
                 annualData ? <TKNForm shopId={shopId} annualData={annualData} /> : <div className="py-8 text-center text-sm text-slate-400">Đang tải dữ liệu năm...</div>
-              ) : activeTab === 's1a' ? (
-                /* S1a-HKD Sổ Doanh Thu Table */
+              ) : activeTab === 's1a' || activeTab === 's2a' ? (
+                /* S1a/S2a-HKD revenue book */
                 <div className="rounded-xl border border-slate-100 bg-white shadow-sm overflow-hidden">
+                  {activeTab === 's2a' && !s2aIsApplicable && (
+                    <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs leading-relaxed text-amber-800">
+                      {requiresCnkd && !usesRevenueRateMethod
+                        ? 'S2a-HKD chỉ áp dụng cho phương pháp tính thuế theo tỷ lệ % trên doanh thu. Cấu hình hiện tại là tính thuế trên thu nhập; số liệu bên dưới chỉ dùng để tham khảo.'
+                        : 'Doanh thu năm hiện chưa vượt 1 tỷ đồng nên S1a-HKD đang là sổ áp dụng. S2a-HKD được mở để theo dõi và chuẩn bị trước; số thuế bên dưới là số ước tính theo ngành nghề đã cấu hình.'}
+                    </div>
+                  )}
+                  {activeTab === 's1a' && !s1aIsApplicable && (
+                    <div className="border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs leading-relaxed text-slate-600">
+                      Doanh thu năm đã vượt 1 tỷ đồng nên S1a-HKD chỉ còn hiển thị để đối chiếu; hãy sử dụng sổ phù hợp với phương pháp tính thuế hiện tại.
+                    </div>
+                  )}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
                     <div>
                       <h3 className="text-sm font-semibold text-slate-700">
-                        Sổ doanh thu bán hàng hóa, dịch vụ ({filteredInvoices.length} nghiệp vụ)
+                        Sổ doanh thu bán hàng hóa, dịch vụ – Mẫu {activeTab === 's2a' ? 'S2a' : 'S1a'}-HKD ({filteredInvoices.length} nghiệp vụ)
                       </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">Mẫu số S1a-HKD - Theo Thông tư số 152/2025/TT-BTC</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Mẫu số {activeTab === 's2a' ? 'S2a' : 'S1a'}-HKD - Theo Thông tư số 152/2025/TT-BTC
+                      </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <div className="relative">
@@ -428,7 +536,9 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                         </svg>
                       </div>
                       <div className="text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full font-medium shrink-0">
-                        Dành cho hộ miễn thuế
+                        {activeTab === 's2a'
+                          ? `${selectedIndustryConfig.shortName} · GTGT ${selectedIndustryConfig.vatRate * 100}% · TNCN ${selectedIndustryConfig.pitRate * 100}%`
+                          : 'Dành cho hộ miễn thuế'}
                       </div>
                     </div>
                   </div>
@@ -457,7 +567,9 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                                 {cleanOrderNo(inv.order_no, inv.order_id)}
                               </td>
                               <td className="px-5 py-3 text-slate-600">
-                                Doanh thu bán lẻ theo đơn số {cleanOrderNo(inv.order_no, inv.order_id)}
+                                {inv.total < 0
+                                  ? `Điều chỉnh giảm doanh thu theo phiếu trả ${cleanOrderNo(inv.order_no, inv.order_id)}`
+                                  : `Doanh thu bán lẻ theo đơn số ${cleanOrderNo(inv.order_no, inv.order_id)}`}
                                 {inv.customer_name ? ` - Khách hàng: ${inv.customer_name}` : ''}
                               </td>
                               <td className="px-5 py-3 text-right font-medium text-slate-800">{fmtVND(inv.total)}</td>
@@ -467,8 +579,26 @@ export function TaxClient({ shopId, hasAccess }: Props) {
                         <tfoot>
                           <tr className="bg-slate-50/70 font-semibold border-t border-slate-100 text-slate-700">
                             <td colSpan={4} className="px-5 py-3 text-right">Tổng cộng doanh thu ghi sổ</td>
-                            <td className="px-5 py-3 text-right text-indigo-600 text-base">{fmtVND(filteredTotal)}</td>
+                            <td className="px-5 py-3 text-right text-indigo-600 text-base">
+                              {fmtVND(activeTab === 's2a' ? data.totalRevenue : filteredTotal)}
+                            </td>
                           </tr>
+                          {activeTab === 's2a' && (
+                            <>
+                              <tr className="bg-blue-50/50 text-slate-700">
+                                <td colSpan={4} className="px-5 py-2 text-right">
+                                  Thuế GTGT ({selectedIndustryConfig.vatRate * 100}%)
+                                </td>
+                                <td className="px-5 py-2 text-right font-medium text-blue-700">{fmtVND(s2aVatTax)}</td>
+                              </tr>
+                              <tr className="bg-blue-50/50 text-slate-700">
+                                <td colSpan={4} className="px-5 py-2 text-right">
+                                  Thuế TNCN ({selectedIndustryConfig.pitRate * 100}%)
+                                </td>
+                                <td className="px-5 py-2 text-right font-medium text-blue-700">{fmtVND(s2aPitTax)}</td>
+                              </tr>
+                            </>
+                          )}
                         </tfoot>
                       </table>
                     </div>
