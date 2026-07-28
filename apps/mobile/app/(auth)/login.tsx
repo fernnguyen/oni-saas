@@ -754,7 +754,7 @@ export default function LoginScreen() {
     backgroundColor: '#ffffff', 
     paddingHorizontal: 14, 
     height: 52, 
-    marginBottom: 20 
+    marginBottom: 15 
   }}>
     <Ionicons name="lock-closed-outline" size={16} color="#94a3b8" />
     <TextInput
@@ -828,7 +828,7 @@ export default function LoginScreen() {
  </View>
 
  {/* ── SOCIAL LOGIN SECTION ─────────────────────────────────── */}
- <View style={{marginTop: 4, marginBottom: 8}}>
+ <View style={{marginTop: 1, marginBottom: 8}}>
    {/* Divider "hoặc" */}
    <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 20}}>
      <View style={{flex: 1, height: 1, backgroundColor: '#e2e8f0'}} />
@@ -931,11 +931,27 @@ export default function LoginScreen() {
  </View>
 
   {/* 3. CHÂN TRANG FOOTER */}
-  <View style={{alignItems: 'center', marginBottom: 20, paddingHorizontal: 24}}>
-    {/* Chú thích tính chất ứng dụng nội bộ */}
-    <Text style={{fontSize: 12, color: '#94a3b8', textAlign: 'center', lineHeight: 18, marginBottom: 12, fontStyle: 'italic'}}>
-      Lưu ý: Đây là ứng dụng nội bộ B2B. Nếu chưa có tài khoản, vui lòng liên hệ Quản lý cửa hàng hoặc Quản trị viên (Admin) doanh nghiệp của bạn.
-    </Text>
+  <View style={{alignItems: 'center', marginBottom: 20, paddingHorizontal: 0}}>
+    {/* Hướng dẫn chọn phương thức đăng nhập */}
+    <View style={{
+      width: '100%',
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      backgroundColor: '#edf9ffff',
+      borderWidth: 1,
+      borderColor: '#b6e2eb',
+      borderRadius: 14,
+      padding: 10,
+      marginBottom: 5,
+    }}>
+     
+      <View style={{flex: 1}}>
+        
+        <Text selectable style={{fontSize: 13, color: '#1e3e4f', lineHeight: 18}}>
+          Sử dụng tài khoản đã được cấp hoặc đăng nhập bằng tài khoản mạng xã hội để <Text style={{fontWeight: 'bold'}}>quản lý</Text> hoặc <Text style={{fontWeight: 'bold'}}>tạo gian hàng mới</Text>.
+        </Text>
+      </View>
+    </View>
 
     {/* Nút Cần hỗ trợ? */}
     <TouchableOpacity 
@@ -953,7 +969,7 @@ export default function LoginScreen() {
         borderRadius: 20,
         borderWidth: 1,
         borderColor: '#dbeafe',
-        marginTop: 4
+        marginTop: 10
       }}
     >
       <Ionicons name="help-circle-outline" size={16} color="#1e40af" style={{ marginRight: 6 }} />
