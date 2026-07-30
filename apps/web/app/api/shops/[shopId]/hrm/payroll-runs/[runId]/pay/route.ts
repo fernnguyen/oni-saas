@@ -57,7 +57,6 @@ export async function POST(
     const result = await access.repository.payPayrollRun({
       runId,
       postingId: `HRMPST-${crypto.randomUUID()}`,
-      cashbookTransactionId: `CB-HRM-${crypto.randomUUID()}`,
       fundId: input.fund_id,
       expectedVersion: input.expected_version,
       actorUserId: access.userId,

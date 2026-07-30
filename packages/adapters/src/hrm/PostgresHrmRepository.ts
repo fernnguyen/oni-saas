@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 
 export interface HrmRepositoryScope {
@@ -497,7 +498,6 @@ export interface HrmPaymentFund {
 export interface PayPayrollRunInput {
   runId: string;
   postingId: string;
-  cashbookTransactionId: string;
   fundId: string;
   expectedVersion: number;
   actorUserId: string;
@@ -534,6 +534,34 @@ export class PostgresHrmRepository {
 
   getScope(): Readonly<HrmRepositoryScope> {
     return { ...this.scope };
+  }
+
+  /**
+   * Generate a human-readable cashbook transaction ID in the format:
+   *   CB-{TENANT_HASH_8}-{SEQUENCE_5}
+   * e.g. CB-E007393D-00042
+   *
+   * TENANT_HASH_8: first 8 hex chars of SHA-256(tenantId), uppercased.
+   * SEQUENCE_5:    count of existing cashbook rows for this tenant+branch + 1,
+   *                zero-padded to 5 digits (up to 99999 before overflow).
+   *
+   * Must be called inside the same transaction that inserts the cashbook row
+   * to avoid race conditions — caller should pass the PoolClient.
+   */
+  private async generateCashbookId(client: PoolClient): Promise<string> {
+    const tenantHash = createHash('sha256')
+      .update(this.scope.tenantId)
+      .digest('hex')
+      .slice(0, 8)
+      .toUpperCase();
+
+    const countResult = await client.query<{ n: string }>(
+      `select count(*)::text as n from cashbook where tenant_id = $1 and branch_id = $2`,
+      [this.scope.tenantId, this.scope.branchId],
+    );
+    const sequence = Number(countResult.rows[0]?.n ?? '0') + 1;
+    const seq = String(sequence).padStart(5, '0');
+    return `CB-${tenantHash}-${seq}`;
   }
 
   async listEmployees(input: {
@@ -3016,7 +3044,10 @@ export class PostgresHrmRepository {
       const now = new Date();
       const balanceAfterStr = String(newBalance);
 
-      // ── 5. Create cashbook transaction (consolidated salary payment) ────────
+      // ── 5. Generate structured cashbook ID (CB-TENANTHASH-SEQUENCE) ──────────
+      const cashbookTransactionId = await this.generateCashbookId(client);
+
+      // ── 6. Create cashbook transaction (consolidated salary payment) ──────────
       // No per-employee breakdown to avoid exposing payroll details in cashbook.
       await client.query(
         `
@@ -3031,7 +3062,7 @@ export class PostgresHrmRepository {
           )
         `,
         [
-          input.cashbookTransactionId,
+          cashbookTransactionId,
           tenantId,
           branchId,
           String(totalNet),
@@ -3075,7 +3106,7 @@ export class PostgresHrmRepository {
             tenantId,
             branchId,
             input.runId,
-            input.cashbookTransactionId,
+            cashbookTransactionId,
             input.fundId,
             String(totalNet),
             input.actorUserId,
@@ -3170,7 +3201,7 @@ export class PostgresHrmRepository {
           input.runId,
           JSON.stringify({
             postingId,
-            cashbookTransactionId: input.cashbookTransactionId,
+            cashbookTransactionId,
             fundId: input.fundId,
             amount: totalNet,
           }),
@@ -3187,7 +3218,7 @@ export class PostgresHrmRepository {
         payrollRun: run,
         posting: {
           id: postingId,
-          cashbookTransactionId: input.cashbookTransactionId,
+          cashbookTransactionId: cashbookTransactionId,
           fundId: input.fundId,
           amount: totalNet,
           postedAt: now.toISOString(),

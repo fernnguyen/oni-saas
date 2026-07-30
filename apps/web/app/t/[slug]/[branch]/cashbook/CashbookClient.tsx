@@ -568,6 +568,7 @@ export function CashbookClient({ shopId, shopName, permissions, planCode }: Prop
     debt_payment: 'Trả nợ',
     import: 'Nhập hàng',
     salary: 'Lương nhân viên',
+    salary_payment: 'Chi lương',
     utilities: 'Điện nước/Mặt bằng',
     other: 'Khác',
     refund: 'Hoàn tiền',

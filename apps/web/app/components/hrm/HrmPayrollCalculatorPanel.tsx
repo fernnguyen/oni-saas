@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Clock3,
   Download,
+  FileText,
   Pencil,
   RefreshCw,
   WalletCards,
@@ -198,6 +199,13 @@ function runStatusLabel(status: PayrollRunSummary['status']): string {
   if (status === 'draft') return 'Bản nháp';
   if (status === 'finalized') return 'Đã chốt';
   return 'Đã thanh toán';
+}
+
+/** Format a YYYY-MM string to Vietnamese "Tháng 7/2026" */
+function monthLabel(ym: string): string {
+  const [year, month] = ym.split('-');
+  if (!year || !month) return ym;
+  return `Tháng ${Number(month)}/${year}`;
 }
 
 export function HrmPayrollCalculatorPanel({
@@ -572,9 +580,19 @@ export function HrmPayrollCalculatorPanel({
   async function confirmFinalize() {
     const run = detailQuery.data?.data;
     if (!run) return;
+
+    // Warn if finalizing before month end
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const periodEnd = new Date(run.periodEnd + 'T00:00:00');
+    const isEarlyFinalize = today < periodEnd;
+    const earlyNote = isEarlyFinalize
+      ? ` ⚠️ Lưu ý: Hôm nay chưa phải cuối kỳ (${run.periodEnd}). Chốt sớm có thể chưa phản ánh đủ công cán.`
+      : '';
+
     const accepted = await confirm({
       title: 'Chốt kỳ lương?',
-      description: `${run.items.length} nhân viên · tổng thực nhận ${currency(run.totalNet)}. Sau khi chốt, kỳ lương trở thành snapshot và không thể tính lại hoặc sửa khoản cộng/trừ.`,
+      description: `${run.items.length} nhân viên · tổng thực nhận ${currency(run.totalNet)}. Sau khi chốt, kỳ lương trở thành snapshot và không thể tính lại hoặc sửa khoản cộng/trừ.${earlyNote}`,
       confirmLabel: 'Chốt kỳ lương',
       variant: 'danger',
     });
@@ -729,19 +747,35 @@ export function HrmPayrollCalculatorPanel({
     {
       key: 'actions',
       label: '',
-      render: (row) =>
-        run?.status === 'draft' && runsQuery.data?.canManage ? (
-          <button
-            type="button"
-            onClick={() => openAdjustment(row)}
-            className="rounded-lg p-2 text-primary hover:bg-primary/5"
-            aria-label={`Điều chỉnh lương ${row.employeeName}`}
-          >
-            <Pencil className="h-4 w-4" aria-hidden="true" />
-          </button>
-        ) : null,
+      render: (row) => (
+        <div className="flex items-center gap-1">
+          {run?.status === 'draft' && runsQuery.data?.canManage && (
+            <button
+              type="button"
+              onClick={() => openAdjustment(row)}
+              className="rounded-lg p-2 text-primary hover:bg-primary/5"
+              aria-label={`Điều chỉnh lương ${row.employeeName}`}
+            >
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+          {(run?.status === 'finalized' || run?.status === 'paid') && (
+            <a
+              href={`/api/shops/${encodeURIComponent(shopId)}/hrm/payroll-runs/${encodeURIComponent(run.id)}/payslip/${encodeURIComponent(row.id)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-50 hover:text-primary"
+              aria-label={`Xem phiếu lương ${row.employeeName}`}
+              title="Xem phiếu lương"
+            >
+              <FileText className="h-4 w-4" aria-hidden="true" />
+            </a>
+          )}
+        </div>
+      ),
     },
   ];
+
 
   const loading =
     salaryLoading || attendanceQuery.isLoading || runsQuery.isLoading;
@@ -749,7 +783,7 @@ export function HrmPayrollCalculatorPanel({
   const displayedReady = run?.items.length ?? previewTotals.ready;
 
   return (
-    <div>
+    <div className="relative">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -764,15 +798,20 @@ export function HrmPayrollCalculatorPanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="month"
-            aria-label="Tháng tính lương"
-            value={month}
-            onChange={(event) => {
-              if (event.target.value) onMonthChange(event.target.value);
-            }}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-          />
+          <div className="relative">
+            <input
+              type="month"
+              aria-label="Tháng tính lương"
+              value={month}
+              onChange={(event) => {
+                if (event.target.value) onMonthChange(event.target.value);
+              }}
+              className="absolute inset-0 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm opacity-0"
+            />
+            <div className="pointer-events-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">
+              {monthLabel(month)}
+            </div>
+          </div>
           {run && (
             <a
               href={`/api/shops/${encodeURIComponent(shopId)}/hrm/payroll-runs/${encodeURIComponent(run.id)}/export`}
@@ -820,6 +859,18 @@ export function HrmPayrollCalculatorPanel({
           )}
         </div>
       </div>
+
+      {calculateMutation.isPending && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3">
+            <svg className="h-8 w-8 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <p className="text-sm font-medium text-slate-600">Đang tính lương...</p>
+          </div>
+        </div>
+      )}
 
       <div className="my-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-primary/10 bg-primary/[0.04] p-3">

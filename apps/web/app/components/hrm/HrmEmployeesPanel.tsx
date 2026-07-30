@@ -163,7 +163,10 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
                   auth_user_id: linkedUserId || null,
                   custom_data: customData,
                 }
-              : formData,
+              : {
+                  ...formData,
+                  custom_data: customData,
+                },
           ),
         },
       );
@@ -477,7 +480,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
             )}
           </div>
 
-          {editingId && (customFieldsQuery.data?.data.length ?? 0) > 0 && (
+          {(customFieldsQuery.data?.data.length ?? 0) > 0 && (
             <div className="space-y-4 border-t border-slate-100 pt-4">
               <h3 className="text-sm font-semibold text-slate-900">
                 Thông tin tùy chỉnh
