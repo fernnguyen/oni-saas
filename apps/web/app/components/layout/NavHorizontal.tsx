@@ -8,6 +8,10 @@ import type { NavGroup } from './nav';
 import type { NavGroupPref } from './useNavPreference';
 import { applyGroupPrefs } from './useNavPreference';
 import { PlanBadge } from './PlanBadge';
+import {
+  canManageSubscription,
+  requestPlanUpgrade,
+} from '@/lib/subscriptions/upgradeAccess';
 
 interface NavHorizontalProps {
   navGroups: NavGroup[];
@@ -41,6 +45,7 @@ export function NavHorizontal({
   const [overflowStart, setOverflowStart] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const canUpgrade = canManageSubscription(permissions);
 
   // Ensure unlabelled group (Tổng quan) is always first, then apply prefs to the rest
   const unlabelledGroups = navGroups.filter((g) => !g.label);
@@ -110,14 +115,19 @@ export function NavHorizontal({
           </div>
         )}
         {group.items.map((item) => {
-          const active = isActive(item.href, item.exact);
+          const isLocked = item.locked === true;
+          const active = !isLocked && isActive(item.href, item.exact);
           const isProOnlyDisabled = item.proOnly && planCode === 'plan_mini';
+          const isDisabled = isLocked || isProOnlyDisabled;
           return (
             <Link
               key={item.href}
               href={isProOnlyDisabled ? '#plan-modal' : item.href}
               onClick={(e) => {
-                if (item.href === '#plan-modal' || isProOnlyDisabled) {
+                if (isLocked && canUpgrade) {
+                  e.preventDefault();
+                  requestPlanUpgrade(item.upgradeFeature ?? 'hrm');
+                } else if (item.href === '#plan-modal' || isProOnlyDisabled) {
                   e.preventDefault();
                   window.dispatchEvent(new CustomEvent('open-plan-modal'));
                 }
@@ -126,16 +136,17 @@ export function NavHorizontal({
               className={`flex items-center gap-2.5 px-3 py-2 text-sm transition-colors rounded-md mx-1 ${
                 active
                   ? 'bg-primary/10 text-primary font-medium'
-                  : isProOnlyDisabled
+                  : isDisabled
                   ? 'text-slate-400'
                   : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
               }`}
+              aria-label={isLocked ? `${item.label} — cần bật module` : item.label}
             >
-              <item.icon className={`h-4 w-4 shrink-0 ${active ? 'text-primary' : 'text-slate-400'}`} />
-              <span className={`flex-1 ${isProOnlyDisabled ? 'line-through decoration-slate-300 opacity-70' : ''}`}>
+              <item.icon className={`h-4 w-4 shrink-0 ${active ? 'text-primary' : 'text-slate-400'} ${isDisabled ? 'opacity-60' : ''}`} />
+              <span className={`flex-1 ${isLocked ? 'opacity-80' : isProOnlyDisabled ? 'line-through decoration-slate-300 opacity-70' : ''}`}>
                 {item.label}
               </span>
-              {isProOnlyDisabled && (
+              {isDisabled && (
                 <svg className="h-3.5 w-3.5 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
@@ -317,9 +328,7 @@ export function NavHorizontal({
                 periodStart={periodStart}
                 periodEnd={periodEnd}
                 canUpgrade={
-                  permissions.includes('settings.manage') ||
-                  permissions.includes('org.manage') ||
-                  permissions.includes('billing.manage')
+                  canUpgrade
                 }
                 inline
                 iconOnly

@@ -12,6 +12,7 @@ import { GlobalSearch } from './GlobalSearch';
 import { AskAIPanel } from './AskAIPanel';
 import { getVerticalConfig } from '@oni/core';
 import { NotificationDropdown } from '../notifications/NotificationDropdown';
+import { canManageSubscription } from '@/lib/subscriptions/upgradeAccess';
 
 interface TopbarProps {
   tenantId?: string;
@@ -225,7 +226,7 @@ export function Topbar({
                 planName={planName}
                 periodStart={periodStart}
                 periodEnd={periodEnd}
-                canUpgrade={permissions.includes('settings.manage') || permissions.includes('org.manage') || permissions.includes('billing.manage')}
+                canUpgrade={canManageSubscription(permissions)}
               />
             </div>
           )}
@@ -336,5 +337,4 @@ export function Topbar({
     </>
   );
 }
-
 

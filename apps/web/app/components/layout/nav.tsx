@@ -46,7 +46,8 @@ import {
   BedDouble,
   Megaphone,
   Smartphone,
-  AlertTriangle
+  AlertTriangle,
+  UserRoundCog,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -64,6 +65,10 @@ export interface NavItem {
   hidden?: boolean;
   /** Flag for Pro-only features. If true and user is on Mini, it will be disabled */
   proOnly?: boolean;
+  /** Module is visible but cannot be opened until its tenant entitlement is enabled. */
+  locked?: boolean;
+  /** Feature context sent to the existing plan upgrade modal. */
+  upgradeFeature?: string;
 }
 
 export interface NavGroup {
@@ -89,6 +94,8 @@ interface BuildNavOptions {
   hasP2pAccess?: boolean;
   /** The tenant's current plan code */
   planCode?: string;
+  /** Whether the tenant can use the standalone HRM module. */
+  hrmEnabled?: boolean;
 }
 
 // Backward compatibility exports & aliases for safety across the monorepo
@@ -258,6 +265,18 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       items: [
         { href: joinPath(base, '/cashbook'),           label: 'Sổ quỹ',       icon: Wallet,  permission: 'cashbook.view' },
         { href: joinPath(base, '/debt'),       label: 'Công nợ',          icon: Scale,     permission: 'debt.view' },
+      ],
+    },
+    {
+      label: 'Nhân sự',
+      items: [
+        {
+          href: joinPath(base, '/hrm'),
+          label: 'Quản lý nhân sự',
+          icon: UserRoundCog,
+          locked: options.hrmEnabled !== true,
+          upgradeFeature: 'hrm',
+        },
       ],
     },
     {

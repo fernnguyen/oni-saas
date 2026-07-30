@@ -12,6 +12,7 @@ supabase/.temp
 .codex
 .pnpm-store
 scratch/
+tests/
 tests/*
 !tests/hrm/
 !tests/hrm/**

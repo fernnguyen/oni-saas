@@ -164,6 +164,10 @@ function getPlanFeaturesList(meta: Record<string, any>, code: string): string[] 
     features.push('Onboarding & Đào tạo chuyên biệt 1-1');
   }
 
+  if (meta.hrm === true) {
+    features.push('HRM: chấm công & tính lương cơ bản');
+  }
+
   return features;
 }
 

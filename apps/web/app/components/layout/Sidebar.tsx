@@ -7,6 +7,10 @@ import { usePathname } from 'next/navigation';
 import { buildNavGroups, IconHelp } from './nav';
 import { PlanBadge } from './PlanBadge';
 import { LayoutPanelTop, Settings2 } from 'lucide-react';
+import {
+  canManageSubscription,
+  requestPlanUpgrade,
+} from '@/lib/subscriptions/upgradeAccess';
 
 interface SidebarProps {
   basePath?: string;
@@ -36,6 +40,7 @@ interface SidebarProps {
   periodEnd?: string;
   hidePlanBadge?: boolean;
   hasP2pAccess?: boolean;
+  hrmEnabled?: boolean;
   /** Callback to toggle between vertical/horizontal nav mode */
   onToggleMode?: () => void;
   /** Callback to open nav sort/customize modal */
@@ -100,12 +105,14 @@ function SidebarContent({
   periodEnd,
   hidePlanBadge,
   hasP2pAccess,
+  hrmEnabled,
   onToggleCollapsed,
   onClose,
   onToggleMode,
   onOpenSort,
 }: {
   hasP2pAccess?: boolean;
+  hrmEnabled?: boolean;
   collapsed: boolean;
   basePath: string;
   supportHref: string;
@@ -135,9 +142,10 @@ function SidebarContent({
 }) {
   const pathname = usePathname();
   const navGroups = buildNavGroups(
-    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, context, industryType, hasP2pAccess, planCode },
+    { basePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, context, industryType, hasP2pAccess, planCode, hrmEnabled },
     permissions,
   );
+  const canUpgrade = canManageSubscription(permissions);
 
   const [collapsedGroups, setCollapsedGroups] = useState<Record<number, boolean>>({});
 
@@ -219,13 +227,28 @@ function SidebarContent({
               }`}
             >
               {group.items.map((item) => {
-                const active = isActive(item.href, item.exact);
+                const isLocked = item.locked === true;
+                const active = !isLocked && isActive(item.href, item.exact);
                 const isHighlight = item.highlight;
                 const isProOnlyDisabled = item.proOnly && planCode === 'plan_mini';
+                const isDisabled = isLocked || isProOnlyDisabled;
                 const linkEl = (
                   <Link
                     href={isProOnlyDisabled ? '#plan-modal' : item.href}
                     onClick={(e) => {
+                      if (isLocked && canUpgrade) {
+                        e.preventDefault();
+                        const openUpgrade = () =>
+                          requestPlanUpgrade(item.upgradeFeature ?? 'hrm');
+
+                        if (onClose) {
+                          onClose();
+                          window.setTimeout(openUpgrade, 0);
+                        } else {
+                          openUpgrade();
+                        }
+                        return;
+                      }
                       if (item.href === '#plan-modal' || isProOnlyDisabled) {
                         e.preventDefault();
                         window.dispatchEvent(new CustomEvent('open-plan-modal'));
@@ -241,10 +264,11 @@ function SidebarContent({
                         ? 'bg-primary text-white font-medium shadow-sm'
                         : isHighlight
                           ? 'bg-gradient-to-r from-orange-50 to-orange-50/20 text-orange-600 hover:from-orange-100 hover:to-orange-50/50 font-medium border border-orange-100'
-                          : isProOnlyDisabled
+                          : isDisabled
                             ? 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
                             : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }`}
+                    aria-label={isLocked ? `${item.label} — cần bật module` : item.label}
                   >
                     {isHighlight && (
                       <>
@@ -252,9 +276,9 @@ function SidebarContent({
                         <div className={`absolute left-[85%] top-0 h-10 w-10 rounded-full blur-[1px] transition-colors ${active ? 'bg-white/20' : 'bg-orange-500/5'}`} />
                       </>
                     )}
-                    <item.icon className={`h-4 w-4 shrink-0 relative z-10 ${isHighlight && !active ? 'text-orange-500' : ''} ${isProOnlyDisabled ? 'opacity-50' : ''}`} />
-                    {!collapsed && <span className={`relative z-10 flex-1 truncate ${isProOnlyDisabled ? 'opacity-70 line-through decoration-slate-300' : ''}`}>{item.label}</span>}
-                    {!collapsed && isProOnlyDisabled && (
+                    <item.icon className={`h-4 w-4 shrink-0 relative z-10 ${isHighlight && !active ? 'text-orange-500' : ''} ${isDisabled ? 'opacity-50' : ''}`} />
+                    {!collapsed && <span className={`relative z-10 flex-1 truncate ${isLocked ? 'opacity-80' : isProOnlyDisabled ? 'opacity-70 line-through decoration-slate-300' : ''}`}>{item.label}</span>}
+                    {!collapsed && isDisabled && (
                       <svg className="h-3.5 w-3.5 text-amber-500 shrink-0 relative z-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                       </svg>
@@ -263,7 +287,7 @@ function SidebarContent({
                 );
 
                 return collapsed ? (
-                  <NavTooltip key={item.href} label={item.label}>
+                  <NavTooltip key={item.href} label={isLocked ? `${item.label} — cần bật module HRM` : item.label}>
                     {linkEl}
                   </NavTooltip>
                 ) : (
@@ -310,7 +334,7 @@ function SidebarContent({
             planName={planName}
             periodStart={periodStart}
             periodEnd={periodEnd}
-            canUpgrade={permissions.includes('settings.manage') || permissions.includes('org.manage') || permissions.includes('billing.manage')}
+            canUpgrade={canUpgrade}
             collapsed={collapsed}
           />
         )}
@@ -354,6 +378,7 @@ export function Sidebar({
   hidePlanBadge,
   collapsed = false,
   hasP2pAccess,
+  hrmEnabled,
   onToggleMode,
   onOpenSort,
   mobileOnly = false,
@@ -381,6 +406,7 @@ export function Sidebar({
     periodEnd,
     hidePlanBadge,
     hasP2pAccess,
+    hrmEnabled,
     onToggleMode,
     onOpenSort,
   };

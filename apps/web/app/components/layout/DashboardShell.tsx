@@ -43,6 +43,7 @@ interface DashboardShellProps {
   /** Industry type of the tenant for vertical-aware nav filtering */
   industryType?: string;
   hasP2pAccess?: boolean;
+  hrmEnabled?: boolean;
   systemSettings?: any;
 }
 
@@ -75,6 +76,7 @@ export function DashboardShell({
   hidePlanBadge,
   industryType,
   hasP2pAccess,
+  hrmEnabled,
   systemSettings,
 }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -115,9 +117,10 @@ export function DashboardShell({
       industryType,
       hasP2pAccess,
       planCode,
+      hrmEnabled,
     },
     permissions,
-  ), [effectiveBasePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, sidebarContext, industryType, hasP2pAccess, planCode, permissions]);
+  ), [effectiveBasePath, supportHref, tenantHref, connectorsHref, settingsHref, tenantBillingHref, tenantSettingsHref, tenantTeamHref, tenantRolesHref, sidebarContext, industryType, hasP2pAccess, planCode, hrmEnabled, permissions]);
 
   // Extract group labels for preference hook (exclude unlabelled groups)
   const groupLabels = useMemo(
@@ -240,6 +243,7 @@ export function DashboardShell({
                 onMobileClose={() => setMobileNavOpen(false)}
                 collapsed={collapsed}
                 hasP2pAccess={hasP2pAccess}
+                hrmEnabled={hrmEnabled}
                 onToggleMode={sidebarContext === 'shop' ? toggleMode : undefined}
                 onOpenSort={sidebarContext === 'shop' ? () => setSortModalOpen(true) : undefined}
               />
@@ -273,6 +277,7 @@ export function DashboardShell({
                 onMobileClose={() => setMobileNavOpen(false)}
                 collapsed={false}
                 hasP2pAccess={hasP2pAccess}
+                hrmEnabled={hrmEnabled}
                 mobileOnly
               />
             )}

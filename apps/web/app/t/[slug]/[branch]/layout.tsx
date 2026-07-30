@@ -6,9 +6,13 @@ import { DashboardShell } from '@/app/components/layout/DashboardShell';
 import type { Metadata } from 'next';
 import { checkFeatureAccess } from '@/lib/server/features';
 import { getSystemSettings } from '@/lib/server/settings';
-import { NotificationProvider } from '@/app/components/notifications/NotificationContext';
-import QRNotificationCenter from './channels/pos/components/QRNotificationCenter';
-import { ShiftProvider } from '@/app/components/providers/ShiftProvider';
+import { getHrmEntitlement } from '@/lib/server/hrm/entitlement';
+import { canManageSubscription } from '@/lib/subscriptions/upgradeAccess';
+import { HrmModuleAccessProvider } from '@/app/components/hrm/HrmModuleAccess';
+import {
+  BranchOperationalBoundary,
+  BranchShiftBoundary,
+} from './BranchDataPlaneBoundary';
 
 interface Props {
   params: Promise<{ slug: string; branch: string }>;
@@ -157,52 +161,68 @@ export default async function BranchLayout({ params, children }: Props) {
     '';
 
   const hasP2pAccess = await checkFeatureAccess(tenant.id, 'warehouse_p2p');
+  const hrmEnabled = await getHrmEntitlement(tenant.id)
+    .then((entitlement) => entitlement.enabled)
+    .catch((error) => {
+      console.error(
+        '[BranchLayout] HRM entitlement lookup failed; module remains disabled.',
+        error instanceof Error ? error.message : 'unknown error',
+      );
+      return false;
+    });
   const systemSettings = await getSystemSettings();
 
   return (
-    <NotificationProvider shopId={shop.id} tenantId={tenant.id}>
-      <DashboardShell
-        tenantId={tenant.id}
-        hasP2pAccess={hasP2pAccess}
-        systemSettings={systemSettings}
-        tenantName={tenant.name}
-        shopName={shop.name}
-        userEmail={authData.user.email}
-        displayName={displayName || undefined}
-        roleName={roleName || undefined}
-        sidebarBasePath={homePath}
-        tenantHref={`${controlPlaneOrigin}/dashboard/tenants`}
-        connectorsHref={`${homePath}/connectors`}
-        settingsHref={`${homePath}/settings`}
-        tenantBillingHref={`/billing`}
-        tenantSettingsHref={`/settings`}
-        tenantTeamHref={`/team`}
-        tenantRolesHref={`/roles`}
-        accountHref={`${homePath}/account`}
-        supportHref={`${homePath}/support`}
-        permissions={permissions}
-        planCode={planCode}
-        planName={planName}
-        periodStart={periodStart}
-        periodEnd={periodEnd}
-        currentBranchSlug={branch}
-        currentBranchAddress={shop.address}
-        industryType={shop?.industry_type ?? tenant.industry_type}
-      >
-        <ShiftProvider
-          shopId={shop.id}
-          branchId={shop.id}
-          userEmail={authData.user.email || ''}
-          permissions={permissions}
-        >
-          {children}
-        </ShiftProvider>
-      </DashboardShell>
-      <QRNotificationCenter
+    <HrmModuleAccessProvider
+      enabled={hrmEnabled}
+      canUpgrade={canManageSubscription(permissions)}
+    >
+      <BranchOperationalBoundary
         shopId={shop.id}
+        tenantId={tenant.id}
         branchId={shop.id}
-        isGlobalDrawer={true}
-      />
-    </NotificationProvider>
+        hrmEnabled={hrmEnabled}
+      >
+        <DashboardShell
+          tenantId={tenant.id}
+          hasP2pAccess={hasP2pAccess}
+          hrmEnabled={hrmEnabled}
+          systemSettings={systemSettings}
+          tenantName={tenant.name}
+          shopName={shop.name}
+          userEmail={authData.user.email}
+          displayName={displayName || undefined}
+          roleName={roleName || undefined}
+          sidebarBasePath={homePath}
+          tenantHref={`${controlPlaneOrigin}/dashboard/tenants`}
+          connectorsHref={`${homePath}/connectors`}
+          settingsHref={`${homePath}/settings`}
+          tenantBillingHref={`/billing`}
+          tenantSettingsHref={`/settings`}
+          tenantTeamHref={`/team`}
+          tenantRolesHref={`/roles`}
+          accountHref={`${homePath}/account`}
+          supportHref={`${homePath}/support`}
+          permissions={permissions}
+          planCode={planCode}
+          planName={planName}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+          currentBranchSlug={branch}
+          currentBranchAddress={shop.address}
+          industryType={shop?.industry_type ?? tenant.industry_type}
+        >
+          <BranchShiftBoundary
+            shopId={shop.id}
+            branchId={shop.id}
+            userEmail={authData.user.email || ''}
+            permissions={permissions}
+            hrmEnabled={hrmEnabled}
+          >
+            {children}
+          </BranchShiftBoundary>
+        </DashboardShell>
+      </BranchOperationalBoundary>
+    </HrmModuleAccessProvider>
   );
 }
