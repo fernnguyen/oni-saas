@@ -148,6 +148,7 @@ export interface HrmEmployeeSalarySummary {
   profileId: string | null;
   employeeCode: string | null;
   employeeName: string;
+  departmentId: string | null;
   departmentName: string | null;
   bankName: string | null;
   bankAccountMasked: string | null;
@@ -217,6 +218,126 @@ export interface AssignHrmSalaryPolicyInput {
   salaryMode: 'custom' | 'group';
   salaryGroupId: string | null;
   actorUserId: string;
+}
+
+export type HrmPayrollRunStatus = 'draft' | 'finalized' | 'paid';
+
+export interface HrmPayrollMoneyItem {
+  label: string;
+  amount: number;
+}
+
+export interface HrmPayrollStoredBreakdown {
+  calculationInput: {
+    salaryType: 'monthly' | 'daily' | 'hourly';
+    baseAmount: number;
+    standardWorkDays: number | null;
+    standardWorkHoursMilli: number | null;
+    paidWorkDaysMilli: number;
+    workedMinutes: number;
+    overtimeMinutes: number;
+    overtimeMultiplierBasisPoints: number;
+    recurringAllowances: HrmPayrollMoneyItem[];
+  };
+  adjustments: {
+    additionalAllowances: HrmPayrollMoneyItem[];
+    bonuses: HrmPayrollMoneyItem[];
+    commissions: HrmPayrollMoneyItem[];
+    deductions: HrmPayrollMoneyItem[];
+  };
+  lines: Array<{ code: string; label: string; amount: number }>;
+}
+
+export interface HrmPayrollItem {
+  id: string;
+  profileId: string;
+  employeeName: string;
+  employeeCode: string | null;
+  departmentId: string | null;
+  salaryType: 'monthly' | 'daily' | 'hourly';
+  baseAmount: number;
+  workUnits: number;
+  regularPay: number;
+  overtimePay: number;
+  allowanceTotal: number;
+  bonusTotal: number;
+  commissionTotal: number;
+  deductionTotal: number;
+  netPay: number;
+  breakdown: HrmPayrollStoredBreakdown;
+  manualNote: string | null;
+  updatedBy: string | null;
+  updatedAt: string;
+}
+
+export interface HrmPayrollRun {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  status: HrmPayrollRunStatus;
+  standardWorkDays: number;
+  totalGross: number;
+  totalAllowances: number;
+  totalDeductions: number;
+  totalNet: number;
+  version: number;
+  calculatedAt: string | null;
+  finalizedAt: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HrmPayrollRunDetail extends HrmPayrollRun {
+  items: HrmPayrollItem[];
+}
+
+export interface SaveHrmPayrollItemInput {
+  id: string;
+  profileId: string;
+  employeeName: string;
+  employeeCode: string | null;
+  departmentId: string | null;
+  salaryType: 'monthly' | 'daily' | 'hourly';
+  baseAmount: number;
+  workUnits: number;
+  regularPay: number;
+  overtimePay: number;
+  allowanceTotal: number;
+  bonusTotal: number;
+  commissionTotal: number;
+  deductionTotal: number;
+  netPay: number;
+  breakdown: HrmPayrollStoredBreakdown;
+  manualNote: string | null;
+}
+
+export interface SaveHrmPayrollRunDraftInput {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  standardWorkDays: number;
+  expectedVersion: number | null;
+  actorUserId: string;
+  auditId: string;
+  items: SaveHrmPayrollItemInput[];
+}
+
+export interface UpdateHrmPayrollItemInput {
+  runId: string;
+  itemId: string;
+  expectedVersion: number;
+  actorUserId: string;
+  auditId: string;
+  regularPay: number;
+  overtimePay: number;
+  allowanceTotal: number;
+  bonusTotal: number;
+  commissionTotal: number;
+  deductionTotal: number;
+  netPay: number;
+  breakdown: HrmPayrollStoredBreakdown;
+  manualNote: string;
 }
 
 export class HrmAttendanceStateError extends Error {
@@ -300,6 +421,33 @@ export class HrmSalaryGroupNotFoundError extends Error {
   constructor() {
     super('Không tìm thấy nhóm lương đang hoạt động trong chi nhánh hiện tại.');
     this.name = 'HrmSalaryGroupNotFoundError';
+  }
+}
+
+export class HrmPayrollRunNotFoundError extends Error {
+  readonly code = 'HRM_PAYROLL_RUN_NOT_FOUND';
+
+  constructor() {
+    super('Không tìm thấy kỳ lương trong chi nhánh hiện tại.');
+    this.name = 'HrmPayrollRunNotFoundError';
+  }
+}
+
+export class HrmPayrollRunStateError extends Error {
+  readonly code = 'HRM_PAYROLL_INVALID_STATE';
+
+  constructor(message = 'Trạng thái kỳ lương không cho phép thao tác này.') {
+    super(message);
+    this.name = 'HrmPayrollRunStateError';
+  }
+}
+
+export class HrmPayrollVersionConflictError extends Error {
+  readonly code = 'HRM_PAYROLL_VERSION_CONFLICT';
+
+  constructor() {
+    super('Kỳ lương đã được thay đổi. Vui lòng tải lại dữ liệu trước khi tiếp tục.');
+    this.name = 'HrmPayrollVersionConflictError';
   }
 }
 
@@ -1393,6 +1541,7 @@ export class PostgresHrmRepository {
       profile_id: string | null;
       employee_code: string | null;
       employee_name: string | null;
+      department_id: string | null;
       department_name: string | null;
       bank_name: string | null;
       bank_account_last4: string | null;
@@ -1413,6 +1562,7 @@ export class PostgresHrmRepository {
           p.id as profile_id,
           e.employee_code,
           coalesce(e.name, '') as employee_name,
+          p.department_id,
           d.name as department_name,
           p.bank_name,
           p.bank_account_last4,
@@ -1451,6 +1601,7 @@ export class PostgresHrmRepository {
           profileId: row.profile_id,
           employeeCode: row.employee_code,
           employeeName: row.employee_name ?? '',
+          departmentId: row.department_id ?? null,
           departmentName: row.department_name,
           bankName: row.bank_name,
           bankAccountMasked: row.bank_account_last4
@@ -2055,6 +2206,581 @@ export class PostgresHrmRepository {
         ],
       );
     });
+  }
+
+  async listPayrollRuns(): Promise<HrmPayrollRun[]> {
+    const result = await this.pool.query<{
+      id: string;
+      period_start: string;
+      period_end: string;
+      status: HrmPayrollRunStatus;
+      standard_work_days: number;
+      total_gross: string | number | bigint;
+      total_allowances: string | number | bigint;
+      total_deductions: string | number | bigint;
+      total_net: string | number | bigint;
+      version: number;
+      calculated_at: Date | string | null;
+      finalized_at: Date | string | null;
+      paid_at: Date | string | null;
+      created_at: Date | string;
+      updated_at: Date | string;
+    }>(
+      `
+        select id, period_start::text, period_end::text, status,
+          standard_work_days, total_gross, total_allowances,
+          total_deductions, total_net, version, calculated_at,
+          finalized_at, paid_at, created_at, updated_at
+        from hrm_payroll_runs
+        where tenant_id = $1 and branch_id = $2
+        order by period_start desc, created_at desc
+      `,
+      [this.scope.tenantId, this.scope.branchId],
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      periodStart: row.period_start,
+      periodEnd: row.period_end,
+      status: row.status,
+      standardWorkDays: Number(row.standard_work_days),
+      totalGross: Number(row.total_gross),
+      totalAllowances: Number(row.total_allowances),
+      totalDeductions: Number(row.total_deductions),
+      totalNet: Number(row.total_net),
+      version: Number(row.version),
+      calculatedAt: row.calculated_at
+        ? new Date(row.calculated_at).toISOString()
+        : null,
+      finalizedAt: row.finalized_at
+        ? new Date(row.finalized_at).toISOString()
+        : null,
+      paidAt: row.paid_at ? new Date(row.paid_at).toISOString() : null,
+      createdAt: new Date(row.created_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
+    }));
+  }
+
+  async getPayrollRun(runId: string): Promise<HrmPayrollRunDetail | null> {
+    const runResult = await this.pool.query<{
+      id: string;
+      period_start: string;
+      period_end: string;
+      status: HrmPayrollRunStatus;
+      standard_work_days: number;
+      total_gross: string | number | bigint;
+      total_allowances: string | number | bigint;
+      total_deductions: string | number | bigint;
+      total_net: string | number | bigint;
+      version: number;
+      calculated_at: Date | string | null;
+      finalized_at: Date | string | null;
+      paid_at: Date | string | null;
+      created_at: Date | string;
+      updated_at: Date | string;
+    }>(
+      `
+        select id, period_start::text, period_end::text, status,
+          standard_work_days, total_gross, total_allowances,
+          total_deductions, total_net, version, calculated_at,
+          finalized_at, paid_at, created_at, updated_at
+        from hrm_payroll_runs
+        where id = $1 and tenant_id = $2 and branch_id = $3
+        limit 1
+      `,
+      [runId, this.scope.tenantId, this.scope.branchId],
+    );
+    const run = runResult.rows[0];
+    if (!run) return null;
+
+    const itemResult = await this.pool.query<{
+      id: string;
+      profile_id: string;
+      employee_name_snapshot: string;
+      employee_code_snapshot: string | null;
+      department_id_snapshot: string | null;
+      salary_type_snapshot: 'monthly' | 'daily' | 'hourly';
+      base_amount_snapshot: string | number | bigint;
+      work_units: string | number;
+      regular_pay: string | number | bigint;
+      overtime_pay: string | number | bigint;
+      allowance_total: string | number | bigint;
+      bonus_total: string | number | bigint;
+      commission_total: string | number | bigint;
+      deduction_total: string | number | bigint;
+      net_pay: string | number | bigint;
+      breakdown: unknown;
+      manual_note: string | null;
+      updated_by: string | null;
+      updated_at: Date | string;
+    }>(
+      `
+        select id, profile_id, employee_name_snapshot,
+          employee_code_snapshot, department_id_snapshot,
+          salary_type_snapshot, base_amount_snapshot, work_units,
+          regular_pay, overtime_pay, allowance_total, bonus_total,
+          commission_total, deduction_total, net_pay, breakdown,
+          manual_note, updated_by, updated_at
+        from hrm_payroll_items
+        where tenant_id = $1 and payroll_run_id = $2
+        order by employee_name_snapshot asc, id asc
+      `,
+      [this.scope.tenantId, runId],
+    );
+
+    return {
+      id: run.id,
+      periodStart: run.period_start,
+      periodEnd: run.period_end,
+      status: run.status,
+      standardWorkDays: Number(run.standard_work_days),
+      totalGross: Number(run.total_gross),
+      totalAllowances: Number(run.total_allowances),
+      totalDeductions: Number(run.total_deductions),
+      totalNet: Number(run.total_net),
+      version: Number(run.version),
+      calculatedAt: run.calculated_at
+        ? new Date(run.calculated_at).toISOString()
+        : null,
+      finalizedAt: run.finalized_at
+        ? new Date(run.finalized_at).toISOString()
+        : null,
+      paidAt: run.paid_at ? new Date(run.paid_at).toISOString() : null,
+      createdAt: new Date(run.created_at).toISOString(),
+      updatedAt: new Date(run.updated_at).toISOString(),
+      items: itemResult.rows.map((item) => ({
+        id: item.id,
+        profileId: item.profile_id,
+        employeeName: item.employee_name_snapshot,
+        employeeCode: item.employee_code_snapshot,
+        departmentId: item.department_id_snapshot,
+        salaryType: item.salary_type_snapshot,
+        baseAmount: Number(item.base_amount_snapshot),
+        workUnits: Number(item.work_units),
+        regularPay: Number(item.regular_pay),
+        overtimePay: Number(item.overtime_pay),
+        allowanceTotal: Number(item.allowance_total),
+        bonusTotal: Number(item.bonus_total),
+        commissionTotal: Number(item.commission_total),
+        deductionTotal: Number(item.deduction_total),
+        netPay: Number(item.net_pay),
+        breakdown: item.breakdown as HrmPayrollStoredBreakdown,
+        manualNote: item.manual_note,
+        updatedBy: item.updated_by,
+        updatedAt: new Date(item.updated_at).toISOString(),
+      })),
+    };
+  }
+
+  async savePayrollRunDraft(
+    input: SaveHrmPayrollRunDraftInput,
+  ): Promise<HrmPayrollRunDetail> {
+    let runId: string;
+    try {
+      runId = await this.withTransaction(async (client, scope) => {
+      const existingResult = await client.query<{
+        id: string;
+        status: HrmPayrollRunStatus;
+        version: number;
+      }>(
+        `
+          select id, status, version
+          from hrm_payroll_runs
+          where tenant_id = $1 and branch_id = $2
+            and period_start = $3::date and period_end = $4::date
+          limit 1
+          for update
+        `,
+        [scope.tenantId, scope.branchId, input.periodStart, input.periodEnd],
+      );
+      const existing = existingResult.rows[0];
+      const resolvedRunId = existing?.id ?? input.id;
+
+      if (existing) {
+        if (existing.status !== 'draft') {
+          throw new HrmPayrollRunStateError(
+            'Kỳ lương đã chốt nên không thể tính lại.',
+          );
+        }
+        if (input.expectedVersion !== existing.version) {
+          throw new HrmPayrollVersionConflictError();
+        }
+      } else if (input.expectedVersion !== null) {
+        throw new HrmPayrollVersionConflictError();
+      }
+
+      const totals = input.items.reduce(
+        (sum, item) => ({
+          gross:
+            sum.gross +
+            item.regularPay +
+            item.overtimePay +
+            item.allowanceTotal +
+            item.bonusTotal +
+            item.commissionTotal,
+          allowances: sum.allowances + item.allowanceTotal,
+          deductions: sum.deductions + item.deductionTotal,
+          net: sum.net + item.netPay,
+        }),
+        { gross: 0, allowances: 0, deductions: 0, net: 0 },
+      );
+
+      if (existing) {
+        await client.query(
+          `
+            update hrm_payroll_runs
+            set standard_work_days = $4, total_gross = $5,
+              total_allowances = $6, total_deductions = $7,
+              total_net = $8, version = version + 1,
+              calculated_at = now(), updated_at = now()
+            where id = $1 and tenant_id = $2 and branch_id = $3
+          `,
+          [
+            resolvedRunId,
+            scope.tenantId,
+            scope.branchId,
+            input.standardWorkDays,
+            totals.gross,
+            totals.allowances,
+            totals.deductions,
+            totals.net,
+          ],
+        );
+        await client.query(
+          `delete from hrm_payroll_items where tenant_id = $1 and payroll_run_id = $2`,
+          [scope.tenantId, resolvedRunId],
+        );
+      } else {
+        await client.query(
+          `
+            insert into hrm_payroll_runs (
+              id, tenant_id, branch_id, period_start, period_end, status,
+              standard_work_days, total_gross, total_allowances,
+              total_deductions, total_net, version, calculated_at,
+              created_by, created_at, updated_at
+            ) values (
+              $1, $2, $3, $4::date, $5::date, 'draft', $6,
+              $7, $8, $9, $10, 1, now(), $11, now(), now()
+            )
+          `,
+          [
+            resolvedRunId,
+            scope.tenantId,
+            scope.branchId,
+            input.periodStart,
+            input.periodEnd,
+            input.standardWorkDays,
+            totals.gross,
+            totals.allowances,
+            totals.deductions,
+            totals.net,
+            input.actorUserId,
+          ],
+        );
+      }
+
+      for (const item of input.items) {
+        await client.query(
+          `
+            insert into hrm_payroll_items (
+              id, tenant_id, payroll_run_id, profile_id,
+              employee_name_snapshot, employee_code_snapshot,
+              department_id_snapshot, salary_type_snapshot,
+              base_amount_snapshot, work_units, regular_pay, overtime_pay,
+              allowance_total, bonus_total, commission_total,
+              deduction_total, net_pay, breakdown, manual_note,
+              updated_by, created_at, updated_at
+            ) values (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+              $11, $12, $13, $14, $15, $16, $17, $18::jsonb,
+              $19, $20, now(), now()
+            )
+          `,
+          [
+            item.id,
+            scope.tenantId,
+            resolvedRunId,
+            item.profileId,
+            item.employeeName,
+            item.employeeCode,
+            item.departmentId,
+            item.salaryType,
+            item.baseAmount,
+            item.workUnits,
+            item.regularPay,
+            item.overtimePay,
+            item.allowanceTotal,
+            item.bonusTotal,
+            item.commissionTotal,
+            item.deductionTotal,
+            item.netPay,
+            JSON.stringify(item.breakdown),
+            item.manualNote,
+            input.actorUserId,
+          ],
+        );
+      }
+
+      await client.query(
+        `
+          insert into hrm_audit_logs (
+            id, tenant_id, branch_id, actor_user_id, event_type,
+            entity_type, entity_id, summary, created_at
+          ) values ($1, $2, $3, $4, $5, 'payroll_run', $6, $7::jsonb, now())
+        `,
+        [
+          input.auditId,
+          scope.tenantId,
+          scope.branchId,
+          input.actorUserId,
+          existing ? 'payroll.recalculated' : 'payroll.created',
+          resolvedRunId,
+          JSON.stringify({
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            employeeCount: input.items.length,
+            totalNet: totals.net,
+          }),
+        ],
+      );
+        return resolvedRunId;
+      });
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === '23505'
+      ) {
+        throw new HrmPayrollVersionConflictError();
+      }
+      throw error;
+    }
+
+    const run = await this.getPayrollRun(runId);
+    if (!run) throw new HrmPayrollRunNotFoundError();
+    return run;
+  }
+
+  async updatePayrollItem(
+    input: UpdateHrmPayrollItemInput,
+  ): Promise<HrmPayrollRunDetail> {
+    await this.withTransaction(async (client, scope) => {
+      const runResult = await client.query<{
+        status: HrmPayrollRunStatus;
+        version: number;
+      }>(
+        `
+          select status, version from hrm_payroll_runs
+          where id = $1 and tenant_id = $2 and branch_id = $3
+          limit 1 for update
+        `,
+        [input.runId, scope.tenantId, scope.branchId],
+      );
+      const run = runResult.rows[0];
+      if (!run) throw new HrmPayrollRunNotFoundError();
+      if (run.status !== 'draft') {
+        throw new HrmPayrollRunStateError(
+          'Chỉ kỳ lương nháp mới được điều chỉnh.',
+        );
+      }
+      if (run.version !== input.expectedVersion) {
+        throw new HrmPayrollVersionConflictError();
+      }
+
+      const updated = await client.query(
+        `
+          update hrm_payroll_items
+          set regular_pay = $5, overtime_pay = $6,
+            allowance_total = $7, bonus_total = $8,
+            commission_total = $9, deduction_total = $10,
+            net_pay = $11, breakdown = $12::jsonb,
+            manual_note = $13, updated_by = $14, updated_at = now()
+          where id = $1 and tenant_id = $2 and payroll_run_id = $3
+            and exists (
+              select 1 from hrm_payroll_runs r
+              where r.id = $3 and r.tenant_id = $2 and r.branch_id = $4
+            )
+        `,
+        [
+          input.itemId,
+          scope.tenantId,
+          input.runId,
+          scope.branchId,
+          input.regularPay,
+          input.overtimePay,
+          input.allowanceTotal,
+          input.bonusTotal,
+          input.commissionTotal,
+          input.deductionTotal,
+          input.netPay,
+          JSON.stringify(input.breakdown),
+          input.manualNote,
+          input.actorUserId,
+        ],
+      );
+      if (updated.rowCount !== 1) throw new HrmPayrollRunNotFoundError();
+
+      const totals = await client.query<{
+        total_gross: string | number;
+        total_allowances: string | number;
+        total_deductions: string | number;
+        total_net: string | number;
+      }>(
+        `
+          select
+            coalesce(sum(regular_pay + overtime_pay + allowance_total + bonus_total + commission_total), 0) as total_gross,
+            coalesce(sum(allowance_total), 0) as total_allowances,
+            coalesce(sum(deduction_total), 0) as total_deductions,
+            coalesce(sum(net_pay), 0) as total_net
+          from hrm_payroll_items
+          where tenant_id = $1 and payroll_run_id = $2
+        `,
+        [scope.tenantId, input.runId],
+      );
+      const aggregate = totals.rows[0];
+      await client.query(
+        `
+          update hrm_payroll_runs
+          set total_gross = $4, total_allowances = $5,
+            total_deductions = $6, total_net = $7,
+            version = version + 1, updated_at = now()
+          where id = $1 and tenant_id = $2 and branch_id = $3
+        `,
+        [
+          input.runId,
+          scope.tenantId,
+          scope.branchId,
+          Number(aggregate?.total_gross ?? 0),
+          Number(aggregate?.total_allowances ?? 0),
+          Number(aggregate?.total_deductions ?? 0),
+          Number(aggregate?.total_net ?? 0),
+        ],
+      );
+      await client.query(
+        `
+          insert into hrm_audit_logs (
+            id, tenant_id, branch_id, actor_user_id, event_type,
+            entity_type, entity_id, summary, created_at
+          ) values ($1, $2, $3, $4, 'payroll.item_adjusted',
+            'payroll_item', $5, $6::jsonb, now())
+        `,
+        [
+          input.auditId,
+          scope.tenantId,
+          scope.branchId,
+          input.actorUserId,
+          input.itemId,
+          JSON.stringify({
+            payrollRunId: input.runId,
+            reason: input.manualNote,
+          }),
+        ],
+      );
+    });
+
+    const run = await this.getPayrollRun(input.runId);
+    if (!run) throw new HrmPayrollRunNotFoundError();
+    return run;
+  }
+
+  async finalizePayrollRun(input: {
+    runId: string;
+    expectedVersion: number;
+    actorUserId: string;
+    auditId: string;
+  }): Promise<HrmPayrollRunDetail> {
+    await this.withTransaction(async (client, scope) => {
+      const result = await client.query<{ status: HrmPayrollRunStatus }>(
+        `
+          update hrm_payroll_runs
+          set status = 'finalized', version = version + 1,
+            finalized_at = now(), updated_at = now()
+          where id = $1 and tenant_id = $2 and branch_id = $3
+            and status = 'draft' and version = $4
+            and exists (
+              select 1 from hrm_payroll_items i
+              where i.tenant_id = $2 and i.payroll_run_id = $1
+            )
+          returning status
+        `,
+        [
+          input.runId,
+          scope.tenantId,
+          scope.branchId,
+          input.expectedVersion,
+        ],
+      );
+      if (result.rowCount !== 1) {
+        const current = await client.query<{
+          status: HrmPayrollRunStatus;
+          version: number;
+        }>(
+          `
+            select status, version from hrm_payroll_runs
+            where id = $1 and tenant_id = $2 and branch_id = $3
+            limit 1
+          `,
+          [input.runId, scope.tenantId, scope.branchId],
+        );
+        if (!current.rows[0]) throw new HrmPayrollRunNotFoundError();
+        if (current.rows[0].version !== input.expectedVersion) {
+          throw new HrmPayrollVersionConflictError();
+        }
+        throw new HrmPayrollRunStateError();
+      }
+
+      await client.query(
+        `
+          insert into hrm_audit_logs (
+            id, tenant_id, branch_id, actor_user_id, event_type,
+            entity_type, entity_id, summary, created_at
+          ) values ($1, $2, $3, $4, 'payroll.finalized',
+            'payroll_run', $5, $6::jsonb, now())
+        `,
+        [
+          input.auditId,
+          scope.tenantId,
+          scope.branchId,
+          input.actorUserId,
+          input.runId,
+          JSON.stringify({ expectedVersion: input.expectedVersion }),
+        ],
+      );
+    });
+
+    const run = await this.getPayrollRun(input.runId);
+    if (!run) throw new HrmPayrollRunNotFoundError();
+    return run;
+  }
+
+  async recordPayrollExport(input: {
+    runId: string;
+    actorUserId: string;
+    auditId: string;
+  }): Promise<void> {
+    const result = await this.pool.query(
+      `
+        insert into hrm_audit_logs (
+          id, tenant_id, branch_id, actor_user_id, event_type,
+          entity_type, entity_id, summary, created_at
+        )
+        select $1, r.tenant_id, r.branch_id, $2,
+          'payroll.exported', 'payroll_run', r.id,
+          $3::jsonb, now()
+        from hrm_payroll_runs r
+        where r.id = $4 and r.tenant_id = $5 and r.branch_id = $6
+      `,
+      [
+        input.auditId,
+        input.actorUserId,
+        JSON.stringify({ format: 'csv' }),
+        input.runId,
+        this.scope.tenantId,
+        this.scope.branchId,
+      ],
+    );
+    if (result.rowCount !== 1) throw new HrmPayrollRunNotFoundError();
   }
 
   async withTransaction<T>(
