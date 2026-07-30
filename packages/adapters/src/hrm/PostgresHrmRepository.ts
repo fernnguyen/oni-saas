@@ -83,6 +83,47 @@ export interface HrmShiftTemplate {
   usageCount: number;
 }
 
+
+export interface HrmMonthlyAttendanceRow {
+  attendanceId: string | null;
+  employeeId: string;
+  profileId: string | null;
+  employeeCode: string | null;
+  employeeName: string;
+  departmentId: string | null;
+  departmentName: string | null;
+  workDate: string;
+  shiftTemplateId: string | null;
+  shiftName: string | null;
+  clockIn: string | null;
+  clockOut: string | null;
+  workedMinutes: number;
+  lateMinutes: number;
+  earlyLeaveMinutes: number;
+  overtimeMinutes: number;
+  status: string | null;
+  note: string | null;
+}
+
+export interface HrmAttendanceUpsertInput {
+  attendanceId: string;
+  profileId: string;
+  auditId: string;
+  employeeId: string;
+  workDate: string;
+  shiftTemplateId: string | null;
+  clockIn: string | null;
+  clockOut: string | null;
+  workedMinutes: number;
+  lateMinutes: number;
+  earlyLeaveMinutes: number;
+  overtimeMinutes: number;
+  status: 'present' | 'absent' | 'paid_leave' | 'unpaid_leave' | 'holiday';
+  note: string | null;
+  source: 'manual' | 'import';
+  actorUserId: string;
+}
+
 export class HrmAttendanceStateError extends Error {
   readonly code = 'HRM_ATTENDANCE_INVALID_STATE';
 
@@ -807,6 +848,296 @@ export class PostgresHrmRepository {
       workedMinutes: Number(row.worked_minutes ?? 0),
       status: row.status,
     }));
+  }
+
+
+  async listMonthlyAttendance(input: {
+    periodStart: string;
+    periodEnd: string;
+    departmentId?: string | null;
+  }): Promise<HrmMonthlyAttendanceRow[]> {
+    const result = await this.pool.query<{
+      attendance_id: string | null;
+      employee_id: string;
+      profile_id: string | null;
+      employee_code: string | null;
+      employee_name: string | null;
+      department_id: string | null;
+      department_name: string | null;
+      work_date: string;
+      shift_template_id: string | null;
+      shift_name: string | null;
+      clock_in: Date | string | null;
+      clock_out: Date | string | null;
+      worked_minutes: number | string | null;
+      late_minutes: number | string | null;
+      early_leave_minutes: number | string | null;
+      overtime_minutes: number | string | null;
+      status: string | null;
+      note: string | null;
+    }>(
+      `
+        with calendar as (
+          select generate_series($3::date, $4::date, interval '1 day')::date as work_date
+        )
+        select
+          a.id as attendance_id,
+          e.id as employee_id,
+          p.id as profile_id,
+          e.employee_code,
+          coalesce(e.name, '') as employee_name,
+          coalesce(a.department_id_snapshot, p.department_id) as department_id,
+          d.name as department_name,
+          c.work_date::text,
+          a.shift_template_id,
+          s.name as shift_name,
+          a.clock_in,
+          a.clock_out,
+          a.worked_minutes,
+          a.late_minutes,
+          a.early_leave_minutes,
+          a.overtime_minutes,
+          a.status,
+          a.note
+        from employees e
+        left join hrm_employee_profiles p
+          on p.tenant_id = e.tenant_id and p.source_employee_id = e.id
+        cross join calendar c
+        left join hrm_attendance_days a
+          on a.tenant_id = e.tenant_id
+          and a.branch_id = e.branch_id
+          and a.profile_id = p.id
+          and a.work_date = c.work_date
+        left join departments d
+          on d.id = coalesce(a.department_id_snapshot, p.department_id)
+          and d.tenant_id = e.tenant_id
+          and d.branch_id = e.branch_id
+        left join hrm_shift_templates s
+          on s.id = a.shift_template_id
+          and s.tenant_id = a.tenant_id
+          and s.branch_id = a.branch_id
+        where e.tenant_id = $1 and e.branch_id = $2
+          and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
+          and ($5::varchar is null or coalesce(a.department_id_snapshot, p.department_id) = $5)
+        order by e.name asc, c.work_date asc
+      `,
+      [
+        this.scope.tenantId,
+        this.scope.branchId,
+        input.periodStart,
+        input.periodEnd,
+        input.departmentId ?? null,
+      ],
+    );
+
+    return result.rows.map((row) => ({
+      attendanceId: row.attendance_id,
+      employeeId: row.employee_id,
+      profileId: row.profile_id,
+      employeeCode: row.employee_code,
+      employeeName: row.employee_name ?? '',
+      departmentId: row.department_id,
+      departmentName: row.department_name,
+      workDate: row.work_date,
+      shiftTemplateId: row.shift_template_id,
+      shiftName: row.shift_name,
+      clockIn: row.clock_in ? new Date(row.clock_in).toISOString() : null,
+      clockOut: row.clock_out ? new Date(row.clock_out).toISOString() : null,
+      workedMinutes: Number(row.worked_minutes ?? 0),
+      lateMinutes: Number(row.late_minutes ?? 0),
+      earlyLeaveMinutes: Number(row.early_leave_minutes ?? 0),
+      overtimeMinutes: Number(row.overtime_minutes ?? 0),
+      status: row.status,
+      note: row.note,
+    }));
+  }
+
+
+  async listScopedAttendanceEmployeeIds(employeeIds: string[]): Promise<string[]> {
+    const uniqueIds = [...new Set(employeeIds)];
+    if (uniqueIds.length === 0) return [];
+    const result = await this.pool.query<{ id: string }>(
+      `
+        select id
+        from employees
+        where tenant_id = $1 and branch_id = $2
+          and id = any($3::varchar[])
+          and coalesce(active, 'TRUE') not in ('FALSE', 'false', '0')
+      `,
+      [this.scope.tenantId, this.scope.branchId, uniqueIds],
+    );
+    return result.rows.map((row) => row.id);
+  }
+
+  async upsertAttendanceDays(inputs: HrmAttendanceUpsertInput[]): Promise<void> {
+    if (inputs.length === 0) return;
+    await this.withTransaction(async (client, scope) => {
+      for (const input of inputs) {
+        const employee = await client.query<{
+          profile_id: string | null;
+          department_id: string | null;
+        }>(
+          `
+            select p.id as profile_id, p.department_id
+            from employees e
+            left join hrm_employee_profiles p
+              on p.tenant_id = e.tenant_id and p.source_employee_id = e.id
+            where e.id = $1 and e.tenant_id = $2 and e.branch_id = $3
+              and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
+            limit 1
+            for update of e
+          `,
+          [input.employeeId, scope.tenantId, scope.branchId],
+        );
+        const scopedEmployee = employee.rows[0];
+        if (!scopedEmployee) throw new Error('HRM employee not found in branch.');
+
+        if (!scopedEmployee.profile_id) {
+          await client.query(
+            `
+              insert into hrm_employee_profiles (
+                id, tenant_id, branch_id, source_employee_id,
+                employment_status, employment_type, custom_data,
+                created_at, updated_at
+              )
+              values ($1, $2, $3, $4, 'active', 'monthly', '{}'::jsonb, now(), now())
+              on conflict (tenant_id, source_employee_id) do nothing
+            `,
+            [input.profileId, scope.tenantId, scope.branchId, input.employeeId],
+          );
+        }
+        const profile = await client.query<{ id: string; department_id: string | null }>(
+          `
+            select id, department_id
+            from hrm_employee_profiles
+            where tenant_id = $1 and source_employee_id = $2 and branch_id = $3
+            limit 1
+          `,
+          [scope.tenantId, input.employeeId, scope.branchId],
+        );
+        const resolvedProfile = profile.rows[0];
+        if (!resolvedProfile) throw new Error('HRM profile not found in branch.');
+
+        if (input.shiftTemplateId) {
+          const shift = await client.query(
+            `
+              select id from hrm_shift_templates
+              where id = $1 and tenant_id = $2 and branch_id = $3
+              limit 1
+            `,
+            [input.shiftTemplateId, scope.tenantId, scope.branchId],
+          );
+          if (shift.rowCount !== 1) throw new HrmShiftNotFoundError();
+        }
+
+        const previous = await client.query<{
+          id: string;
+          status: string;
+          clock_in: Date | string | null;
+          clock_out: Date | string | null;
+        }>(
+          `
+            select id, status, clock_in, clock_out
+            from hrm_attendance_days
+            where tenant_id = $1 and branch_id = $2
+              and profile_id = $3 and work_date = $4::date
+            limit 1
+            for update
+          `,
+          [scope.tenantId, scope.branchId, resolvedProfile.id, input.workDate],
+        );
+        const existing = previous.rows[0] ?? null;
+        const saved = await client.query<{ id: string }>(
+          `
+            insert into hrm_attendance_days (
+              id, tenant_id, branch_id, profile_id, department_id_snapshot,
+              work_date, shift_template_id, clock_in, clock_out,
+              worked_minutes, late_minutes, early_leave_minutes, overtime_minutes,
+              status, source, note, updated_by, created_at, updated_at
+            )
+            values (
+              $1, $2, $3, $4, $5,
+              $6::date, $7, $8::timestamptz, $9::timestamptz,
+              $10, $11, $12, $13,
+              $14, $15, $16, $17, now(), now()
+            )
+            on conflict (tenant_id, profile_id, work_date) do update set
+              branch_id = excluded.branch_id,
+              department_id_snapshot = excluded.department_id_snapshot,
+              shift_template_id = excluded.shift_template_id,
+              clock_in = excluded.clock_in,
+              clock_out = excluded.clock_out,
+              worked_minutes = excluded.worked_minutes,
+              late_minutes = excluded.late_minutes,
+              early_leave_minutes = excluded.early_leave_minutes,
+              overtime_minutes = excluded.overtime_minutes,
+              status = excluded.status,
+              source = excluded.source,
+              note = excluded.note,
+              updated_by = excluded.updated_by,
+              updated_at = now()
+            returning id
+          `,
+          [
+            existing?.id ?? input.attendanceId,
+            scope.tenantId,
+            scope.branchId,
+            resolvedProfile.id,
+            resolvedProfile.department_id,
+            input.workDate,
+            input.shiftTemplateId,
+            input.clockIn,
+            input.clockOut,
+            input.workedMinutes,
+            input.lateMinutes,
+            input.earlyLeaveMinutes,
+            input.overtimeMinutes,
+            input.status,
+            input.source,
+            input.note,
+            input.actorUserId,
+          ],
+        );
+        const attendanceId = saved.rows[0]?.id;
+        if (!attendanceId) throw new Error('HRM attendance was not saved.');
+
+        await client.query(
+          `
+            insert into hrm_audit_logs (
+              id, tenant_id, branch_id, actor_user_id,
+              event_type, entity_type, entity_id, summary, created_at
+            )
+            values ($1, $2, $3, $4, $5, 'attendance_day', $6, $7::jsonb, now())
+          `,
+          [
+            input.auditId,
+            scope.tenantId,
+            scope.branchId,
+            input.actorUserId,
+            existing ? 'attendance.updated' : 'attendance.created',
+            attendanceId,
+            JSON.stringify({
+              workDate: input.workDate,
+              employeeId: input.employeeId,
+              before: existing
+                ? {
+                    status: existing.status,
+                    clockIn: existing.clock_in,
+                    clockOut: existing.clock_out,
+                  }
+                : null,
+              after: {
+                status: input.status,
+                clockIn: input.clockIn,
+                clockOut: input.clockOut,
+                shiftTemplateId: input.shiftTemplateId,
+                source: input.source,
+              },
+            }),
+          ],
+        );
+      }
+    });
   }
 
   async clockIn(input: {

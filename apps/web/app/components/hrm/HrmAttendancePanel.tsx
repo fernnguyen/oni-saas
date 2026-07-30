@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { TagBadge } from '@/app/components/ui/TagBadge';
+import { HrmMonthlyAttendancePanel } from './HrmMonthlyAttendancePanel';
 
 interface AttendanceRow {
   id: string | null;
@@ -129,7 +130,8 @@ export function HrmAttendancePanel({ shopId }: { shopId: string }) {
   ];
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-slate-900">Chấm công hôm nay</h2>
         <p className="mt-0.5 text-sm text-slate-500">
@@ -143,7 +145,11 @@ export function HrmAttendancePanel({ shopId }: { shopId: string }) {
         rowKey={(row) => row.employeeId}
         emptyState={<EmptyState title="Chưa có nhân viên để chấm công" />}
       />
-      {query.isError && <p className="mt-3 text-sm text-rose-600">{query.error.message}</p>}
+        {query.isError && (
+          <p className="mt-3 text-sm text-rose-600">{query.error.message}</p>
+        )}
+      </div>
+      <HrmMonthlyAttendancePanel shopId={shopId} />
     </div>
   );
 }

@@ -47,7 +47,7 @@ function respondError(error: unknown) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ shopId: string }> },
 ) {
   try {
@@ -55,7 +55,61 @@ export async function GET(
     const access = await requireHrmAccess(shopId, 'hrm.view');
     const selfEmployeeId =
       await access.repository.getEmployeeIdForAuthUser(access.userId);
+    const searchParams = new URL(request.url).searchParams;
+    const month = searchParams.get('month');
+
+    if (month) {
+      const match = /^(\d{4})-(\d{2})$/.exec(month);
+      if (!match) {
+        return NextResponse.json(
+          {
+            error: {
+              code: 'HRM_VALIDATION_ERROR',
+              message: 'Tháng bảng công không hợp lệ.',
+            },
+          },
+          { status: 400 },
+        );
+      }
+      const year = Number(match[1]);
+      const monthNumber = Number(match[2]);
+      if (monthNumber < 1 || monthNumber > 12) {
+        return NextResponse.json(
+          {
+            error: {
+              code: 'HRM_VALIDATION_ERROR',
+              message: 'Tháng bảng công không hợp lệ.',
+            },
+          },
+          { status: 400 },
+        );
+      }
+      const periodStart = `${month}-01`;
+      const lastDay = new Date(Date.UTC(year, monthNumber, 0))
+        .getUTCDate()
+        .toString()
+        .padStart(2, '0');
+      const periodEnd = `${month}-${lastDay}`;
+      const departmentId = searchParams.get('department_id');
+      const [data, shifts] = await Promise.all([
+        access.repository.listMonthlyAttendance({
+          periodStart,
+          periodEnd,
+          departmentId: departmentId || null,
+        }),
+        access.repository.listShiftTemplates({ includeInactive: true }),
+      ]);
+      return NextResponse.json({
+        mode: 'monthly',
+        data,
+        shifts,
+        canManage: access.permissions.includes('hrm.attendance.manage'),
+        selfEmployeeId,
+      });
+    }
+
     return NextResponse.json({
+      mode: 'today',
       data: await access.repository.listTodayAttendance(),
       canManage: access.permissions.includes('hrm.attendance.manage'),
       selfEmployeeId,
