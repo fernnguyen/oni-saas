@@ -9,6 +9,7 @@ import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { TagBadge } from '@/app/components/ui/TagBadge';
+import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 
 export interface HrmCustomField {
   id: string;
@@ -41,6 +42,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingField, setEditingField] = useState<HrmCustomField | null>(null);
@@ -161,6 +163,26 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
     });
     setOpen(true);
   }
+  async function confirmSaveField() {
+    const accepted = await confirm({
+      title: editingField ? 'Lưu thay đổi trường?' : 'Tạo trường hồ sơ mới?',
+      description: `Trường “${form.label || form.key}” sẽ được áp dụng theo phạm vi đã chọn.`,
+      confirmLabel: editingField ? 'Lưu thay đổi' : 'Tạo trường',
+    });
+    if (accepted) saveMutation.mutate();
+  }
+
+  async function confirmToggleField(field: HrmCustomField) {
+    const accepted = await confirm({
+      title: field.active ? 'Ngừng sử dụng trường này?' : 'Bật lại trường này?',
+      description: field.active
+        ? 'Dữ liệu đã nhập vẫn được giữ nhưng trường sẽ ẩn khỏi hồ sơ.'
+        : 'Trường sẽ xuất hiện lại trong hồ sơ nhân viên.',
+      confirmLabel: field.active ? 'Ngừng sử dụng' : 'Bật trường',
+    });
+    if (accepted) toggleMutation.mutate(field);
+  }
+
   const columns: Column<HrmCustomField>[] = [
     { key: 'label', label: 'Tên trường' },
     { key: 'key', label: 'Mã field' },
@@ -202,7 +224,7 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
             </button>
             <button
               type="button"
-              onClick={() => toggleMutation.mutate(row)}
+              onClick={() => void confirmToggleField(row)}
               disabled={toggleMutation.isPending}
               className="rounded-lg p-2 text-amber-600 hover:bg-amber-50 disabled:opacity-40"
               aria-label={row.active ? `Tắt ${row.label}` : `Bật ${row.label}`}
@@ -282,7 +304,7 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
             <button
               type="button"
               disabled={saveMutation.isPending || !form.key || !form.label}
-              onClick={() => saveMutation.mutate()}
+              onClick={() => void confirmSaveField()}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {saveMutation.isPending

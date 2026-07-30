@@ -10,6 +10,8 @@ import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { TagBadge } from '@/app/components/ui/TagBadge';
+import { useConfirm } from '@/app/components/ui/ConfirmProvider';
+import { formatHrmDate } from '@/lib/hrm/formatDate';
 import type { HrmCustomField } from './HrmCustomFieldsPanel';
 
 interface HrmEmployeeSummary {
@@ -56,6 +58,7 @@ const EMPTY_FORM = {
 
 export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebounce(search, 300);
   const [slideOpen, setSlideOpen] = useState(false);
@@ -184,6 +187,17 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  async function confirmSaveEmployee() {
+    const accepted = await confirm({
+      title: editingId ? 'Lưu thay đổi hồ sơ?' : 'Thêm nhân viên mới?',
+      description: editingId
+        ? 'Thông tin phòng ban, tài khoản liên kết và hồ sơ mở rộng sẽ được cập nhật.'
+        : 'Nhân viên mới sẽ được tạo trong chi nhánh hiện tại.',
+      confirmLabel: editingId ? 'Lưu hồ sơ' : 'Thêm nhân viên',
+    });
+    if (accepted) saveMutation.mutate();
+  }
+
   const canManage = employeesQuery.data?.canManage ?? false;
   const columns = useMemo<Column<HrmEmployeeSummary>[]>(
     () => [
@@ -211,7 +225,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
       {
         key: 'joinedAt',
         label: 'Ngày vào làm',
-        render: (row) => row.joinedAt || '—',
+        render: (row) => formatHrmDate(row.joinedAt),
       },
       {
         key: 'employmentStatus',
@@ -338,7 +352,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
             </button>
             <button
               type="button"
-              onClick={() => saveMutation.mutate()}
+              onClick={() => void confirmSaveEmployee()}
               disabled={saveMutation.isPending || !formData.name.trim()}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50"
             >

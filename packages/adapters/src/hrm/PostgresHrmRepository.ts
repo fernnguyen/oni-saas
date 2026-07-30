@@ -157,6 +157,7 @@ export interface HrmEmployeeSalarySummary {
 export interface CreateHrmSalaryConfigurationInput {
   id: string;
   profileId: string;
+  assignmentId?: string;
   auditId: string;
   employeeId: string;
   salaryType: 'monthly' | 'daily' | 'hourly';
@@ -166,6 +167,55 @@ export interface CreateHrmSalaryConfigurationInput {
   overtimeMultiplier: number;
   recurringAllowances: HrmRecurringAllowance[];
   effectiveFrom: string;
+  actorUserId: string;
+}
+
+
+export interface HrmSalaryGroup {
+  id: string;
+  name: string;
+  salaryType: 'monthly' | 'daily' | 'hourly';
+  baseAmount: number;
+  standardWorkDays: number | null;
+  standardWorkHours: number | null;
+  overtimeMultiplier: number;
+  recurringAllowances: HrmRecurringAllowance[];
+  isDefault: boolean;
+  active: boolean;
+  employeeCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HrmEmployeeSalaryAssignment {
+  employeeId: string;
+  profileId: string;
+  salaryMode: 'custom' | 'group';
+  salaryGroupId: string | null;
+}
+
+export interface SaveHrmSalaryGroupInput {
+  id: string;
+  auditId: string;
+  name: string;
+  salaryType: 'monthly' | 'daily' | 'hourly';
+  baseAmount: number;
+  standardWorkDays: number | null;
+  standardWorkHours: number | null;
+  overtimeMultiplier: number;
+  recurringAllowances: HrmRecurringAllowance[];
+  isDefault: boolean;
+  active: boolean;
+  actorUserId: string;
+}
+
+export interface AssignHrmSalaryPolicyInput {
+  id: string;
+  profileId: string;
+  auditId: string;
+  employeeId: string;
+  salaryMode: 'custom' | 'group';
+  salaryGroupId: string | null;
   actorUserId: string;
 }
 
@@ -240,6 +290,16 @@ export class HrmSalaryEmployeeNotFoundError extends Error {
   constructor() {
     super('Không tìm thấy nhân viên trong chi nhánh hiện tại.');
     this.name = 'HrmSalaryEmployeeNotFoundError';
+  }
+}
+
+
+export class HrmSalaryGroupNotFoundError extends Error {
+  readonly code = 'HRM_SALARY_GROUP_NOT_FOUND';
+
+  constructor() {
+    super('Không tìm thấy nhóm lương đang hoạt động trong chi nhánh hiện tại.');
+    this.name = 'HrmSalaryGroupNotFoundError';
   }
 }
 
@@ -1556,6 +1616,29 @@ export class PostgresHrmRepository {
 
       await client.query(
         `
+          insert into hrm_employee_salary_assignments (
+            id, tenant_id, branch_id, profile_id, salary_mode,
+            salary_group_id, assigned_by, assigned_at, updated_at
+          ) values ($1, $2, $3, $4, 'custom', null, $5, now(), now())
+          on conflict (tenant_id, profile_id) do update
+          set branch_id = excluded.branch_id,
+              salary_mode = 'custom',
+              salary_group_id = null,
+              assigned_by = excluded.assigned_by,
+              assigned_at = now(),
+              updated_at = now()
+        `,
+        [
+          input.assignmentId ?? `HRMSA-${resolvedProfileId}`,
+          scope.tenantId,
+          scope.branchId,
+          resolvedProfileId,
+          input.actorUserId,
+        ],
+      );
+
+      await client.query(
+        `
           insert into hrm_audit_logs (
             id, tenant_id, branch_id, actor_user_id,
             event_type, entity_type, entity_id, summary, created_at
@@ -1624,6 +1707,354 @@ export class PostgresHrmRepository {
           ? null
           : Number(row.draft_payroll_runs),
     };
+  }
+
+  async listSalaryGroups(): Promise<HrmSalaryGroup[]> {
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      salary_type: 'monthly' | 'daily' | 'hourly';
+      base_amount: string | number | bigint;
+      standard_work_days: number | null;
+      standard_work_hours: string | number | null;
+      overtime_multiplier: string | number;
+      recurring_allowances: unknown;
+      is_default: number;
+      active: number;
+      employee_count: number;
+      created_at: Date | string;
+      updated_at: Date | string;
+    }>(
+      `
+        select
+          g.id,
+          g.name,
+          g.salary_type,
+          g.base_amount,
+          g.standard_work_days,
+          g.standard_work_hours,
+          g.overtime_multiplier,
+          g.recurring_allowances,
+          g.is_default,
+          g.active,
+          count(a.id)::integer as employee_count,
+          g.created_at,
+          g.updated_at
+        from hrm_salary_groups g
+        left join hrm_employee_salary_assignments a
+          on a.tenant_id = g.tenant_id
+          and a.branch_id = g.branch_id
+          and a.salary_group_id = g.id
+          and a.salary_mode = 'group'
+        where g.tenant_id = $1 and g.branch_id = $2
+        group by g.id
+        order by g.active desc, g.is_default desc, g.name asc
+      `,
+      [this.scope.tenantId, this.scope.branchId],
+    );
+
+    return result.rows.map((row) => {
+      const allowanceRows = Array.isArray(row.recurring_allowances)
+        ? row.recurring_allowances
+        : [];
+      return {
+        id: row.id,
+        name: row.name,
+        salaryType: row.salary_type,
+        baseAmount: Number(row.base_amount),
+        standardWorkDays: row.standard_work_days,
+        standardWorkHours:
+          row.standard_work_hours === null
+            ? null
+            : Number(row.standard_work_hours),
+        overtimeMultiplier: Number(row.overtime_multiplier),
+        recurringAllowances: allowanceRows
+          .filter(
+            (item): item is { label: string; amount: number } =>
+              typeof item === 'object' &&
+              item !== null &&
+              typeof (item as { label?: unknown }).label === 'string' &&
+              Number.isSafeInteger(Number((item as { amount?: unknown }).amount)),
+          )
+          .map((item) => ({ label: item.label, amount: Number(item.amount) })),
+        isDefault: row.is_default === 1,
+        active: row.active === 1,
+        employeeCount: Number(row.employee_count),
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString(),
+      };
+    });
+  }
+
+  async listEmployeeSalaryAssignments(): Promise<
+    HrmEmployeeSalaryAssignment[]
+  > {
+    const result = await this.pool.query<{
+      employee_id: string;
+      profile_id: string;
+      salary_mode: 'custom' | 'group';
+      salary_group_id: string | null;
+    }>(
+      `
+        select
+          e.id as employee_id,
+          p.id as profile_id,
+          a.salary_mode,
+          a.salary_group_id
+        from hrm_employee_salary_assignments a
+        inner join hrm_employee_profiles p
+          on p.tenant_id = a.tenant_id and p.id = a.profile_id
+        inner join employees e
+          on e.tenant_id = p.tenant_id
+          and e.id = p.source_employee_id
+          and e.branch_id = a.branch_id
+        where a.tenant_id = $1 and a.branch_id = $2
+          and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
+      `,
+      [this.scope.tenantId, this.scope.branchId],
+    );
+    return result.rows.map((row) => ({
+      employeeId: row.employee_id,
+      profileId: row.profile_id,
+      salaryMode: row.salary_mode,
+      salaryGroupId: row.salary_group_id,
+    }));
+  }
+
+  async createSalaryGroup(input: SaveHrmSalaryGroupInput): Promise<void> {
+    await this.withTransaction(async (client, scope) => {
+      if (input.isDefault) {
+        await client.query(
+          `
+            update hrm_salary_groups
+            set is_default = 0, updated_by = $3, updated_at = now()
+            where tenant_id = $1 and branch_id = $2 and is_default = 1
+          `,
+          [scope.tenantId, scope.branchId, input.actorUserId],
+        );
+      }
+      await client.query(
+        `
+          insert into hrm_salary_groups (
+            id, tenant_id, branch_id, name, salary_type, base_amount,
+            standard_work_days, standard_work_hours, overtime_multiplier,
+            recurring_allowances, is_default, active,
+            created_by, updated_by, created_at, updated_at
+          )
+          values (
+            $1, $2, $3, $4, $5, $6::bigint,
+            $7, $8, $9, $10::jsonb, $11, $12,
+            $13, $13, now(), now()
+          )
+        `,
+        [
+          input.id,
+          scope.tenantId,
+          scope.branchId,
+          input.name,
+          input.salaryType,
+          input.baseAmount,
+          input.standardWorkDays,
+          input.standardWorkHours,
+          input.overtimeMultiplier,
+          JSON.stringify(input.recurringAllowances),
+          input.isDefault ? 1 : 0,
+          input.active ? 1 : 0,
+          input.actorUserId,
+        ],
+      );
+      await client.query(
+        `
+          insert into hrm_audit_logs (
+            id, tenant_id, branch_id, actor_user_id,
+            event_type, entity_type, entity_id, summary, created_at
+          ) values ($1, $2, $3, $4, 'salary_group.created', 'salary_group', $5, $6::jsonb, now())
+        `,
+        [
+          input.auditId,
+          scope.tenantId,
+          scope.branchId,
+          input.actorUserId,
+          input.id,
+          JSON.stringify({ name: input.name, isDefault: input.isDefault }),
+        ],
+      );
+    });
+  }
+
+  async updateSalaryGroup(input: SaveHrmSalaryGroupInput): Promise<void> {
+    await this.withTransaction(async (client, scope) => {
+      const existing = await client.query<{ id: string }>(
+        `
+          select id from hrm_salary_groups
+          where id = $1 and tenant_id = $2 and branch_id = $3
+          limit 1 for update
+        `,
+        [input.id, scope.tenantId, scope.branchId],
+      );
+      if (!existing.rows[0]) throw new HrmSalaryGroupNotFoundError();
+      if (input.isDefault) {
+        await client.query(
+          `
+            update hrm_salary_groups
+            set is_default = 0, updated_by = $3, updated_at = now()
+            where tenant_id = $1 and branch_id = $2
+              and id <> $4 and is_default = 1
+          `,
+          [scope.tenantId, scope.branchId, input.actorUserId, input.id],
+        );
+      }
+      await client.query(
+        `
+          update hrm_salary_groups
+          set name = $4,
+              salary_type = $5,
+              base_amount = $6::bigint,
+              standard_work_days = $7,
+              standard_work_hours = $8,
+              overtime_multiplier = $9,
+              recurring_allowances = $10::jsonb,
+              is_default = $11,
+              active = $12,
+              updated_by = $13,
+              updated_at = now()
+          where id = $1 and tenant_id = $2 and branch_id = $3
+        `,
+        [
+          input.id,
+          scope.tenantId,
+          scope.branchId,
+          input.name,
+          input.salaryType,
+          input.baseAmount,
+          input.standardWorkDays,
+          input.standardWorkHours,
+          input.overtimeMultiplier,
+          JSON.stringify(input.recurringAllowances),
+          input.isDefault ? 1 : 0,
+          input.active ? 1 : 0,
+          input.actorUserId,
+        ],
+      );
+      await client.query(
+        `
+          insert into hrm_audit_logs (
+            id, tenant_id, branch_id, actor_user_id,
+            event_type, entity_type, entity_id, summary, created_at
+          ) values ($1, $2, $3, $4, 'salary_group.updated', 'salary_group', $5, $6::jsonb, now())
+        `,
+        [
+          input.auditId,
+          scope.tenantId,
+          scope.branchId,
+          input.actorUserId,
+          input.id,
+          JSON.stringify({
+            name: input.name,
+            active: input.active,
+            isDefault: input.isDefault,
+          }),
+        ],
+      );
+    });
+  }
+
+  async assignSalaryPolicy(input: AssignHrmSalaryPolicyInput): Promise<void> {
+    await this.withTransaction(async (client, scope) => {
+      const employee = await client.query<{ profile_id: string | null }>(
+        `
+          select p.id as profile_id
+          from employees e
+          left join hrm_employee_profiles p
+            on p.tenant_id = e.tenant_id and p.source_employee_id = e.id
+          where e.id = $1 and e.tenant_id = $2 and e.branch_id = $3
+            and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
+          limit 1 for update of e
+        `,
+        [input.employeeId, scope.tenantId, scope.branchId],
+      );
+      const scopedEmployee = employee.rows[0];
+      if (!scopedEmployee) throw new HrmSalaryEmployeeNotFoundError();
+      if (input.salaryMode === 'group') {
+        const group = await client.query<{ id: string }>(
+          `
+            select id from hrm_salary_groups
+            where id = $1 and tenant_id = $2 and branch_id = $3 and active = 1
+            limit 1
+          `,
+          [input.salaryGroupId, scope.tenantId, scope.branchId],
+        );
+        if (!group.rows[0]) throw new HrmSalaryGroupNotFoundError();
+      }
+      if (!scopedEmployee.profile_id) {
+        await client.query(
+          `
+            insert into hrm_employee_profiles (
+              id, tenant_id, branch_id, source_employee_id,
+              employment_status, employment_type, custom_data,
+              created_at, updated_at
+            ) values ($1, $2, $3, $4, 'active', 'monthly', '{}'::jsonb, now(), now())
+            on conflict (tenant_id, source_employee_id) do nothing
+          `,
+          [input.profileId, scope.tenantId, scope.branchId, input.employeeId],
+        );
+      }
+      const profile = await client.query<{ id: string }>(
+        `
+          select id from hrm_employee_profiles
+          where tenant_id = $1 and branch_id = $2 and source_employee_id = $3
+          limit 1
+        `,
+        [scope.tenantId, scope.branchId, input.employeeId],
+      );
+      const resolvedProfileId = profile.rows[0]?.id;
+      if (!resolvedProfileId) throw new HrmSalaryEmployeeNotFoundError();
+      await client.query(
+        `
+          insert into hrm_employee_salary_assignments (
+            id, tenant_id, branch_id, profile_id, salary_mode,
+            salary_group_id, assigned_by, assigned_at, updated_at
+          ) values ($1, $2, $3, $4, $5, $6, $7, now(), now())
+          on conflict (tenant_id, profile_id) do update
+          set branch_id = excluded.branch_id,
+              salary_mode = excluded.salary_mode,
+              salary_group_id = excluded.salary_group_id,
+              assigned_by = excluded.assigned_by,
+              assigned_at = now(),
+              updated_at = now()
+        `,
+        [
+          input.id,
+          scope.tenantId,
+          scope.branchId,
+          resolvedProfileId,
+          input.salaryMode,
+          input.salaryMode === 'group' ? input.salaryGroupId : null,
+          input.actorUserId,
+        ],
+      );
+      await client.query(
+        `
+          insert into hrm_audit_logs (
+            id, tenant_id, branch_id, actor_user_id,
+            event_type, entity_type, entity_id, summary, created_at
+          ) values ($1, $2, $3, $4, 'salary_policy.assigned', 'employee_profile', $5, $6::jsonb, now())
+        `,
+        [
+          input.auditId,
+          scope.tenantId,
+          scope.branchId,
+          input.actorUserId,
+          resolvedProfileId,
+          JSON.stringify({
+            employeeId: input.employeeId,
+            salaryMode: input.salaryMode,
+            salaryGroupId:
+              input.salaryMode === 'group' ? input.salaryGroupId : null,
+          }),
+        ],
+      );
+    });
   }
 
   async withTransaction<T>(

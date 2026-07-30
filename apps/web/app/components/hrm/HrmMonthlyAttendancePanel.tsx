@@ -9,6 +9,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
+import { formatHrmDate } from '@/lib/hrm/formatDate';
 
 type AttendanceStatus =
   | 'present'
@@ -283,6 +284,16 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
     });
   }
 
+  async function confirmSaveAttendance() {
+    if (!form || !editingRow) return;
+    const accepted = await confirm({
+      title: 'Lưu thay đổi ngày công?',
+      description: `${editingRow.employeeName} · ${formatHrmDate(form.work_date)}. Thao tác sẽ được ghi audit.`,
+      confirmLabel: 'Lưu ngày công',
+    });
+    if (accepted) saveMutation.mutate(form);
+  }
+
   async function handleImport(file: File) {
     try {
       const rows = parseAttendanceCsv(await file.text());
@@ -378,7 +389,7 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
             type="button"
             onClick={() => openEdit(row)}
             className="rounded-lg p-2 text-primary hover:bg-blue-50"
-            aria-label={`Sửa công ${row.employeeName} ngày ${row.workDate}`}
+            aria-label={`Sửa công ${row.employeeName} ngày ${formatHrmDate(row.workDate)}`}
           >
             <Pencil className="h-4 w-4" />
           </button>
@@ -511,9 +522,7 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
             <button
               type="button"
               disabled={!form || saveMutation.isPending}
-              onClick={() => {
-                if (form) saveMutation.mutate(form);
-              }}
+              onClick={() => void confirmSaveAttendance()}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {saveMutation.isPending ? 'Đang lưu...' : 'Lưu ngày công'}
@@ -527,7 +536,9 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
               <p className="font-semibold text-slate-900">
                 {editingRow.employeeName}
               </p>
-              <p className="text-sm text-slate-500">{form.work_date}</p>
+              <p className="text-sm text-slate-500">
+                {formatHrmDate(form.work_date)}
+              </p>
             </div>
             <label className="block text-sm font-medium text-slate-700">
               Trạng thái

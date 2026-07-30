@@ -967,6 +967,32 @@ Quy ước integration:
 
 **Phụ thuộc:** HRM-107, HRM-302, HRM-401.
 
+### HRM-402A — Attendance-first UX foundation
+
+- [ ] Mặc định mở HRM tại tab chấm công/công cán của tháng hiện tại.
+- [ ] Nhân viên, ca làm, tiền lương và trường tùy chỉnh vẫn là các tab độc lập.
+- [ ] Mọi mutation HRM phải xác nhận bằng dialog chuẩn trước khi gửi request.
+- [ ] Không yêu cầu xác nhận cho điều hướng, mở form hoặc thay đổi bộ lọc.
+- [ ] Chuẩn hóa input tiền bằng component dùng chung: hiển thị phân cách hàng nghìn, lưu số nguyên VND.
+- [ ] Áp dụng money input cho lương cơ bản, phụ cấp và các khoản điều chỉnh lương về sau.
+- [ ] Nâng cấp overview bằng visual theo tháng, trạng thái hiện diện và shortcut nghiệp vụ; không hiển thị thông tin connector/schema.
+- [ ] Giữ nguyên `SlideOver`, modal, toast và visual language hiện có của ONI.
+
+**Phụ thuộc:** HRM-304, HRM-401.
+
+### HRM-402B — Nhóm lương và chính sách fallback
+
+- [ ] Tạo nhóm lương theo branch với monthly/daily/hourly, mức cơ bản, công/giờ chuẩn, hệ số OT và phụ cấp định kỳ.
+- [ ] Cho phép đánh dấu một nhóm mặc định đang hoạt động trên mỗi branch.
+- [ ] Nhân viên có thể chọn rõ chế độ `group` hoặc `custom`; chuyển chế độ không xóa lịch sử cấu hình lương.
+- [ ] Thứ tự resolve: chế độ được gán → nhóm mặc định branch → trạng thái thiếu cấu hình.
+- [ ] Nhóm bị deactive không được dùng cho gán mới; assignment cũ fallback về nhóm mặc định hoặc thiếu cấu hình.
+- [ ] Hiển thị rõ nguồn mức lương trên UI: tùy chỉnh, nhóm được gán, nhóm mặc định hoặc chưa cấu hình.
+- [ ] Mutation tạo/sửa/deactivate/gán nhóm có permission `hrm.payroll.manage`, audit log và confirm dialog.
+- [ ] Dữ liệu nhóm lương chỉ nằm trong shared PostgreSQL HRM schema; không đưa vào Supabase control-plane.
+
+**Phụ thuộc:** HRM-402A.
+
 ### HRM-403 — Payroll run API
 
 - [ ] Tạo kỳ lương draft.
@@ -979,7 +1005,7 @@ Quy ước integration:
 - [ ] Dùng compare-and-swap theo `version` để tránh hai tab recalculate/chốt cùng kỳ; conflict trả 409 và không ghi một phần.
 - [ ] Recalculate và finalize idempotent theo trạng thái/version.
 
-**Phụ thuộc:** HRM-304, HRM-402.
+**Phụ thuộc:** HRM-304, HRM-402, HRM-402B.
 
 ### HRM-404 — Payroll UI cho owner
 
@@ -1146,7 +1172,8 @@ Mỗi package là một PR/commit group có thể deploy độc lập khi entitl
 | WP-07 Profile UI | HRM-203, HRM-205 | Custom fields, side-over và navigation thống nhất |
 | WP-08 Employee import/export | HRM-206 | Template, preview, error report và retry đạt |
 | WP-09 Attendance | HRM-301–304 | Import preview, bảng công và calculation tests đạt |
-| WP-10 Payroll | HRM-401–404 | Snapshot/finalize/idempotency và permission tests đạt |
+| WP-10A Payroll foundation UX | HRM-401–402B | Attendance-first, currency input, confirm workflow và salary-group fallback đạt |
+| WP-10B Payroll run | HRM-403–404 | Snapshot/finalize/idempotency và permission tests đạt |
 | WP-11 Cashbook/reporting | HRM-501–503 | Transaction chi lương, dashboard và export đạt |
 | WP-12 Production hardening | HRM-601–604 | Full regression, pilot, rollback drill và tài liệu vận hành đạt |
 

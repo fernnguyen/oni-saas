@@ -1,12 +1,8 @@
 import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
-import {
-  HrmSalaryConfigConflictError,
-  HrmSalaryEmployeeNotFoundError,
-} from '@oni/adapters';
 import { HrmAccessError, requireHrmAccess } from '@/lib/server/hrm/access';
-import { createHrmSalaryConfigSchema } from '@/lib/validators/hrm/salaryConfigs';
+import { saveHrmSalaryGroupSchema } from '@/lib/validators/hrm/salaryGroups';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -29,23 +25,22 @@ function respondError(error: unknown) {
       { status: 400 },
     );
   }
-  if (error instanceof HrmSalaryConfigConflictError) {
+  if ((error as { code?: string }).code === '23505') {
     return NextResponse.json(
-      { error: { code: error.code, message: error.message } },
+      {
+        error: {
+          code: 'HRM_SALARY_GROUP_CONFLICT',
+          message: 'Tên nhóm lương đã tồn tại trong chi nhánh.',
+        },
+      },
       { status: 409 },
-    );
-  }
-  if (error instanceof HrmSalaryEmployeeNotFoundError) {
-    return NextResponse.json(
-      { error: { code: error.code, message: error.message } },
-      { status: 404 },
     );
   }
   return NextResponse.json(
     {
       error: {
-        code: 'HRM_SALARY_CONFIG_FAILED',
-        message: 'Không thể xử lý cấu hình lương.',
+        code: 'HRM_SALARY_GROUP_FAILED',
+        message: 'Không thể xử lý nhóm lương.',
       },
     },
     { status: 503 },
@@ -59,15 +54,8 @@ export async function GET(
   try {
     const { shopId } = await params;
     const access = await requireHrmAccess(shopId, 'hrm.payroll.view');
-    const [data, groups, assignments] = await Promise.all([
-      access.repository.listEmployeeSalaryConfigurations(),
-      access.repository.listSalaryGroups(),
-      access.repository.listEmployeeSalaryAssignments(),
-    ]);
     return NextResponse.json({
-      data,
-      groups,
-      assignments,
+      data: await access.repository.listSalaryGroups(),
       canManage: access.permissions.includes('hrm.payroll.manage'),
     });
   } catch (error) {
@@ -82,20 +70,19 @@ export async function POST(
   try {
     const { shopId } = await params;
     const access = await requireHrmAccess(shopId, 'hrm.payroll.manage');
-    const input = createHrmSalaryConfigSchema.parse(await request.json());
-    await access.repository.createSalaryConfiguration({
-      id: `HRMSC-${crypto.randomUUID()}`,
-      profileId: `HRMP-${crypto.randomUUID()}`,
-      assignmentId: `HRMSA-${crypto.randomUUID()}`,
+    const input = saveHrmSalaryGroupSchema.parse(await request.json());
+    await access.repository.createSalaryGroup({
+      id: `HRMSG-${crypto.randomUUID()}`,
       auditId: `HRML-${crypto.randomUUID()}`,
-      employeeId: input.employee_id,
+      name: input.name,
       salaryType: input.salary_type,
       baseAmount: input.base_amount,
       standardWorkDays: input.standard_work_days,
       standardWorkHours: input.standard_work_hours,
       overtimeMultiplier: input.overtime_multiplier,
       recurringAllowances: input.recurring_allowances,
-      effectiveFrom: input.effective_from,
+      isDefault: input.is_default,
+      active: input.active,
       actorUserId: access.userId,
     });
     return NextResponse.json({ success: true }, { status: 201 });

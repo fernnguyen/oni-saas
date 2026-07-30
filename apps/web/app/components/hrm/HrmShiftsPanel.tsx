@@ -9,6 +9,7 @@ import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { TagBadge } from '@/app/components/ui/TagBadge';
+import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 
 interface HrmShift {
   id: string;
@@ -31,6 +32,7 @@ const EMPTY_FORM = {
 
 export function HrmShiftsPanel({ shopId }: { shopId: string }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingShift, setEditingShift] = useState<HrmShift | null>(null);
@@ -149,6 +151,26 @@ export function HrmShiftsPanel({ shopId }: { shopId: string }) {
     setOpen(true);
   }
 
+  async function confirmSaveShift() {
+    const accepted = await confirm({
+      title: editingShift ? 'Lưu thay đổi ca làm?' : 'Tạo ca làm mới?',
+      description: `${form.name || 'Ca làm'} · ${form.start_time} – ${form.end_time}.`,
+      confirmLabel: editingShift ? 'Lưu ca' : 'Tạo ca',
+    });
+    if (accepted) saveMutation.mutate();
+  }
+
+  async function confirmToggleShift(shift: HrmShift) {
+    const accepted = await confirm({
+      title: shift.active ? 'Ngừng sử dụng ca này?' : 'Bật lại ca này?',
+      description: shift.active
+        ? 'Bảng công cũ vẫn được giữ; ca sẽ không còn dùng cho gán mới.'
+        : 'Ca làm sẽ xuất hiện lại trong lựa chọn chấm công.',
+      confirmLabel: shift.active ? 'Ngừng sử dụng' : 'Bật ca',
+    });
+    if (accepted) toggleMutation.mutate(shift);
+  }
+
   const columns: Column<HrmShift>[] = [
     { key: 'name', label: 'Tên ca' },
     {
@@ -197,7 +219,7 @@ export function HrmShiftsPanel({ shopId }: { shopId: string }) {
             </button>
             <button
               type="button"
-              onClick={() => toggleMutation.mutate(row)}
+              onClick={() => void confirmToggleShift(row)}
               className="rounded-lg p-2 text-amber-600 hover:bg-amber-50"
               aria-label={row.active ? `Tắt ${row.name}` : `Bật ${row.name}`}
             >
@@ -272,7 +294,7 @@ export function HrmShiftsPanel({ shopId }: { shopId: string }) {
             </button>
             <button
               type="button"
-              onClick={() => saveMutation.mutate()}
+              onClick={() => void confirmSaveShift()}
               disabled={saveMutation.isPending || !form.name.trim()}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >

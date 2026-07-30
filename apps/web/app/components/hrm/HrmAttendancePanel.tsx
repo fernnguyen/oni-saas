@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { TagBadge } from '@/app/components/ui/TagBadge';
+import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { HrmMonthlyAttendancePanel } from './HrmMonthlyAttendancePanel';
 
 interface AttendanceRow {
@@ -30,6 +31,7 @@ function formatTime(value: string | null) {
 
 export function HrmAttendancePanel({ shopId }: { shopId: string }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const query = useQuery({
     queryKey: ['hrm-attendance', shopId],
     staleTime: 0,
@@ -77,6 +79,16 @@ export function HrmAttendancePanel({ shopId }: { shopId: string }) {
     },
     onError: (error: Error) => toast.error(error.message),
   });
+  async function confirmAttendance(row: AttendanceRow) {
+    const action = row.clockIn ? 'check_out' : 'check_in';
+    const accepted = await confirm({
+      title: action === 'check_in' ? 'Xác nhận vào ca?' : 'Xác nhận ra ca?',
+      description: `${row.employeeName} · thao tác sẽ ghi nhận thời điểm hiện tại.`,
+      confirmLabel: action === 'check_in' ? 'Check-in' : 'Check-out',
+    });
+    if (accepted) mutation.mutate({ employeeId: row.employeeId, action });
+  }
+
   const canAct = (row: AttendanceRow) =>
     query.data?.canManage || query.data?.selfEmployeeId === row.employeeId;
   const columns: Column<AttendanceRow>[] = [
@@ -115,12 +127,7 @@ export function HrmAttendancePanel({ shopId }: { shopId: string }) {
           <button
             type="button"
             disabled={mutation.isPending || Boolean(row.clockOut)}
-            onClick={() =>
-              mutation.mutate({
-                employeeId: row.employeeId,
-                action: row.clockIn ? 'check_out' : 'check_in',
-              })
-            }
+            onClick={() => void confirmAttendance(row)}
             className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
           >
             {row.clockIn ? 'Check-out' : 'Check-in'}

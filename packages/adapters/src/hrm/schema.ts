@@ -274,6 +274,97 @@ export const hrmSalaryConfigs = pgTable(
   ],
 );
 
+
+export const hrmSalaryGroups = pgTable(
+  'hrm_salary_groups',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    tenant_id: tenantId(),
+    branch_id: branchId(),
+    name: varchar('name', { length: 160 }).notNull(),
+    salary_type: varchar('salary_type', { length: 20 }).notNull(),
+    base_amount: bigint('base_amount', { mode: 'bigint' }).notNull(),
+    standard_work_days: integer('standard_work_days'),
+    standard_work_hours: numeric('standard_work_hours', {
+      precision: 10,
+      scale: 2,
+    }),
+    overtime_multiplier: numeric('overtime_multiplier', {
+      precision: 8,
+      scale: 4,
+    })
+      .default('1')
+      .notNull(),
+    recurring_allowances: jsonb('recurring_allowances')
+      .default(sql`'[]'::jsonb`)
+      .notNull(),
+    is_default: integer('is_default').default(0).notNull(),
+    active: integer('active').default(1).notNull(),
+    created_by: uuid('created_by').notNull(),
+    updated_by: uuid('updated_by').notNull(),
+    created_at: auditTimestamp('created_at'),
+    updated_at: auditTimestamp('updated_at'),
+  },
+  (table) => [
+    uniqueIndex('uq_hrm_salary_groups_name').on(
+      table.tenant_id,
+      table.branch_id,
+      table.name,
+    ),
+    uniqueIndex('uq_hrm_salary_groups_default')
+      .on(table.tenant_id, table.branch_id)
+      .where(sql`${table.is_default} = 1 and ${table.active} = 1`),
+    index('idx_hrm_salary_groups_scope_active').on(
+      table.tenant_id,
+      table.branch_id,
+      table.active,
+    ),
+    check(
+      'ck_hrm_salary_groups_type',
+      sql`${table.salary_type} in ('monthly', 'daily', 'hourly')`,
+    ),
+    check('ck_hrm_salary_groups_base', sql`${table.base_amount} >= 0`),
+    check(
+      'ck_hrm_salary_groups_flags',
+      sql`${table.is_default} in (0, 1) and ${table.active} in (0, 1)`,
+    ),
+  ],
+);
+
+export const hrmEmployeeSalaryAssignments = pgTable(
+  'hrm_employee_salary_assignments',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    tenant_id: tenantId(),
+    branch_id: branchId(),
+    profile_id: varchar('profile_id', { length: 255 }).notNull(),
+    salary_mode: varchar('salary_mode', { length: 20 }).notNull(),
+    salary_group_id: varchar('salary_group_id', { length: 255 }),
+    assigned_by: uuid('assigned_by').notNull(),
+    assigned_at: auditTimestamp('assigned_at'),
+    updated_at: auditTimestamp('updated_at'),
+  },
+  (table) => [
+    uniqueIndex('uq_hrm_employee_salary_assignments_profile').on(
+      table.tenant_id,
+      table.profile_id,
+    ),
+    index('idx_hrm_employee_salary_assignments_group').on(
+      table.tenant_id,
+      table.branch_id,
+      table.salary_group_id,
+    ),
+    check(
+      'ck_hrm_employee_salary_assignments_mode',
+      sql`${table.salary_mode} in ('custom', 'group')`,
+    ),
+    check(
+      'ck_hrm_employee_salary_assignments_group_mode',
+      sql`(${table.salary_mode} = 'group' and ${table.salary_group_id} is not null) or (${table.salary_mode} = 'custom' and ${table.salary_group_id} is null)`,
+    ),
+  ],
+);
+
 export const hrmPayrollRuns = pgTable(
   'hrm_payroll_runs',
   {

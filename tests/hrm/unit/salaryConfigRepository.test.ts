@@ -102,3 +102,60 @@ test('salary configuration rejects a duplicate effective date atomically', async
   );
   assert.match(statements.at(-1) ?? '', /rollback/i);
 });
+
+test('salary configuration switches the employee to custom mode atomically', async () => {
+  const statements: string[] = [];
+  const client = {
+    async query(text: string) {
+      statements.push(text);
+      if (/select p\.id as profile_id/i.test(text)) {
+        return { rowCount: 1, rows: [{ profile_id: 'HRMP-1' }] };
+      }
+      if (/select id from hrm_employee_profiles/i.test(text)) {
+        return { rowCount: 1, rows: [{ id: 'HRMP-1' }] };
+      }
+      if (/select effective_from::text/i.test(text)) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (/insert into hrm_salary_configs/i.test(text)) {
+        return { rowCount: 1, rows: [{ id: 'HRMSC-1' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+  const repository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  await repository.createSalaryConfiguration({
+    id: 'HRMSC-1',
+    profileId: 'HRMP-1',
+    assignmentId: 'HRMSA-1',
+    auditId: 'HRML-1',
+    employeeId: 'EMP-1',
+    salaryType: 'monthly',
+    baseAmount: 22_000_000,
+    standardWorkDays: 22,
+    standardWorkHours: 176,
+    overtimeMultiplier: 1.5,
+    recurringAllowances: [],
+    effectiveFrom: '2026-08-01',
+    actorUserId: '00000000-0000-4000-8000-000000000001',
+  });
+
+  assert.ok(
+    statements.some(
+      (statement) =>
+        /insert into hrm_employee_salary_assignments/i.test(statement) &&
+        /'custom'/i.test(statement),
+    ),
+  );
+  assert.match(statements.at(-1) ?? '', /commit/i);
+});

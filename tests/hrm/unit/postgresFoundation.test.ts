@@ -47,7 +47,7 @@ test('PostgreSQL is the only supported HRM operational connector', async () => {
 });
 
 test('HRM schema contract is tenant-scoped and owned by db:push:pg', () => {
-  assert.equal(HRM_EXPECTED_TABLES.length, 10);
+  assert.equal(HRM_EXPECTED_TABLES.length, 12);
   assert.deepEqual(Object.keys(HRM_EXPECTED_COLUMNS), HRM_EXPECTED_TABLES);
 
   for (const [tableName, columns] of Object.entries(HRM_EXPECTED_COLUMNS)) {
@@ -75,6 +75,8 @@ test('default db:push:pg schema owns HRM tables without a second migration pipel
     'hrmShiftTemplates',
     'hrmAttendanceDays',
     'hrmSalaryConfigs',
+    'hrmSalaryGroups',
+    'hrmEmployeeSalaryAssignments',
     'hrmPayrollRuns',
     'hrmPayrollItems',
     'hrmCashbookPostings',
