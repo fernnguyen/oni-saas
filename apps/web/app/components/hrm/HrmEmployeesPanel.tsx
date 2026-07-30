@@ -66,6 +66,8 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
 
   const employeesQuery = useQuery({
     queryKey: ['hrm-employees', shopId, debouncedSearch],
+    staleTime: 0,
+    refetchOnMount: 'always',
     queryFn: async () => {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set('search', debouncedSearch);
@@ -85,6 +87,8 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
 
   const customFieldsQuery = useQuery({
     queryKey: ['hrm-custom-fields', shopId],
+    staleTime: 0,
+    refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(
         `/api/shops/${encodeURIComponent(shopId)}/hrm/custom-fields`,
@@ -97,6 +101,8 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
   });
   const departmentsQuery = useQuery({
     queryKey: ['departments', shopId],
+    staleTime: 0,
+    refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(
         `/api/shops/${encodeURIComponent(shopId)}/departments?limit=500`,
@@ -111,6 +117,8 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
   });
   const usersQuery = useQuery({
     queryKey: ['hrm-linkable-users', shopId],
+    staleTime: 0,
+    refetchOnMount: 'always',
     enabled: Boolean(
       employeesQuery.data?.canManage && editingId && slideOpen,
     ),

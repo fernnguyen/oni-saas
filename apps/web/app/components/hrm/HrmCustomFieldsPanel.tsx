@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Pencil, Plus, Power, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SlideOver } from '@/app/components/ui/SlideOver';
@@ -16,6 +17,8 @@ export interface HrmCustomField {
   fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect';
   options: string[];
   required: boolean;
+  active: boolean;
+  usageCount: number;
 }
 
 const EMPTY_FORM = {
@@ -40,11 +43,15 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [editingField, setEditingField] = useState<HrmCustomField | null>(null);
+  const [deleteField, setDeleteField] = useState<HrmCustomField | null>(null);
   const query = useQuery({
-    queryKey: ['hrm-custom-fields', shopId],
+    queryKey: ['hrm-custom-fields', shopId, 'settings'],
+    staleTime: 0,
+    refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(
-        `/api/shops/${encodeURIComponent(shopId)}/hrm/custom-fields`,
+        `/api/shops/${encodeURIComponent(shopId)}/hrm/custom-fields?include_inactive=1`,
         { cache: 'no-store' },
       );
       const payload = await response.json();
@@ -54,12 +61,19 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
       return payload as { data: HrmCustomField[]; canManage: boolean };
     },
   });
-  const createMutation = useMutation({
+  const invalidateFields = () =>
+    queryClient.invalidateQueries({
+      queryKey: ['hrm-custom-fields', shopId],
+    });
+  const saveMutation = useMutation({
     mutationFn: async () => {
+      const url = editingField
+        ? `/api/shops/${encodeURIComponent(shopId)}/hrm/custom-fields/${encodeURIComponent(editingField.id)}`
+        : `/api/shops/${encodeURIComponent(shopId)}/hrm/custom-fields`;
       const response = await fetch(
-        `/api/shops/${encodeURIComponent(shopId)}/hrm/custom-fields`,
+        url,
         {
-          method: 'POST',
+          method: editingField ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ...form,
@@ -67,6 +81,7 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
               .split(',')
               .map((value) => value.trim())
               .filter(Boolean),
+            ...(editingField ? { active: editingField.active } : {}),
           }),
         },
       );
@@ -76,15 +91,76 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
       }
     },
     onSuccess: () => {
-      toast.success('Đã tạo trường hồ sơ');
+      toast.success(editingField ? 'Đã cập nhật trường' : 'Đã tạo trường hồ sơ');
       setOpen(false);
       setForm(EMPTY_FORM);
-      void queryClient.invalidateQueries({
-        queryKey: ['hrm-custom-fields', shopId],
-      });
+      setEditingField(null);
+      void invalidateFields();
     },
     onError: (error: Error) => toast.error(error.message),
   });
+  const toggleMutation = useMutation({
+    mutationFn: async (field: HrmCustomField) => {
+      const response = await fetch(
+        `/api/shops/${encodeURIComponent(shopId)}/hrm/custom-fields/${encodeURIComponent(field.id)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            label: field.label,
+            field_type: field.fieldType,
+            options: field.options,
+            required: field.required,
+            active: !field.active,
+          }),
+        },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? 'Không thể đổi trạng thái.');
+      }
+    },
+    onSuccess: () => {
+      toast.success('Đã cập nhật trạng thái trường');
+      void invalidateFields();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: async (field: HrmCustomField) => {
+      const response = await fetch(
+        `/api/shops/${encodeURIComponent(shopId)}/hrm/custom-fields/${encodeURIComponent(field.id)}`,
+        { method: 'DELETE' },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? 'Không thể xóa trường.');
+      }
+    },
+    onSuccess: () => {
+      toast.success('Đã xóa trường tùy chỉnh');
+      setDeleteField(null);
+      void invalidateFields();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  function openCreate() {
+    setEditingField(null);
+    setForm(EMPTY_FORM);
+    setOpen(true);
+  }
+  function openEdit(field: HrmCustomField) {
+    setEditingField(field);
+    setForm({
+      key: field.key,
+      label: field.label,
+      field_type: field.fieldType,
+      options: field.options.join(', '),
+      required: field.required,
+      tenant_wide: false,
+    });
+    setOpen(true);
+  }
   const columns: Column<HrmCustomField>[] = [
     { key: 'label', label: 'Tên trường' },
     { key: 'key', label: 'Mã field' },
@@ -97,6 +173,58 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
       key: 'required',
       label: 'Bắt buộc',
       render: (row) => (row.required ? 'Có' : 'Không'),
+    },
+    {
+      key: 'usageCount',
+      label: 'Đang dùng',
+      render: (row) => `${row.usageCount} hồ sơ`,
+    },
+    {
+      key: 'active',
+      label: 'Trạng thái',
+      render: (row) => (
+        <TagBadge label={row.active ? 'Đang dùng' : 'Đã tắt'} />
+      ),
+    },
+    {
+      key: 'actions',
+      label: '',
+      render: (row) =>
+        query.data?.canManage ? (
+          <div className="flex justify-end gap-1">
+            <button
+              type="button"
+              onClick={() => openEdit(row)}
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+              aria-label={`Sửa ${row.label}`}
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleMutation.mutate(row)}
+              disabled={toggleMutation.isPending}
+              className="rounded-lg p-2 text-amber-600 hover:bg-amber-50 disabled:opacity-40"
+              aria-label={row.active ? `Tắt ${row.label}` : `Bật ${row.label}`}
+            >
+              <Power className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeleteField(row)}
+              disabled={row.usageCount > 0}
+              className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-30"
+              aria-label={`Xóa ${row.label}`}
+              title={
+                row.usageCount > 0
+                  ? 'Field đã có dữ liệu, chỉ có thể ngừng sử dụng'
+                  : 'Xóa field'
+              }
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ) : null,
     },
   ];
 
@@ -112,7 +240,7 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
         {query.data?.canManage && (
           <button
             type="button"
-            onClick={() => setOpen(true)}
+            onClick={openCreate}
             className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
@@ -134,24 +262,34 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
       />
       <SlideOver
         open={open}
-        onClose={() => setOpen(false)}
-        title="Thêm trường hồ sơ"
+        onClose={() => {
+          setOpen(false);
+          setEditingField(null);
+        }}
+        title={editingField ? 'Sửa trường hồ sơ' : 'Thêm trường hồ sơ'}
         footer={
           <>
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={() => {
+                setOpen(false);
+                setEditingField(null);
+              }}
               className="rounded-xl border border-slate-200 px-4 py-2 text-sm"
             >
               Hủy
             </button>
             <button
               type="button"
-              disabled={createMutation.isPending || !form.key || !form.label}
-              onClick={() => createMutation.mutate()}
+              disabled={saveMutation.isPending || !form.key || !form.label}
+              onClick={() => saveMutation.mutate()}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {createMutation.isPending ? 'Đang lưu...' : 'Tạo trường'}
+              {saveMutation.isPending
+                ? 'Đang lưu...'
+                : editingField
+                  ? 'Lưu thay đổi'
+                  : 'Tạo trường'}
             </button>
           </>
         }
@@ -170,13 +308,14 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
             Mã field
             <input
               value={form.key}
+              disabled={Boolean(editingField)}
               onChange={(event) =>
                 setForm({
                   ...form,
                   key: event.target.value.toLowerCase().replace(/\s+/g, '_'),
                 })
               }
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 disabled:bg-slate-50"
               placeholder="so_chung_chi"
             />
           </label>
@@ -184,8 +323,9 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
             Kiểu dữ liệu
             <select
               value={form.field_type}
+              disabled={Boolean(editingField)}
               onChange={(event) => setForm({ ...form, field_type: event.target.value })}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 disabled:bg-slate-50"
             >
               {Object.entries(TYPE_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
@@ -210,16 +350,32 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
             />
             Bắt buộc nhập
           </label>
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={form.tenant_wide}
-              onChange={(event) => setForm({ ...form, tenant_wide: event.target.checked })}
-            />
-            Áp dụng toàn tenant
-          </label>
+          {!editingField && (
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.tenant_wide}
+                onChange={(event) =>
+                  setForm({ ...form, tenant_wide: event.target.checked })
+                }
+              />
+              Áp dụng toàn tenant
+            </label>
+          )}
         </div>
       </SlideOver>
+      <ConfirmDialog
+        open={Boolean(deleteField)}
+        onClose={() => setDeleteField(null)}
+        onConfirm={() => {
+          if (deleteField) deleteMutation.mutate(deleteField);
+        }}
+        title="Xóa trường tùy chỉnh?"
+        description="Chỉ field chưa có dữ liệu mới được xóa. Thao tác này không thể hoàn tác."
+        confirmLabel="Xóa field"
+        variant="danger"
+        loading={deleteMutation.isPending}
+      />
     </div>
   );
 }

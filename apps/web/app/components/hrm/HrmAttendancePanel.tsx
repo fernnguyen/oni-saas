@@ -31,6 +31,8 @@ export function HrmAttendancePanel({ shopId }: { shopId: string }) {
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ['hrm-attendance', shopId],
+    staleTime: 0,
+    refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(
         `/api/shops/${encodeURIComponent(shopId)}/hrm/attendance`,

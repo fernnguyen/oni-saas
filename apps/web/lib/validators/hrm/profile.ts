@@ -57,3 +57,32 @@ export const attendanceActionSchema = z.object({
   action: z.enum(['check_in', 'check_out']),
   employee_id: z.string().trim().min(1).optional(),
 });
+
+export const updateHrmCustomFieldSchema = z
+  .object({
+    label: z.string().trim().min(1, 'Tên field là bắt buộc').max(255),
+    field_type: z.enum([
+      'text',
+      'number',
+      'date',
+      'boolean',
+      'select',
+      'multiselect',
+    ]),
+    options: z.array(z.string().trim().min(1).max(100)).max(50).default([]),
+    required: z.boolean(),
+    active: z.boolean(),
+  })
+  .superRefine((input, context) => {
+    if (
+      (input.field_type === 'select' ||
+        input.field_type === 'multiselect') &&
+      input.options.length === 0
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['options'],
+        message: 'Trường lựa chọn cần ít nhất một giá trị.',
+      });
+    }
+  });

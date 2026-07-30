@@ -42,10 +42,12 @@ export async function PATCH(
         );
       }
     }
-    const definitions = await access.repository.listCustomFields();
-    const customData: Record<string, unknown> = {};
+    const definitions = await access.repository.listCustomFields({
+      includeInactive: true,
+    });
+    const customData = await access.repository.getEmployeeCustomData(employeeId);
 
-    for (const definition of definitions) {
+    for (const definition of definitions.filter((field) => field.active)) {
       const value = input.custom_data[definition.key];
       const isEmpty =
         value === undefined ||
@@ -63,7 +65,10 @@ export async function PATCH(
           { status: 400 },
         );
       }
-      if (isEmpty) continue;
+      if (isEmpty) {
+        delete customData[definition.key];
+        continue;
+      }
 
       const isValid =
         (definition.fieldType === 'text' && typeof value === 'string') ||

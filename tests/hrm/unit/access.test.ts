@@ -4,6 +4,7 @@ import type { Pool } from 'pg';
 
 import {
   HrmAttendanceStateError,
+  HrmCustomFieldInUseError,
   HrmDepartmentScopeError,
   HrmSchemaNotReadyError,
   PostgresHrmRepository,
@@ -519,6 +520,124 @@ test('creating a custom field casts shared tenant parameters consistently', asyn
 
   assert.match(queryText, /\$2::varchar/);
   assert.match(queryText, /where tenant_id = \$2::varchar/);
+});
+
+test('custom field settings include inactive fields and profile usage counts', async () => {
+  let queryValues: unknown[] = [];
+  let queryText = '';
+  const pool = {
+    async query(text: string, values: unknown[]) {
+      queryText = text;
+      queryValues = values;
+      return {
+        rows: [
+          {
+            id: 'HRMF-1',
+            key: 'uniform_size',
+            label: 'Cỡ đồng phục',
+            field_type: 'text',
+            options: [],
+            required: 0,
+            active: 0,
+            sort_order: 1,
+            usage_count: '2',
+          },
+        ],
+      };
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  const fields = await scopedRepository.listCustomFields({
+    includeInactive: true,
+  });
+
+  assert.equal(fields[0]?.active, false);
+  assert.equal(fields[0]?.usageCount, 2);
+  assert.deepEqual(queryValues, ['tenant-1', 'shop-1', true]);
+  assert.match(queryText, /custom_data \? d\.key/i);
+});
+
+test('a custom field with profile data cannot be hard-deleted', async () => {
+  const client = {
+    async query(text: string) {
+      if (/from hrm_custom_field_definitions d/i.test(text)) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              key: 'uniform_size',
+              branch_id: 'shop-1',
+              usage_count: 1,
+            },
+          ],
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  await assert.rejects(
+    scopedRepository.deleteUnusedCustomField('HRMF-1'),
+    (error: unknown) =>
+      error instanceof HrmCustomFieldInUseError &&
+      error.code === 'HRM_CUSTOM_FIELD_IN_USE',
+  );
+});
+
+test('an unused custom field can be hard-deleted inside one transaction', async () => {
+  const statements: string[] = [];
+  const client = {
+    async query(text: string) {
+      statements.push(text);
+      if (/from hrm_custom_field_definitions d/i.test(text)) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              key: 'uniform_size',
+              branch_id: 'shop-1',
+              usage_count: 0,
+            },
+          ],
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  await scopedRepository.deleteUnusedCustomField('HRMF-1');
+
+  assert.equal(
+    statements.some((statement) =>
+      /delete from hrm_custom_field_definitions/i.test(statement),
+    ),
+    true,
+  );
+  assert.match(statements.at(-1) ?? '', /commit/i);
 });
 
 test('clock-out rejects an employee without an open attendance record', async () => {

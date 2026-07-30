@@ -53,15 +53,19 @@ function respondError(error: unknown) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ shopId: string }> },
 ) {
   try {
     const { shopId } = await params;
     const access = await requireHrmAccess(shopId, 'hrm.view');
+    const canManage = access.permissions.includes('hrm.settings.manage');
+    const includeInactive =
+      canManage &&
+      new URL(request.url).searchParams.get('include_inactive') === '1';
     return NextResponse.json({
-      data: await access.repository.listCustomFields(),
-      canManage: access.permissions.includes('hrm.settings.manage'),
+      data: await access.repository.listCustomFields({ includeInactive }),
+      canManage,
     });
   } catch (error) {
     return respondError(error);

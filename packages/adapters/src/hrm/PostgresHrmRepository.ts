@@ -55,7 +55,9 @@ export interface HrmCustomFieldDefinition {
   fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect';
   options: string[];
   required: boolean;
+  active: boolean;
   sortOrder: number;
+  usageCount: number;
 }
 
 export interface HrmAttendanceRow {
@@ -85,6 +87,24 @@ export class HrmDepartmentScopeError extends Error {
   constructor() {
     super('Phòng ban không tồn tại hoặc không thuộc cửa hàng này.');
     this.name = 'HrmDepartmentScopeError';
+  }
+}
+
+export class HrmCustomFieldNotFoundError extends Error {
+  readonly code = 'HRM_CUSTOM_FIELD_NOT_FOUND';
+
+  constructor() {
+    super('Trường tùy chỉnh không tồn tại trong phạm vi cửa hàng này.');
+    this.name = 'HrmCustomFieldNotFoundError';
+  }
+}
+
+export class HrmCustomFieldInUseError extends Error {
+  readonly code = 'HRM_CUSTOM_FIELD_IN_USE';
+
+  constructor() {
+    super('Trường đang có dữ liệu và chỉ có thể ngừng sử dụng.');
+    this.name = 'HrmCustomFieldInUseError';
   }
 }
 
@@ -371,7 +391,9 @@ export class PostgresHrmRepository {
     });
   }
 
-  async listCustomFields(): Promise<HrmCustomFieldDefinition[]> {
+  async listCustomFields(
+    options: { includeInactive?: boolean } = {},
+  ): Promise<HrmCustomFieldDefinition[]> {
     const result = await this.pool.query<{
       id: string;
       key: string;
@@ -379,17 +401,32 @@ export class PostgresHrmRepository {
       field_type: HrmCustomFieldDefinition['fieldType'];
       options: string[] | null;
       required: number;
+      active: number;
       sort_order: number;
+      usage_count: number | string;
     }>(
       `
-        select id, key, label, field_type, options, required, sort_order
-        from hrm_custom_field_definitions
-        where tenant_id = $1
-          and active = 1
-          and (branch_id is null or branch_id = $2)
-        order by sort_order asc, label asc
+        select
+          d.id, d.key, d.label, d.field_type, d.options, d.required,
+          d.active, d.sort_order,
+          (
+            select count(*)::integer
+            from hrm_employee_profiles p
+            where p.tenant_id = d.tenant_id
+              and (d.branch_id is null or p.branch_id = d.branch_id)
+              and p.custom_data ? d.key
+          ) as usage_count
+        from hrm_custom_field_definitions d
+        where d.tenant_id = $1
+          and ($3::boolean or d.active = 1)
+          and (d.branch_id is null or d.branch_id = $2)
+        order by d.active desc, d.sort_order asc, d.label asc
       `,
-      [this.scope.tenantId, this.scope.branchId],
+      [
+        this.scope.tenantId,
+        this.scope.branchId,
+        options.includeInactive === true,
+      ],
     );
     return result.rows.map((row) => ({
       id: row.id,
@@ -398,8 +435,29 @@ export class PostgresHrmRepository {
       fieldType: row.field_type,
       options: Array.isArray(row.options) ? row.options : [],
       required: row.required === 1,
+      active: row.active === 1,
       sortOrder: row.sort_order,
+      usageCount: Number(row.usage_count ?? 0),
     }));
+  }
+
+  async getEmployeeCustomData(
+    employeeId: string,
+  ): Promise<Record<string, unknown>> {
+    const result = await this.pool.query<{
+      custom_data: Record<string, unknown> | null;
+    }>(
+      `
+        select p.custom_data
+        from employees e
+        left join hrm_employee_profiles p
+          on p.tenant_id = e.tenant_id and p.source_employee_id = e.id
+        where e.id = $1 and e.tenant_id = $2 and e.branch_id = $3
+        limit 1
+      `,
+      [employeeId, this.scope.tenantId, this.scope.branchId],
+    );
+    return result.rows[0]?.custom_data ?? {};
   }
 
   async createCustomField(input: {
@@ -438,6 +496,82 @@ export class PostgresHrmRepository {
         input.required ? 1 : 0,
       ],
     );
+  }
+
+  async updateCustomField(input: {
+    id: string;
+    label: string;
+    options: string[];
+    required: boolean;
+    active: boolean;
+  }): Promise<void> {
+    const result = await this.pool.query(
+      `
+        update hrm_custom_field_definitions
+        set label = $4,
+            options = $5::jsonb,
+            required = $6,
+            active = $7,
+            updated_at = now()
+        where id = $1
+          and tenant_id = $2
+          and (branch_id is null or branch_id = $3)
+        returning id
+      `,
+      [
+        input.id,
+        this.scope.tenantId,
+        this.scope.branchId,
+        input.label,
+        JSON.stringify(input.options),
+        input.required ? 1 : 0,
+        input.active ? 1 : 0,
+      ],
+    );
+    if (result.rowCount !== 1) throw new HrmCustomFieldNotFoundError();
+  }
+
+  async deleteUnusedCustomField(fieldId: string): Promise<void> {
+    await this.withTransaction(async (client, scope) => {
+      const field = await client.query<{
+        key: string;
+        branch_id: string | null;
+        usage_count: number | string;
+      }>(
+        `
+          select
+            d.key,
+            d.branch_id,
+            (
+              select count(*)::integer
+              from hrm_employee_profiles p
+              where p.tenant_id = d.tenant_id
+                and (d.branch_id is null or p.branch_id = d.branch_id)
+                and p.custom_data ? d.key
+            ) as usage_count
+          from hrm_custom_field_definitions d
+          where d.id = $1
+            and d.tenant_id = $2
+            and (d.branch_id is null or d.branch_id = $3)
+          limit 1
+          for update of d
+        `,
+        [fieldId, scope.tenantId, scope.branchId],
+      );
+      const definition = field.rows[0];
+      if (!definition) throw new HrmCustomFieldNotFoundError();
+      if (Number(definition.usage_count) > 0) {
+        throw new HrmCustomFieldInUseError();
+      }
+
+      await client.query(
+        `
+          delete from hrm_custom_field_definitions
+          where id = $1 and tenant_id = $2
+        `,
+        [fieldId, scope.tenantId],
+      );
+    });
   }
 
   async getEmployeeIdForAuthUser(authUserId: string): Promise<string | null> {
