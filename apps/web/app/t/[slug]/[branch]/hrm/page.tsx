@@ -1,11 +1,21 @@
-import type { Metadata } from 'next';
-import { HrmModuleLanding } from '@/app/components/hrm/HrmModuleLanding';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = {
-  title: 'Quản lý nhân sự HRM | ONI.vn',
-  description: 'Quản lý hồ sơ nhân sự, chấm công và tiền lương trên ONI.',
-};
+interface Props {
+  params: Promise<{ slug: string; branch: string }>;
+}
 
-export default function HrmPage() {
-  return <HrmModuleLanding />;
+/**
+ * /hrm root → redirect to /hrm/dashboard
+ *
+ * IMPORTANT: The app uses subdomain routing — the browser URL is:
+ *   https://[slug].oni.vn/[branch]/hrm/...
+ *
+ * The middleware rewrites it internally to /t/[slug]/[branch]/... for
+ * Next.js routing, but redirect() must use the public-facing path
+ * (without /t/[slug]) to avoid being blocked by the middleware guard
+ * that prevents direct access to /t/ from the main domain.
+ */
+export default async function HrmRootPage({ params }: Props) {
+  const { branch } = await params;
+  redirect(`/${branch}/hrm/dashboard`);
 }

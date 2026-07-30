@@ -995,29 +995,29 @@ Quy ước integration:
 
 ### HRM-403 — Payroll run API
 
-- [ ] Tạo kỳ lương draft.
-- [ ] Tính/recalculate toàn kỳ.
-- [ ] Không tạo hai kỳ trùng shop và khoảng ngày.
-- [ ] Chỉnh từng payroll item trong draft.
-- [ ] Yêu cầu lý do khi chỉnh tay.
-- [ ] Finalize và khóa snapshot.
-- [ ] Không cho sửa finalized/paid.
-- [ ] Dùng compare-and-swap theo `version` để tránh hai tab recalculate/chốt cùng kỳ; conflict trả 409 và không ghi một phần.
-- [ ] Recalculate và finalize idempotent theo trạng thái/version.
+- [x] Tạo kỳ lương draft.
+- [x] Tính/recalculate toàn kỳ.
+- [x] Không tạo hai kỳ trùng shop và khoảng ngày.
+- [x] Chỉnh từng payroll item trong draft.
+- [x] Yêu cầu lý do khi chỉnh tay.
+- [x] Finalize và khóa snapshot.
+- [x] Không cho sửa finalized/paid.
+- [x] Dùng compare-and-swap theo `version` để tránh hai tab recalculate/chốt cùng kỳ; conflict trả 409 và không ghi một phần.
+- [x] Recalculate và finalize idempotent theo trạng thái/version.
 
 **Phụ thuộc:** HRM-304, HRM-402, HRM-402B.
 
 ### HRM-404 — Payroll UI cho owner
 
-- [ ] Chọn kỳ lương.
-- [ ] Hiển thị công và cấu phần lương.
-- [ ] Sửa phụ cấp/thưởng/khấu trừ.
-- [ ] Hiển thị chênh lệch sau recalculation.
-- [ ] Chốt bảng lương.
-- [ ] Export Excel.
-- [ ] Không triển khai màn hình approval nhiều cấp.
-- [ ] Chốt lương dùng `useConfirm()` với tổng tiền và số nhân viên.
-- [ ] Không hiển thị payroll qua toast, URL query hoặc client log.
+- [x] Chọn kỳ lương.
+- [x] Hiển thị công và cấu phần lương.
+- [x] Sửa phụ cấp/thưởng/hoa hồng/khấu trừ.
+- [x] Hiển thị chênh lệch sau recalculation.
+- [x] Chốt bảng lương.
+- [x] Export CSV UTF-8 tương thích Excel.
+- [x] Không triển khai màn hình approval nhiều cấp.
+- [x] Chốt lương dùng `useConfirm()` với tổng tiền và số nhân viên.
+- [x] Không hiển thị payroll qua URL query hoặc client log; toast chỉ hiển thị kết quả tổng hợp, không chứa chi tiết lương.
 
 **Phụ thuộc:** HRM-403.
 

@@ -10,6 +10,8 @@ export interface HrmModuleAccessValue {
   enabled: boolean;
   canUpgrade: boolean;
   shopId: string;
+  /** Public-facing branch slug used to build HRM sub-page links (/{branch}/hrm/*) */
+  branchSlug: string;
 }
 
 const HrmModuleAccessContext = createContext<HrmModuleAccessValue | null>(null);
@@ -19,9 +21,10 @@ export function HrmModuleAccessProvider({
   enabled,
   canUpgrade,
   shopId,
+  branchSlug,
 }: HrmModuleAccessValue & { children: ReactNode }) {
   return (
-    <HrmModuleAccessContext.Provider value={{ enabled, canUpgrade, shopId }}>
+    <HrmModuleAccessContext.Provider value={{ enabled, canUpgrade, shopId, branchSlug }}>
       {children}
     </HrmModuleAccessContext.Provider>
   );
