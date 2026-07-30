@@ -19,6 +19,7 @@ import { HrmEmployeesPanel } from './HrmEmployeesPanel';
 import { HrmAttendancePanel } from './HrmAttendancePanel';
 import { HrmCustomFieldsPanel } from './HrmCustomFieldsPanel';
 import { HrmShiftsPanel } from './HrmShiftsPanel';
+import { HrmSalaryConfigsPanel } from './HrmSalaryConfigsPanel';
 import { requestPlanUpgrade } from '@/lib/subscriptions/upgradeAccess';
 
 const HRM_CAPABILITIES = [
@@ -58,7 +59,7 @@ export function HrmModuleLanding() {
     status: 'loading',
   });
   const [activeTab, setActiveTab] = useState<
-    'employees' | 'attendance' | 'shifts' | 'settings'
+    'employees' | 'attendance' | 'shifts' | 'payroll' | 'settings'
   >('employees');
 
   useEffect(() => {
@@ -267,6 +268,7 @@ export function HrmModuleLanding() {
           { key: 'employees' as const, label: 'Nhân viên', icon: UsersRound },
           { key: 'attendance' as const, label: 'Chấm công', icon: CalendarClock },
           { key: 'shifts' as const, label: 'Ca làm', icon: CalendarCheck2 },
+          { key: 'payroll' as const, label: 'Tiền lương', icon: CircleDollarSign },
           { key: 'settings' as const, label: 'Trường tùy chỉnh', icon: Settings2 },
         ].map((tab) => (
           <button
@@ -292,6 +294,7 @@ export function HrmModuleLanding() {
       )}
       {activeTab === 'attendance' && <HrmAttendancePanel shopId={shopId} />}
       {activeTab === 'shifts' && <HrmShiftsPanel shopId={shopId} />}
+      {activeTab === 'payroll' && <HrmSalaryConfigsPanel shopId={shopId} />}
       {activeTab === 'settings' && <HrmCustomFieldsPanel shopId={shopId} />}
     </section>
   );

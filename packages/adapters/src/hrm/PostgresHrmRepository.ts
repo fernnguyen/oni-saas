@@ -124,6 +124,51 @@ export interface HrmAttendanceUpsertInput {
   actorUserId: string;
 }
 
+
+export interface HrmRecurringAllowance {
+  label: string;
+  amount: number;
+}
+
+export interface HrmSalaryConfiguration {
+  id: string;
+  salaryType: 'monthly' | 'daily' | 'hourly';
+  baseAmount: number;
+  standardWorkDays: number | null;
+  standardWorkHours: number | null;
+  overtimeMultiplier: number;
+  recurringAllowances: HrmRecurringAllowance[];
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  createdAt: string;
+}
+
+export interface HrmEmployeeSalarySummary {
+  employeeId: string;
+  profileId: string | null;
+  employeeCode: string | null;
+  employeeName: string;
+  departmentName: string | null;
+  bankName: string | null;
+  bankAccountMasked: string | null;
+  configurations: HrmSalaryConfiguration[];
+}
+
+export interface CreateHrmSalaryConfigurationInput {
+  id: string;
+  profileId: string;
+  auditId: string;
+  employeeId: string;
+  salaryType: 'monthly' | 'daily' | 'hourly';
+  baseAmount: number;
+  standardWorkDays: number | null;
+  standardWorkHours: number | null;
+  overtimeMultiplier: number;
+  recurringAllowances: HrmRecurringAllowance[];
+  effectiveFrom: string;
+  actorUserId: string;
+}
+
 export class HrmAttendanceStateError extends Error {
   readonly code = 'HRM_ATTENDANCE_INVALID_STATE';
 
@@ -175,6 +220,26 @@ export class HrmShiftInUseError extends Error {
   constructor() {
     super('Ca làm đã được dùng trong bảng công và chỉ có thể ngừng sử dụng.');
     this.name = 'HrmShiftInUseError';
+  }
+}
+
+
+export class HrmSalaryConfigConflictError extends Error {
+  readonly code = 'HRM_SALARY_CONFIG_CONFLICT';
+
+  constructor() {
+    super('Nhân viên đã có cấu hình lương bắt đầu từ ngày này.');
+    this.name = 'HrmSalaryConfigConflictError';
+  }
+}
+
+
+export class HrmSalaryEmployeeNotFoundError extends Error {
+  readonly code = 'HRM_SALARY_EMPLOYEE_NOT_FOUND';
+
+  constructor() {
+    super('Không tìm thấy nhân viên trong chi nhánh hiện tại.');
+    this.name = 'HrmSalaryEmployeeNotFoundError';
   }
 }
 
@@ -1257,6 +1322,261 @@ export class PostgresHrmRepository {
           where id = $1
         `,
         [attendance.id, input.actorUserId],
+      );
+    });
+  }
+
+
+  async listEmployeeSalaryConfigurations(): Promise<HrmEmployeeSalarySummary[]> {
+    const result = await this.pool.query<{
+      employee_id: string;
+      profile_id: string | null;
+      employee_code: string | null;
+      employee_name: string | null;
+      department_name: string | null;
+      bank_name: string | null;
+      bank_account_last4: string | null;
+      config_id: string | null;
+      salary_type: 'monthly' | 'daily' | 'hourly' | null;
+      base_amount: string | number | bigint | null;
+      standard_work_days: number | null;
+      standard_work_hours: string | number | null;
+      overtime_multiplier: string | number | null;
+      recurring_allowances: unknown;
+      effective_from: string | null;
+      effective_to: string | null;
+      config_created_at: Date | string | null;
+    }>(
+      `
+        select
+          e.id as employee_id,
+          p.id as profile_id,
+          e.employee_code,
+          coalesce(e.name, '') as employee_name,
+          d.name as department_name,
+          p.bank_name,
+          p.bank_account_last4,
+          c.id as config_id,
+          c.salary_type,
+          c.base_amount,
+          c.standard_work_days,
+          c.standard_work_hours,
+          c.overtime_multiplier,
+          c.recurring_allowances,
+          c.effective_from::text,
+          c.effective_to::text,
+          c.created_at as config_created_at
+        from employees e
+        left join hrm_employee_profiles p
+          on p.tenant_id = e.tenant_id and p.source_employee_id = e.id
+        left join departments d
+          on d.id = p.department_id
+          and d.tenant_id = e.tenant_id
+          and d.branch_id = e.branch_id
+        left join hrm_salary_configs c
+          on c.tenant_id = e.tenant_id and c.profile_id = p.id
+        where e.tenant_id = $1 and e.branch_id = $2
+          and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
+        order by e.name asc, c.effective_from desc nulls last
+      `,
+      [this.scope.tenantId, this.scope.branchId],
+    );
+
+    const employees = new Map<string, HrmEmployeeSalarySummary>();
+    for (const row of result.rows) {
+      let employee = employees.get(row.employee_id);
+      if (!employee) {
+        employee = {
+          employeeId: row.employee_id,
+          profileId: row.profile_id,
+          employeeCode: row.employee_code,
+          employeeName: row.employee_name ?? '',
+          departmentName: row.department_name,
+          bankName: row.bank_name,
+          bankAccountMasked: row.bank_account_last4
+            ? `****${row.bank_account_last4}`
+            : null,
+          configurations: [],
+        };
+        employees.set(row.employee_id, employee);
+      }
+      if (!row.config_id || !row.salary_type || !row.effective_from) continue;
+      const allowanceRows = Array.isArray(row.recurring_allowances)
+        ? row.recurring_allowances
+        : [];
+      employee.configurations.push({
+        id: row.config_id,
+        salaryType: row.salary_type,
+        baseAmount: Number(row.base_amount ?? 0),
+        standardWorkDays: row.standard_work_days,
+        standardWorkHours:
+          row.standard_work_hours === null
+            ? null
+            : Number(row.standard_work_hours),
+        overtimeMultiplier: Number(row.overtime_multiplier ?? 1),
+        recurringAllowances: allowanceRows
+          .filter(
+            (item): item is { label: string; amount: number } =>
+              typeof item === 'object' &&
+              item !== null &&
+              typeof (item as { label?: unknown }).label === 'string' &&
+              Number.isSafeInteger(
+                Number((item as { amount?: unknown }).amount),
+              ),
+          )
+          .map((item) => ({
+            label: item.label,
+            amount: Number(item.amount),
+          })),
+        effectiveFrom: row.effective_from,
+        effectiveTo: row.effective_to,
+        createdAt: row.config_created_at
+          ? new Date(row.config_created_at).toISOString()
+          : '',
+      });
+    }
+    return [...employees.values()];
+  }
+
+  async createSalaryConfiguration(
+    input: CreateHrmSalaryConfigurationInput,
+  ): Promise<void> {
+    await this.withTransaction(async (client, scope) => {
+      const employee = await client.query<{ profile_id: string | null }>(
+        `
+          select p.id as profile_id
+          from employees e
+          left join hrm_employee_profiles p
+            on p.tenant_id = e.tenant_id and p.source_employee_id = e.id
+          where e.id = $1 and e.tenant_id = $2 and e.branch_id = $3
+            and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
+          limit 1
+          for update of e
+        `,
+        [input.employeeId, scope.tenantId, scope.branchId],
+      );
+      const scopedEmployee = employee.rows[0];
+      if (!scopedEmployee) throw new HrmSalaryEmployeeNotFoundError();
+
+      if (!scopedEmployee.profile_id) {
+        await client.query(
+          `
+            insert into hrm_employee_profiles (
+              id, tenant_id, branch_id, source_employee_id,
+              employment_status, employment_type, custom_data,
+              created_at, updated_at
+            )
+            values ($1, $2, $3, $4, 'active', 'monthly', '{}'::jsonb, now(), now())
+            on conflict (tenant_id, source_employee_id) do nothing
+          `,
+          [input.profileId, scope.tenantId, scope.branchId, input.employeeId],
+        );
+      }
+      const profile = await client.query<{ id: string }>(
+        `
+          select id from hrm_employee_profiles
+          where tenant_id = $1 and branch_id = $2 and source_employee_id = $3
+          limit 1
+        `,
+        [scope.tenantId, scope.branchId, input.employeeId],
+      );
+      const resolvedProfileId = profile.rows[0]?.id;
+      if (!resolvedProfileId) throw new HrmSalaryEmployeeNotFoundError();
+
+      const configs = await client.query<{
+        effective_from: string;
+      }>(
+        `
+          select effective_from::text
+          from hrm_salary_configs
+          where tenant_id = $1 and profile_id = $2
+          order by effective_from asc
+          for update
+        `,
+        [scope.tenantId, resolvedProfileId],
+      );
+      if (
+        configs.rows.some(
+          (configuration) =>
+            configuration.effective_from === input.effectiveFrom,
+        )
+      ) {
+        throw new HrmSalaryConfigConflictError();
+      }
+      const nextEffectiveFrom = configs.rows.find(
+        (configuration) =>
+          configuration.effective_from > input.effectiveFrom,
+      )?.effective_from;
+
+      await client.query(
+        `
+          update hrm_salary_configs
+          set effective_to = ($3::date - interval '1 day')::date
+          where tenant_id = $1 and profile_id = $2
+            and effective_from < $3::date
+            and (effective_to is null or effective_to >= $3::date)
+        `,
+        [scope.tenantId, resolvedProfileId, input.effectiveFrom],
+      );
+      const inserted = await client.query<{ id: string }>(
+        `
+          insert into hrm_salary_configs (
+            id, tenant_id, profile_id, salary_type, base_amount,
+            standard_work_days, standard_work_hours, overtime_multiplier,
+            recurring_allowances, effective_from, effective_to,
+            created_by, created_at
+          )
+          values (
+            $1, $2, $3, $4, $5::bigint,
+            $6, $7, $8, $9::jsonb, $10::date,
+            case when $11::date is null then null
+              else ($11::date - interval '1 day')::date end,
+            $12, now()
+          )
+          returning id
+        `,
+        [
+          input.id,
+          scope.tenantId,
+          resolvedProfileId,
+          input.salaryType,
+          input.baseAmount,
+          input.standardWorkDays,
+          input.standardWorkHours,
+          input.overtimeMultiplier,
+          JSON.stringify(input.recurringAllowances),
+          input.effectiveFrom,
+          nextEffectiveFrom ?? null,
+          input.actorUserId,
+        ],
+      );
+      if (inserted.rowCount !== 1) {
+        throw new Error('HRM salary configuration was not created.');
+      }
+
+      await client.query(
+        `
+          insert into hrm_audit_logs (
+            id, tenant_id, branch_id, actor_user_id,
+            event_type, entity_type, entity_id, summary, created_at
+          )
+          values (
+            $1, $2, $3, $4,
+            'salary_config.created', 'salary_config', $5, $6::jsonb, now()
+          )
+        `,
+        [
+          input.auditId,
+          scope.tenantId,
+          scope.branchId,
+          input.actorUserId,
+          input.id,
+          JSON.stringify({
+            employeeId: input.employeeId,
+            salaryType: input.salaryType,
+            effectiveFrom: input.effectiveFrom,
+          }),
+        ],
       );
     });
   }
