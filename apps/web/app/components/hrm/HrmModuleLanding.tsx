@@ -18,6 +18,7 @@ import { useHrmModuleAccess } from './HrmModuleAccess';
 import { HrmEmployeesPanel } from './HrmEmployeesPanel';
 import { HrmAttendancePanel } from './HrmAttendancePanel';
 import { HrmCustomFieldsPanel } from './HrmCustomFieldsPanel';
+import { HrmShiftsPanel } from './HrmShiftsPanel';
 import { requestPlanUpgrade } from '@/lib/subscriptions/upgradeAccess';
 
 const HRM_CAPABILITIES = [
@@ -57,7 +58,7 @@ export function HrmModuleLanding() {
     status: 'loading',
   });
   const [activeTab, setActiveTab] = useState<
-    'employees' | 'attendance' | 'settings'
+    'employees' | 'attendance' | 'shifts' | 'settings'
   >('employees');
 
   useEffect(() => {
@@ -265,6 +266,7 @@ export function HrmModuleLanding() {
         {[
           { key: 'employees' as const, label: 'Nhân viên', icon: UsersRound },
           { key: 'attendance' as const, label: 'Chấm công', icon: CalendarClock },
+          { key: 'shifts' as const, label: 'Ca làm', icon: CalendarCheck2 },
           { key: 'settings' as const, label: 'Trường tùy chỉnh', icon: Settings2 },
         ].map((tab) => (
           <button
@@ -289,6 +291,7 @@ export function HrmModuleLanding() {
         </div>
       )}
       {activeTab === 'attendance' && <HrmAttendancePanel shopId={shopId} />}
+      {activeTab === 'shifts' && <HrmShiftsPanel shopId={shopId} />}
       {activeTab === 'settings' && <HrmCustomFieldsPanel shopId={shopId} />}
     </section>
   );

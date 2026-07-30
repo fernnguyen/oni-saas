@@ -7,6 +7,7 @@ import {
   HrmCustomFieldInUseError,
   HrmDepartmentScopeError,
   HrmSchemaNotReadyError,
+  HrmShiftInUseError,
   PostgresHrmRepository,
   type CreatePostgresHrmRepositoryInput,
 } from '../../../packages/adapters/src/hrm';
@@ -672,4 +673,82 @@ test('clock-out rejects an employee without an open attendance record', async ()
       error.code === 'HRM_ATTENDANCE_INVALID_STATE',
   );
   assert.match(attendanceQuery, /a\.work_date\s*=/i);
+});
+
+test('shift settings include inactive templates and attendance usage counts', async () => {
+  let queryValues: unknown[] = [];
+  let queryText = '';
+  const pool = {
+    async query(text: string, values: unknown[]) {
+      queryText = text;
+      queryValues = values;
+      return {
+        rows: [
+          {
+            id: 'HRMS-1',
+            name: 'Ca tối',
+            start_time: '22:00:00',
+            end_time: '06:00:00',
+            break_minutes: 30,
+            late_grace_minutes: 5,
+            active: 0,
+            usage_count: '3',
+          },
+        ],
+      };
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  const shifts = await scopedRepository.listShiftTemplates({
+    includeInactive: true,
+  });
+
+  assert.deepEqual(shifts[0], {
+    id: 'HRMS-1',
+    name: 'Ca tối',
+    startTime: '22:00',
+    endTime: '06:00',
+    breakMinutes: 30,
+    lateGraceMinutes: 5,
+    active: false,
+    usageCount: 3,
+  });
+  assert.deepEqual(queryValues, ['tenant-1', 'shop-1', true]);
+  assert.match(queryText, /from hrm_shift_templates s/i);
+  assert.match(queryText, /from hrm_attendance_days a/i);
+});
+
+test('an in-use shift template cannot be hard-deleted', async () => {
+  const client = {
+    async query(text: string) {
+      if (/from hrm_shift_templates s/i.test(text)) {
+        return {
+          rowCount: 1,
+          rows: [{ usage_count: 1 }],
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  await assert.rejects(
+    scopedRepository.deleteUnusedShiftTemplate('HRMS-1'),
+    (error: unknown) =>
+      error instanceof HrmShiftInUseError &&
+      error.code === 'HRM_SHIFT_IN_USE',
+  );
 });

@@ -72,6 +72,17 @@ export interface HrmAttendanceRow {
   status: string | null;
 }
 
+export interface HrmShiftTemplate {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes: number;
+  lateGraceMinutes: number;
+  active: boolean;
+  usageCount: number;
+}
+
 export class HrmAttendanceStateError extends Error {
   readonly code = 'HRM_ATTENDANCE_INVALID_STATE';
 
@@ -105,6 +116,24 @@ export class HrmCustomFieldInUseError extends Error {
   constructor() {
     super('Trường đang có dữ liệu và chỉ có thể ngừng sử dụng.');
     this.name = 'HrmCustomFieldInUseError';
+  }
+}
+
+export class HrmShiftNotFoundError extends Error {
+  readonly code = 'HRM_SHIFT_NOT_FOUND';
+
+  constructor() {
+    super('Ca làm không tồn tại trong cửa hàng này.');
+    this.name = 'HrmShiftNotFoundError';
+  }
+}
+
+export class HrmShiftInUseError extends Error {
+  readonly code = 'HRM_SHIFT_IN_USE';
+
+  constructor() {
+    super('Ca làm đã được dùng trong bảng công và chỉ có thể ngừng sử dụng.');
+    this.name = 'HrmShiftInUseError';
   }
 }
 
@@ -585,6 +614,156 @@ export class PostgresHrmRepository {
       [this.scope.tenantId, this.scope.branchId, authUserId],
     );
     return result.rows[0]?.source_employee_id ?? null;
+  }
+
+  async listShiftTemplates(
+    options: { includeInactive?: boolean } = {},
+  ): Promise<HrmShiftTemplate[]> {
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      start_time: string;
+      end_time: string;
+      break_minutes: number;
+      late_grace_minutes: number;
+      active: number;
+      usage_count: number | string;
+    }>(
+      `
+        select
+          s.id, s.name, s.start_time::text, s.end_time::text,
+          s.break_minutes, s.late_grace_minutes, s.active,
+          (
+            select count(*)::integer
+            from hrm_attendance_days a
+            where a.tenant_id = s.tenant_id
+              and a.branch_id = s.branch_id
+              and a.shift_template_id = s.id
+          ) as usage_count
+        from hrm_shift_templates s
+        where s.tenant_id = $1 and s.branch_id = $2
+          and ($3::boolean or s.active = 1)
+        order by s.active desc, s.start_time asc, s.name asc
+      `,
+      [
+        this.scope.tenantId,
+        this.scope.branchId,
+        options.includeInactive === true,
+      ],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      startTime: row.start_time.slice(0, 5),
+      endTime: row.end_time.slice(0, 5),
+      breakMinutes: row.break_minutes,
+      lateGraceMinutes: row.late_grace_minutes,
+      active: row.active === 1,
+      usageCount: Number(row.usage_count ?? 0),
+    }));
+  }
+
+  async createShiftTemplate(input: {
+    id: string;
+    name: string;
+    startTime: string;
+    endTime: string;
+    breakMinutes: number;
+    lateGraceMinutes: number;
+  }): Promise<void> {
+    await this.pool.query(
+      `
+        insert into hrm_shift_templates (
+          id, tenant_id, branch_id, name, start_time, end_time,
+          break_minutes, late_grace_minutes, active, created_at, updated_at
+        )
+        values (
+          $1, $2::varchar, $3::varchar, $4, $5::time, $6::time,
+          $7, $8, 1, now(), now()
+        )
+      `,
+      [
+        input.id,
+        this.scope.tenantId,
+        this.scope.branchId,
+        input.name,
+        input.startTime,
+        input.endTime,
+        input.breakMinutes,
+        input.lateGraceMinutes,
+      ],
+    );
+  }
+
+  async updateShiftTemplate(input: {
+    id: string;
+    name: string;
+    startTime: string;
+    endTime: string;
+    breakMinutes: number;
+    lateGraceMinutes: number;
+    active: boolean;
+  }): Promise<void> {
+    const result = await this.pool.query(
+      `
+        update hrm_shift_templates
+        set name = $4,
+            start_time = $5::time,
+            end_time = $6::time,
+            break_minutes = $7,
+            late_grace_minutes = $8,
+            active = $9,
+            updated_at = now()
+        where id = $1 and tenant_id = $2 and branch_id = $3
+        returning id
+      `,
+      [
+        input.id,
+        this.scope.tenantId,
+        this.scope.branchId,
+        input.name,
+        input.startTime,
+        input.endTime,
+        input.breakMinutes,
+        input.lateGraceMinutes,
+        input.active ? 1 : 0,
+      ],
+    );
+    if (result.rowCount !== 1) throw new HrmShiftNotFoundError();
+  }
+
+  async deleteUnusedShiftTemplate(shiftId: string): Promise<void> {
+    await this.withTransaction(async (client, scope) => {
+      const shift = await client.query<{
+        usage_count: number | string;
+      }>(
+        `
+          select (
+            select count(*)::integer
+            from hrm_attendance_days a
+            where a.tenant_id = s.tenant_id
+              and a.branch_id = s.branch_id
+              and a.shift_template_id = s.id
+          ) as usage_count
+          from hrm_shift_templates s
+          where s.id = $1 and s.tenant_id = $2 and s.branch_id = $3
+          limit 1
+          for update of s
+        `,
+        [shiftId, scope.tenantId, scope.branchId],
+      );
+      const template = shift.rows[0];
+      if (!template) throw new HrmShiftNotFoundError();
+      if (Number(template.usage_count) > 0) throw new HrmShiftInUseError();
+
+      await client.query(
+        `
+          delete from hrm_shift_templates
+          where id = $1 and tenant_id = $2 and branch_id = $3
+        `,
+        [shiftId, scope.tenantId, scope.branchId],
+      );
+    });
   }
 
   async listTodayAttendance(): Promise<HrmAttendanceRow[]> {
