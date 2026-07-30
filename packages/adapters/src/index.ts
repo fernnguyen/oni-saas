@@ -6,3 +6,4 @@ export * from './postgresAdapter';
 export * from './factory';
 export * from './transaction';
 export * from './cache';
+export * from './hrm';

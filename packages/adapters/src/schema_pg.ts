@@ -820,3 +820,4 @@ export const tax_locked_periods = pgTable('tax_locked_periods', {
   locked_by: varchar('locked_by', { length: 255 }),
 });
 
+export * from './hrm/schema';
