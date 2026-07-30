@@ -12,7 +12,9 @@ supabase/.temp
 .codex
 .pnpm-store
 scratch/
-tests/
+tests/*
+!tests/hrm/
+!tests/hrm/**
 # Firebase credentials
 google-services.json
 GoogleService-Info.plist
