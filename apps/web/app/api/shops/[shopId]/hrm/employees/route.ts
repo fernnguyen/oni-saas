@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
+import { HrmDepartmentScopeError } from '@oni/adapters';
 import {
   HrmAccessError,
   requireHrmAccess,
@@ -25,6 +26,12 @@ function errorResponse(error: unknown) {
           message: error.issues[0]?.message ?? 'Dữ liệu không hợp lệ.',
         },
       },
+      { status: 400 },
+    );
+  }
+  if (error instanceof HrmDepartmentScopeError) {
+    return NextResponse.json(
+      { error: { code: error.code, message: error.message } },
       { status: 400 },
     );
   }
@@ -79,6 +86,7 @@ export async function POST(
       name: input.name,
       phone: input.phone,
       jobTitle: input.job_title,
+      departmentId: input.department_id,
       employmentType: input.employment_type,
       joinedAt: input.joined_at,
       email: input.email,

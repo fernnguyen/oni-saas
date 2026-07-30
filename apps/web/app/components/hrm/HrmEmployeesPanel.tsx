@@ -10,15 +10,29 @@ import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SearchBar } from '@/app/components/ui/SearchBar';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { TagBadge } from '@/app/components/ui/TagBadge';
+import type { HrmCustomField } from './HrmCustomFieldsPanel';
 
 interface HrmEmployeeSummary {
   id: string;
+  profileId: string | null;
+  authUserId: string | null;
   employeeCode: string | null;
   name: string;
   phone: string | null;
   jobTitle: string | null;
   employmentStatus: string;
+  employmentType: string;
   joinedAt: string | null;
+  email: string | null;
+  address: string | null;
+  departmentId: string | null;
+  departmentName: string | null;
+  customData: Record<string, unknown>;
+}
+
+interface HrmDepartmentOption {
+  id: string;
+  name: string;
 }
 
 interface HrmEmployeeListResponse {
@@ -32,7 +46,9 @@ const EMPTY_FORM = {
   employee_code: '',
   phone: '',
   job_title: '',
+  department_id: '',
   employment_type: 'monthly',
+  employment_status: 'active',
   joined_at: '',
   email: '',
   address: '',
@@ -44,6 +60,9 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
   const [debouncedSearch] = useDebounce(search, 300);
   const [slideOpen, setSlideOpen] = useState(false);
   const [formData, setFormData] = useState(EMPTY_FORM);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [customData, setCustomData] = useState<Record<string, unknown>>({});
+  const [linkedUserId, setLinkedUserId] = useState('');
 
   const employeesQuery = useQuery({
     queryKey: ['hrm-employees', shopId, debouncedSearch],
@@ -64,14 +83,77 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
     },
   });
 
-  const createMutation = useMutation({
-    mutationFn: async () => {
+  const customFieldsQuery = useQuery({
+    queryKey: ['hrm-custom-fields', shopId],
+    queryFn: async () => {
       const response = await fetch(
-        `/api/shops/${encodeURIComponent(shopId)}/hrm/employees`,
+        `/api/shops/${encodeURIComponent(shopId)}/hrm/custom-fields`,
+        { cache: 'no-store' },
+      );
+      const payload = await response.json();
+      if (!response.ok) throw new Error('Không tải được trường tùy chỉnh.');
+      return payload as { data: HrmCustomField[]; canManage: boolean };
+    },
+  });
+  const departmentsQuery = useQuery({
+    queryKey: ['departments', shopId],
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/shops/${encodeURIComponent(shopId)}/departments?limit=500`,
+        { cache: 'no-store' },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error('Không tải được danh sách phòng ban.');
+      }
+      return payload as { data: HrmDepartmentOption[]; total: number };
+    },
+  });
+  const usersQuery = useQuery({
+    queryKey: ['hrm-linkable-users', shopId],
+    enabled: Boolean(
+      employeesQuery.data?.canManage && editingId && slideOpen,
+    ),
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/shops/${encodeURIComponent(shopId)}/hrm/users`,
+        { cache: 'no-store' },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          payload.error?.message ?? 'Không tải được danh sách tài khoản.',
+        );
+      }
+      return payload as {
+        data: Array<{
+          userId: string;
+          username: string;
+          displayName: string | null;
+        }>;
+      };
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const url = editingId
+        ? `/api/shops/${encodeURIComponent(shopId)}/hrm/employees/${encodeURIComponent(editingId)}`
+        : `/api/shops/${encodeURIComponent(shopId)}/hrm/employees`;
+      const response = await fetch(
+        url,
         {
-          method: 'POST',
+          method: editingId ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData),
+          body: JSON.stringify(
+            editingId
+              ? {
+                  ...formData,
+                  auth_user_id: linkedUserId || null,
+                  custom_data: customData,
+                }
+              : formData,
+          ),
         },
       );
       const payload = await response.json();
@@ -81,9 +163,12 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
       return payload;
     },
     onSuccess: () => {
-      toast.success('Đã thêm nhân viên');
+      toast.success(editingId ? 'Đã cập nhật hồ sơ' : 'Đã thêm nhân viên');
       setSlideOpen(false);
       setFormData(EMPTY_FORM);
+      setEditingId(null);
+      setCustomData({});
+      setLinkedUserId('');
       void queryClient.invalidateQueries({
         queryKey: ['hrm-employees', shopId],
       });
@@ -91,6 +176,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const canManage = employeesQuery.data?.canManage ?? false;
   const columns = useMemo<Column<HrmEmployeeSummary>[]>(
     () => [
       {
@@ -103,6 +189,11 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
         key: 'jobTitle',
         label: 'Chức danh',
         render: (row) => row.jobTitle || '—',
+      },
+      {
+        key: 'departmentName',
+        label: 'Phòng ban',
+        render: (row) => row.departmentName || 'Chưa phân công',
       },
       {
         key: 'phone',
@@ -129,12 +220,45 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
           />
         ),
       },
+      {
+        key: 'actions',
+        label: '',
+        render: (row) =>
+          canManage ? (
+            <button
+              type="button"
+              onClick={() => openEdit(row)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Hồ sơ
+            </button>
+          ) : null,
+      },
     ],
-    [],
+    [canManage],
   );
 
   function updateForm(field: keyof typeof EMPTY_FORM, value: string) {
     setFormData((current) => ({ ...current, [field]: value }));
+  }
+
+  function openEdit(row: HrmEmployeeSummary) {
+    setEditingId(row.id);
+    setFormData({
+      name: row.name,
+      employee_code: row.employeeCode ?? '',
+      phone: row.phone ?? '',
+      job_title: row.jobTitle ?? '',
+      department_id: row.departmentId ?? '',
+      employment_type: row.employmentType,
+      employment_status: row.employmentStatus,
+      joined_at: row.joinedAt ?? '',
+      email: row.email ?? '',
+      address: row.address ?? '',
+    });
+    setCustomData(row.customData ?? {});
+    setLinkedUserId(row.authUserId ?? '');
+    setSlideOpen(true);
   }
 
   return (
@@ -148,11 +272,14 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
             {employeesQuery.data?.total ?? 0} nhân viên đang hoạt động
           </p>
         </div>
-        {employeesQuery.data?.canManage && (
+        {canManage && (
           <button
             type="button"
             onClick={() => {
               setFormData(EMPTY_FORM);
+              setEditingId(null);
+              setCustomData({});
+              setLinkedUserId('');
               setSlideOpen(true);
             }}
             className="inline-flex w-fit items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-dark"
@@ -191,7 +318,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
       <SlideOver
         open={slideOpen}
         onClose={() => setSlideOpen(false)}
-        title="Thêm nhân viên"
+        title={editingId ? 'Hồ sơ nhân viên' : 'Thêm nhân viên'}
         footer={
           <>
             <button
@@ -203,11 +330,11 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
             </button>
             <button
               type="button"
-              onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending || !formData.name.trim()}
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || !formData.name.trim()}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50"
             >
-              {createMutation.isPending ? 'Đang lưu...' : 'Lưu nhân viên'}
+              {saveMutation.isPending ? 'Đang lưu...' : 'Lưu hồ sơ'}
             </button>
           </>
         }
@@ -251,6 +378,45 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
             </div>
           </div>
 
+          {editingId && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Trạng thái làm việc
+                </label>
+                <select
+                  value={formData.employment_status}
+                  onChange={(event) =>
+                    updateForm('employment_status', event.target.value)
+                  }
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                >
+                  <option value="active">Đang làm</option>
+                  <option value="probation">Thử việc</option>
+                  <option value="inactive">Đã nghỉ</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Tài khoản check-in
+                </label>
+                <select
+                  value={linkedUserId}
+                  onChange={(event) => setLinkedUserId(event.target.value)}
+                  disabled={usersQuery.isLoading}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
+                >
+                  <option value="">Chưa liên kết tài khoản</option>
+                  {usersQuery.data?.data.map((user) => (
+                    <option key={user.userId} value={user.userId}>
+                      {user.displayName || user.username} ({user.username})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">
               Chức danh
@@ -262,6 +428,115 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
               placeholder="Thu ngân, bán hàng, quản lý..."
             />
           </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Phòng ban / Bộ phận
+            </label>
+            <select
+              value={formData.department_id}
+              onChange={(event) =>
+                updateForm('department_id', event.target.value)
+              }
+              disabled={departmentsQuery.isLoading}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
+            >
+              <option value="">Chưa phân công</option>
+              {departmentsQuery.data?.data.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+            {departmentsQuery.isError && (
+              <p className="mt-1 text-xs text-rose-600">
+                {departmentsQuery.error.message}
+              </p>
+            )}
+          </div>
+
+          {editingId && (customFieldsQuery.data?.data.length ?? 0) > 0 && (
+            <div className="space-y-4 border-t border-slate-100 pt-4">
+              <h3 className="text-sm font-semibold text-slate-900">
+                Thông tin tùy chỉnh
+              </h3>
+              {customFieldsQuery.data?.data.map((field) => (
+                <label
+                  key={field.id}
+                  className="block text-sm font-medium text-slate-700"
+                >
+                  {field.label}
+                  {field.required ? ' *' : ''}
+                  {field.fieldType === 'boolean' ? (
+                    <input
+                      type="checkbox"
+                      checked={Boolean(customData[field.key])}
+                      onChange={(event) =>
+                        setCustomData({
+                          ...customData,
+                          [field.key]: event.target.checked,
+                        })
+                      }
+                      className="ml-3"
+                    />
+                  ) : field.fieldType === 'select' ? (
+                    <select
+                      value={String(customData[field.key] ?? '')}
+                      onChange={(event) =>
+                        setCustomData({
+                          ...customData,
+                          [field.key]: event.target.value,
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                    >
+                      <option value="">Chọn...</option>
+                      {field.options.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={
+                        field.fieldType === 'number'
+                          ? 'number'
+                          : field.fieldType === 'date'
+                            ? 'date'
+                            : 'text'
+                      }
+                      value={
+                        Array.isArray(customData[field.key])
+                          ? (customData[field.key] as string[]).join(', ')
+                          : String(customData[field.key] ?? '')
+                      }
+                      onChange={(event) =>
+                        setCustomData({
+                          ...customData,
+                          [field.key]:
+                            field.fieldType === 'multiselect'
+                              ? event.target.value
+                                  .split(',')
+                                  .map((value) => value.trim())
+                                  .filter(Boolean)
+                              : field.fieldType === 'number'
+                                ? event.target.value === ''
+                                  ? ''
+                                  : Number(event.target.value)
+                                : event.target.value,
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                      placeholder={
+                        field.fieldType === 'multiselect'
+                          ? 'Nhập các giá trị, cách nhau bằng dấu phẩy'
+                          : undefined
+                      }
+                    />
+                  )}
+                </label>
+              ))}
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>

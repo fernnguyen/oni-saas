@@ -6,13 +6,18 @@ import { usePathname } from 'next/navigation';
 import {
   AlertTriangle,
   Building2,
+  CalendarClock,
   CalendarCheck2,
   CircleDollarSign,
   LockKeyhole,
+  Settings2,
+  UsersRound,
   UserRoundCog,
 } from 'lucide-react';
 import { useHrmModuleAccess } from './HrmModuleAccess';
 import { HrmEmployeesPanel } from './HrmEmployeesPanel';
+import { HrmAttendancePanel } from './HrmAttendancePanel';
+import { HrmCustomFieldsPanel } from './HrmCustomFieldsPanel';
 import { requestPlanUpgrade } from '@/lib/subscriptions/upgradeAccess';
 
 const HRM_CAPABILITIES = [
@@ -51,6 +56,9 @@ export function HrmModuleLanding() {
   const [overviewState, setOverviewState] = useState<HrmOverviewState>({
     status: 'loading',
   });
+  const [activeTab, setActiveTab] = useState<
+    'employees' | 'attendance' | 'settings'
+  >('employees');
 
   useEffect(() => {
     if (!enabled) return;
@@ -253,9 +261,35 @@ export function HrmModuleLanding() {
         </div>
       )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <HrmEmployeesPanel shopId={shopId} />
+      <div className="flex gap-2 overflow-x-auto border-b border-slate-200">
+        {[
+          { key: 'employees' as const, label: 'Nhân viên', icon: UsersRound },
+          { key: 'attendance' as const, label: 'Chấm công', icon: CalendarClock },
+          { key: 'settings' as const, label: 'Trường tùy chỉnh', icon: Settings2 },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm font-semibold transition-colors ${
+              activeTab === tab.key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <tab.icon className="h-4 w-4" aria-hidden="true" />
+            {tab.label}
+          </button>
+        ))}
       </div>
+
+      {activeTab === 'employees' && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <HrmEmployeesPanel shopId={shopId} />
+        </div>
+      )}
+      {activeTab === 'attendance' && <HrmAttendancePanel shopId={shopId} />}
+      {activeTab === 'settings' && <HrmCustomFieldsPanel shopId={shopId} />}
     </section>
   );
 }

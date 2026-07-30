@@ -8,6 +8,7 @@ export const createHrmEmployeeSchema = z.object({
   employee_code: optionalText(100),
   phone: optionalText(50),
   job_title: optionalText(255),
+  department_id: optionalText(255),
   employment_type: z
     .enum(['monthly', 'daily', 'hourly'])
     .default('monthly'),

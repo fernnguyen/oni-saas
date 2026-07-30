@@ -3,6 +3,8 @@ import test from 'node:test';
 import type { Pool } from 'pg';
 
 import {
+  HrmAttendanceStateError,
+  HrmDepartmentScopeError,
   HrmSchemaNotReadyError,
   PostgresHrmRepository,
   type CreatePostgresHrmRepositoryInput,
@@ -317,4 +319,238 @@ test('creating an HRM employee writes source employee and profile atomically', a
   ]);
   assert.match(statements[3]?.text ?? '', /commit/i);
   assert.equal(released, true);
+});
+
+test('creating an HRM employee validates and stores its department', async () => {
+  const statements: Array<{ text: string; values?: unknown[] }> = [];
+  const client = {
+    async query(text: string, values?: unknown[]) {
+      statements.push({ text, values });
+      if (/select id\s+from departments/i.test(text)) {
+        return { rowCount: 1, rows: [{ id: 'DEP-1' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  await scopedRepository.createEmployee({
+    employeeId: 'EMP-1',
+    profileId: 'HRMP-1',
+    name: 'Nguyễn Văn A',
+    employmentType: 'monthly',
+    departmentId: 'DEP-1',
+  });
+
+  assert.match(statements[1]?.text ?? '', /from departments/i);
+  assert.deepEqual(statements[1]?.values, [
+    'DEP-1',
+    'tenant-1',
+    'shop-1',
+  ]);
+  assert.match(statements[3]?.text ?? '', /department_id/i);
+  assert.equal(statements[3]?.values?.[4], 'DEP-1');
+});
+
+test('creating an HRM employee rejects a department outside its shop', async () => {
+  const client = {
+    async query(text: string) {
+      if (/select id\s+from departments/i.test(text)) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  await assert.rejects(
+    scopedRepository.createEmployee({
+      employeeId: 'EMP-1',
+      profileId: 'HRMP-1',
+      name: 'Nguyễn Văn A',
+      employmentType: 'monthly',
+      departmentId: 'DEP-OTHER',
+    }),
+    (error: unknown) =>
+      error instanceof HrmDepartmentScopeError &&
+      error.code === 'HRM_DEPARTMENT_NOT_FOUND',
+  );
+});
+
+test('updating an HRM profile keeps employee and dynamic data in one transaction', async () => {
+  const statements: Array<{ text: string; values?: unknown[] }> = [];
+  const client = {
+    async query(text: string, values?: unknown[]) {
+      statements.push({ text, values });
+      if (/update employees/i.test(text)) {
+        return { rowCount: 1, rows: [{ id: 'EMP-1' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  await scopedRepository.updateEmployeeProfile({
+    employeeId: 'EMP-1',
+    profileId: 'HRMP-1',
+    employeeCode: 'NV001',
+    name: 'Nguyễn Văn A',
+    phone: '0900000000',
+    jobTitle: 'Thu ngân',
+    employmentStatus: 'active',
+    employmentType: 'monthly',
+    joinedAt: '2026-07-30',
+    email: 'a@example.com',
+    address: 'Hồ Chí Minh',
+    customData: { uniform_size: 'M' },
+  });
+
+  assert.match(statements[0]?.text ?? '', /begin/i);
+  assert.match(statements[1]?.text ?? '', /update employees/i);
+  assert.deepEqual(statements[1]?.values?.slice(0, 3), [
+    'EMP-1',
+    'tenant-1',
+    'shop-1',
+  ]);
+  assert.match(
+    statements[2]?.text ?? '',
+    /insert into hrm_employee_profiles/i,
+  );
+  assert.equal(statements[2]?.values?.[4], null);
+  assert.equal(
+    statements[2]?.values?.[12],
+    JSON.stringify({ uniform_size: 'M' }),
+  );
+  assert.match(statements[3]?.text ?? '', /commit/i);
+});
+
+test('clock-in rejects a second attendance record for the same work day', async () => {
+  const client = {
+    async query(text: string) {
+      if (/select p\.department_id/i.test(text)) {
+        return { rowCount: 1, rows: [{ department_id: null }] };
+      }
+      if (/select id, department_id/i.test(text)) {
+        return {
+          rowCount: 1,
+          rows: [{ id: 'HRMP-1', department_id: null }],
+        };
+      }
+      if (/insert into hrm_attendance_days/i.test(text)) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  await assert.rejects(
+    scopedRepository.clockIn({
+      attendanceId: 'ATD-2',
+      profileId: 'HRMP-1',
+      employeeId: 'EMP-1',
+      actorUserId: 'user-1',
+      source: 'manual',
+    }),
+    (error: unknown) =>
+      error instanceof HrmAttendanceStateError &&
+      error.code === 'HRM_ATTENDANCE_INVALID_STATE',
+  );
+});
+
+test('creating a custom field casts shared tenant parameters consistently', async () => {
+  let queryText = '';
+  const pool = {
+    async query(text: string) {
+      queryText = text;
+      return { rowCount: 1, rows: [] };
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  await scopedRepository.createCustomField({
+    id: 'HRMF-1',
+    key: 'uniform_size',
+    label: 'Cỡ đồng phục',
+    fieldType: 'text',
+    options: [],
+    required: false,
+    tenantWide: false,
+  });
+
+  assert.match(queryText, /\$2::varchar/);
+  assert.match(queryText, /where tenant_id = \$2::varchar/);
+});
+
+test('clock-out rejects an employee without an open attendance record', async () => {
+  let attendanceQuery = '';
+  const client = {
+    async query(text: string) {
+      if (/from hrm_attendance_days a/i.test(text)) {
+        attendanceQuery = text;
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+  const scopedRepository = new PostgresHrmRepository(pool, {
+    tenantId: 'tenant-1',
+    branchId: 'shop-1',
+  });
+
+  await assert.rejects(
+    scopedRepository.clockOut({
+      employeeId: 'EMP-1',
+      actorUserId: 'user-1',
+    }),
+    (error: unknown) =>
+      error instanceof HrmAttendanceStateError &&
+      error.code === 'HRM_ATTENDANCE_INVALID_STATE',
+  );
+  assert.match(attendanceQuery, /a\.work_date\s*=/i);
 });
