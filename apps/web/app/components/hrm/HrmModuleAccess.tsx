@@ -9,6 +9,7 @@ import {
 export interface HrmModuleAccessValue {
   enabled: boolean;
   canUpgrade: boolean;
+  shopId: string;
 }
 
 const HrmModuleAccessContext = createContext<HrmModuleAccessValue | null>(null);
@@ -17,9 +18,10 @@ export function HrmModuleAccessProvider({
   children,
   enabled,
   canUpgrade,
+  shopId,
 }: HrmModuleAccessValue & { children: ReactNode }) {
   return (
-    <HrmModuleAccessContext.Provider value={{ enabled, canUpgrade }}>
+    <HrmModuleAccessContext.Provider value={{ enabled, canUpgrade, shopId }}>
       {children}
     </HrmModuleAccessContext.Provider>
   );

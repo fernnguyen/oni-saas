@@ -176,6 +176,7 @@ export default async function BranchLayout({ params, children }: Props) {
     <HrmModuleAccessProvider
       enabled={hrmEnabled}
       canUpgrade={canManageSubscription(permissions)}
+      shopId={shop.id}
     >
       <BranchOperationalBoundary
         shopId={shop.id}

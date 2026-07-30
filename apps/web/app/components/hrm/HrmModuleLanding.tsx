@@ -1,12 +1,18 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
+  AlertTriangle,
+  Building2,
   CalendarCheck2,
   CircleDollarSign,
   LockKeyhole,
   UserRoundCog,
 } from 'lucide-react';
 import { useHrmModuleAccess } from './HrmModuleAccess';
+import { HrmEmployeesPanel } from './HrmEmployeesPanel';
 import { requestPlanUpgrade } from '@/lib/subscriptions/upgradeAccess';
 
 const HRM_CAPABILITIES = [
@@ -27,8 +33,67 @@ const HRM_CAPABILITIES = [
   },
 ] as const;
 
+interface HrmOverview {
+  employeeCount: number;
+  presentToday: number;
+  draftPayrollRuns: number | null;
+}
+
+type HrmOverviewState =
+  | { status: 'loading' }
+  | { status: 'ready'; data: HrmOverview }
+  | { status: 'error'; code: string; message: string };
+
 export function HrmModuleLanding() {
-  const { enabled, canUpgrade } = useHrmModuleAccess();
+  const { enabled, canUpgrade, shopId } = useHrmModuleAccess();
+  const pathname = usePathname();
+  const branchBasePath = pathname.replace(/\/hrm(?:\/.*)?$/, '');
+  const [overviewState, setOverviewState] = useState<HrmOverviewState>({
+    status: 'loading',
+  });
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const abortController = new AbortController();
+    setOverviewState({ status: 'loading' });
+
+    void fetch(
+      `/api/shops/${encodeURIComponent(shopId)}/hrm/overview`,
+      {
+        cache: 'no-store',
+        signal: abortController.signal,
+      },
+    )
+      .then(async (response) => {
+        const payload = (await response.json()) as {
+          ready?: boolean;
+          overview?: HrmOverview;
+          error?: { code?: string; message?: string };
+        };
+
+        if (!response.ok || !payload.ready || !payload.overview) {
+          setOverviewState({
+            status: 'error',
+            code: payload.error?.code ?? 'HRM_DATA_PLANE_UNAVAILABLE',
+            message: payload.error?.message ?? 'Không thể tải tổng quan HRM.',
+          });
+          return;
+        }
+
+        setOverviewState({ status: 'ready', data: payload.overview });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setOverviewState({
+          status: 'error',
+          code: 'HRM_DATA_PLANE_UNAVAILABLE',
+          message: 'Không thể kết nối kho dữ liệu HRM.',
+        });
+      });
+
+    return () => abortController.abort();
+  }, [enabled, shopId]);
 
   if (!enabled) {
     return (
@@ -104,42 +169,92 @@ export function HrmModuleLanding() {
       data-hrm-state="enabled"
       aria-labelledby="hrm-overview-title"
     >
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-primary">
-          ONI HRM
-        </p>
-        <h1
-          id="hrm-overview-title"
-          className="mt-1 text-2xl font-bold text-slate-900"
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary">
+            ONI HRM
+          </p>
+          <h1
+            id="hrm-overview-title"
+            className="mt-1 text-2xl font-bold text-slate-900"
+          >
+            Quản lý nhân sự
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Danh sách nhân viên và các công việc nhân sự hằng ngày.
+          </p>
+        </div>
+        <Link
+          href={`${branchBasePath}/settings/departments`}
+          className="inline-flex w-fit items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
         >
-          Tổng quan nhân sự
-        </h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Module đã được bật. Bước tiếp theo sẽ kiểm tra PostgreSQL connector
-          và khởi tạo schema HRM trước khi ghi dữ liệu nghiệp vụ.
-        </p>
+          <Building2 className="h-4 w-4 text-primary" aria-hidden="true" />
+          Tạo phòng ban
+        </Link>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {HRM_CAPABILITIES.map((capability) => (
-          <div
-            key={capability.title}
-            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <capability.icon className="h-5 w-5" aria-hidden="true" />
+      {overviewState.status === 'ready' && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+              <CalendarCheck2 className="h-5 w-5" aria-hidden="true" />
             </div>
-            <h2 className="mt-4 font-semibold text-slate-900">
-              {capability.title}
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
-              {capability.description}
-            </p>
-            <span className="mt-4 inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
-              Chờ thiết lập dữ liệu
-            </span>
+            <div>
+              <p className="text-2xl font-bold text-slate-900">
+                {overviewState.data.presentToday}
+              </p>
+              <p className="text-xs text-slate-500">Có mặt hôm nay</p>
+            </div>
           </div>
-        ))}
+
+          {overviewState.data.draftPayrollRuns !== null && (
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                <CircleDollarSign className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-900">
+                  {overviewState.data.draftPayrollRuns}
+                </p>
+                <p className="text-xs text-slate-500">Bảng lương nháp</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {overviewState.status === 'loading' && (
+        <div className="grid gap-3 sm:grid-cols-2" aria-label="Đang tải tổng quan">
+          <div className="h-[74px] animate-pulse rounded-2xl bg-slate-100" />
+          <div className="h-[74px] animate-pulse rounded-2xl bg-slate-100" />
+        </div>
+      )}
+
+      {overviewState.status === 'error' && (
+        <div
+          className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3"
+          role="alert"
+          data-hrm-error={overviewState.code}
+        >
+          <div className="flex gap-3">
+            <AlertTriangle
+              className="mt-0.5 h-5 w-5 shrink-0 text-amber-700"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="text-sm font-semibold text-amber-950">
+                Chưa tải được số liệu chấm công và lương
+              </p>
+              <p className="mt-0.5 text-xs text-amber-900/75">
+                Danh sách nhân viên bên dưới vẫn có thể sử dụng bình thường.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <HrmEmployeesPanel shopId={shopId} />
       </div>
     </section>
   );
