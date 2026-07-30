@@ -33,6 +33,7 @@ type SalaryType = 'monthly' | 'daily' | 'hourly';
 interface RecurringAllowance {
   label: string;
   amount: number;
+  prorate?: boolean;
 }
 
 interface SalaryConfiguration {
@@ -75,6 +76,8 @@ type ResolvedSalaryPolicy =
 interface AllowanceForm {
   label: string;
   amount: string;
+  /** true = prorate by work days (default); false = always pay full amount */
+  prorate: boolean;
 }
 
 interface SalaryForm {
@@ -293,6 +296,7 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
               (allowance) => ({
                 label: allowance.label,
                 amount: Number(allowance.amount),
+                prorate: allowance.prorate,
               }),
             ),
           }),
@@ -392,6 +396,7 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
         current?.recurringAllowances.map((allowance) => ({
           label: allowance.label,
           amount: String(allowance.amount),
+          prorate: allowance.prorate !== false, // default true
         })) ?? [],
     });
   }
@@ -819,7 +824,7 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
                       ...form,
                       recurring_allowances: [
                         ...form.recurring_allowances,
-                        { label: '', amount: '' },
+                        { label: '', amount: '', prorate: true },
                       ],
                     })
                   }
@@ -831,46 +836,64 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
               </div>
               <div className="mt-2 space-y-2">
                 {form.recurring_allowances.map((allowance, index) => (
-                  <div key={index} className="grid grid-cols-[1fr_130px_36px] gap-2">
-                    <input
-                      value={allowance.label}
-                      placeholder="Tên phụ cấp"
-                      onChange={(event) => {
-                        const values = [...form.recurring_allowances];
-                        values[index] = {
-                          ...allowance,
-                          label: event.target.value,
-                        };
-                        setForm({ ...form, recurring_allowances: values });
-                      }}
-                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    />
-                    <CurrencyInput
-                      value={allowance.amount}
-                      placeholder="Số tiền"
-                      onValueChange={(amount) => {
-                        const values = [...form.recurring_allowances];
-                        values[index] = { ...allowance, amount };
-                        setForm({ ...form, recurring_allowances: values });
-                      }}
-                      className="text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setForm({
-                          ...form,
-                          recurring_allowances:
-                            form.recurring_allowances.filter(
-                              (_, itemIndex) => itemIndex !== index,
-                            ),
-                        })
-                      }
-                      className="rounded-lg text-rose-600 hover:bg-rose-50"
-                      aria-label="Xóa phụ cấp"
-                    >
-                      <Trash2 className="mx-auto h-4 w-4" />
-                    </button>
+                  <div key={index} className="space-y-1">
+                    <div className="grid grid-cols-[1fr_130px_36px] gap-2">
+                      <input
+                        value={allowance.label}
+                        placeholder="Tên phụ cấp"
+                        onChange={(event) => {
+                          const values = [...form.recurring_allowances];
+                          values[index] = {
+                            ...allowance,
+                            label: event.target.value,
+                          };
+                          setForm({ ...form, recurring_allowances: values });
+                        }}
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      <CurrencyInput
+                        value={allowance.amount}
+                        placeholder="Số tiền"
+                        onValueChange={(amount) => {
+                          const values = [...form.recurring_allowances];
+                          values[index] = { ...allowance, amount };
+                          setForm({ ...form, recurring_allowances: values });
+                        }}
+                        className="text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            recurring_allowances:
+                              form.recurring_allowances.filter(
+                                (_, itemIndex) => itemIndex !== index,
+                              ),
+                          })
+                        }
+                        className="rounded-lg text-rose-600 hover:bg-rose-50"
+                        aria-label="Xóa phụ cấp"
+                      >
+                        <Trash2 className="mx-auto h-4 w-4" />
+                      </button>
+                    </div>
+                    <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={allowance.prorate !== false}
+                        onChange={(event) => {
+                          const values = [...form.recurring_allowances];
+                          values[index] = { ...allowance, prorate: event.target.checked };
+                          setForm({ ...form, recurring_allowances: values });
+                        }}
+                        className="h-3.5 w-3.5 accent-primary"
+                      />
+                      Chia theo ngày công thực tế
+                      <span className="text-slate-400">
+                        {allowance.prorate !== false ? '(tỉ lệ ngày làm)' : '(trả cố định cả tháng)'}
+                      </span>
+                    </label>
                   </div>
                 ))}
               </div>

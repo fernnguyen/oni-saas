@@ -128,6 +128,12 @@ export interface HrmAttendanceUpsertInput {
 export interface HrmRecurringAllowance {
   label: string;
   amount: number;
+  /**
+   * If true (default), the allowance is prorated by actual paid days worked.
+   * If false, the full amount is always paid regardless of attendance.
+   * Default is true when omitted for backward compatibility.
+   */
+  prorate?: boolean;
 }
 
 export interface HrmSalaryConfiguration {
@@ -449,6 +455,65 @@ export class HrmPayrollVersionConflictError extends Error {
     super('Kỳ lương đã được thay đổi. Vui lòng tải lại dữ liệu trước khi tiếp tục.');
     this.name = 'HrmPayrollVersionConflictError';
   }
+}
+
+export class HrmPayrollAlreadyPaidError extends Error {
+  readonly code = 'HRM_PAYROLL_ALREADY_PAID';
+
+  constructor() {
+    super('Kỳ lương đã được thanh toán trước đó.');
+    this.name = 'HrmPayrollAlreadyPaidError';
+  }
+}
+
+export class HrmInsufficientFundBalanceError extends Error {
+  readonly code = 'HRM_INSUFFICIENT_FUND_BALANCE';
+
+  constructor(available: number, required: number) {
+    super(
+      `Số dư quỹ không đủ: hiện có ${available.toLocaleString('vi-VN')}đ, cần ${required.toLocaleString('vi-VN')}đ.`,
+    );
+    this.name = 'HrmInsufficientFundBalanceError';
+  }
+}
+
+export class HrmFundNotFoundError extends Error {
+  readonly code = 'HRM_FUND_NOT_FOUND';
+
+  constructor() {
+    super('Không tìm thấy quỹ thanh toán hoặc quỹ không còn hoạt động.');
+    this.name = 'HrmFundNotFoundError';
+  }
+}
+
+export interface HrmPaymentFund {
+  id: string;
+  name: string;
+  type: string;
+  currentBalance: number;
+  isDefault: boolean;
+}
+
+export interface PayPayrollRunInput {
+  runId: string;
+  postingId: string;
+  cashbookTransactionId: string;
+  fundId: string;
+  expectedVersion: number;
+  actorUserId: string;
+  auditId: string;
+  periodLabel: string;
+}
+
+export interface PayPayrollRunResult {
+  payrollRun: HrmPayrollRunDetail;
+  posting: {
+    id: string;
+    cashbookTransactionId: string;
+    fundId: string;
+    amount: number;
+    postedAt: string;
+  };
 }
 
 interface HrmOverviewRow {
@@ -2783,6 +2848,364 @@ export class PostgresHrmRepository {
     if (result.rowCount !== 1) throw new HrmPayrollRunNotFoundError();
   }
 
+  /**
+   * Lists active payment funds available for payroll disbursement.
+   * Reads directly from shared PostgreSQL; does NOT call cashbook HTTP API.
+   */
+  async listPaymentFunds(): Promise<HrmPaymentFund[]> {
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      type: string;
+      current_balance: string | null;
+      is_default: string | null;
+    }>(
+      `
+        select id, name, type, current_balance, is_default
+        from payment_funds
+        where tenant_id = $1
+          and branch_id = $2
+          and coalesce(active, 'TRUE') not in ('FALSE', 'false', '0')
+        order by
+          case when coalesce(is_default, 'FALSE') = 'TRUE' then 0 else 1 end,
+          name asc
+      `,
+      [this.scope.tenantId, this.scope.branchId],
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      currentBalance: parseFloat(row.current_balance ?? '0') || 0,
+      isDefault: row.is_default === 'TRUE',
+    }));
+  }
+
+  /**
+   * HRM-501: Pay a finalized payroll run.
+   *
+   * Executes atomically inside a single PostgreSQL transaction:
+   *   1. SELECT ... FOR UPDATE on hrm_payroll_runs (ensures status=finalized and locks row)
+   *   2. SELECT ... FOR UPDATE on payment_funds (locks fund balance)
+   *   3. Validate status = 'finalized' and version matches expectedVersion
+   *   4. Validate fund balance >= total_net
+   *   5. INSERT into cashbook (consolidated salary payment voucher)
+   *   6. UPDATE payment_funds SET current_balance = current_balance - amount
+   *   7. INSERT into hrm_cashbook_postings
+   *      (UNIQUE payroll_run_id = idempotency guard against double-submit)
+   *   8. UPDATE hrm_payroll_runs SET status='paid', paid_at=now(), version=version+1
+   *   9. INSERT into hrm_audit_logs
+   *
+   * If step 7 raises a unique_violation (23505), the posting already exists —
+   * read it back and return idempotent result without modifying any balance.
+   *
+   * Does NOT call cashbook HTTP route, IDataConnector, RollbackContext,
+   * or resolveAndRecordPayment(). No salary breakdown is written to cashbook.
+   */
+  async payPayrollRun(input: PayPayrollRunInput): Promise<PayPayrollRunResult> {
+    const { tenantId, branchId } = this.scope;
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+
+      // ── 1. Lock payroll run row ────────────────────────────────────────────
+      const runResult = await client.query<{
+        id: string;
+        status: HrmPayrollRunStatus;
+        total_net: string | number;
+        version: number | string;
+      }>(
+        `
+          select id, status, total_net, version
+          from hrm_payroll_runs
+          where id = $1
+            and tenant_id = $2
+            and branch_id = $3
+          for update
+        `,
+        [input.runId, tenantId, branchId],
+      );
+      if (!runResult.rows[0]) {
+        throw new HrmPayrollRunNotFoundError();
+      }
+      const runRow = runResult.rows[0];
+
+      // ── 2. Validate state & version ───────────────────────────────────────
+      if (runRow.status !== 'finalized') {
+        // Already paid — idempotency: read and return existing posting
+        if (runRow.status === 'paid') {
+          const existingPosting = await client.query<{
+            id: string;
+            cashbook_transaction_id: string;
+            fund_id: string;
+            amount: string | number;
+            posted_at: Date | string;
+          }>(
+            `
+              select id, cashbook_transaction_id, fund_id, amount, posted_at
+              from hrm_cashbook_postings
+              where payroll_run_id = $1
+              limit 1
+            `,
+            [input.runId],
+          );
+          if (existingPosting.rows[0]) {
+            await client.query('rollback');
+            client.release();
+
+            const posting = existingPosting.rows[0];
+            const run = await this.getPayrollRun(input.runId);
+            if (!run) throw new HrmPayrollRunNotFoundError();
+            return {
+              payrollRun: run,
+              posting: {
+                id: posting.id,
+                cashbookTransactionId: posting.cashbook_transaction_id,
+                fundId: posting.fund_id,
+                amount: Number(posting.amount),
+                postedAt:
+                  posting.posted_at instanceof Date
+                    ? posting.posted_at.toISOString()
+                    : String(posting.posted_at),
+              },
+            };
+          }
+        }
+        throw new HrmPayrollRunStateError(
+          'Kỳ lương phải ở trạng thái "Đã chốt" để thanh toán.',
+        );
+      }
+
+      if (Number(runRow.version) !== input.expectedVersion) {
+        throw new HrmPayrollVersionConflictError();
+      }
+
+      const totalNet = Number(runRow.total_net);
+
+      // ── 3. Lock payment fund row ────────────────────────────────────────────
+      const fundResult = await client.query<{
+        id: string;
+        current_balance: string | null;
+        name: string;
+      }>(
+        `
+          select id, current_balance, name
+          from payment_funds
+          where id = $1
+            and tenant_id = $2
+            and branch_id = $3
+            and coalesce(active, 'TRUE') not in ('FALSE', 'false', '0')
+          for update
+        `,
+        [input.fundId, tenantId, branchId],
+      );
+      if (!fundResult.rows[0]) {
+        throw new HrmFundNotFoundError();
+      }
+      const fundRow = fundResult.rows[0];
+      const currentBalance = parseFloat(fundRow.current_balance ?? '0') || 0;
+
+      // ── 4. Check sufficient balance ────────────────────────────────────────
+      if (currentBalance < totalNet) {
+        throw new HrmInsufficientFundBalanceError(currentBalance, totalNet);
+      }
+
+      const newBalance = currentBalance - totalNet;
+      const now = new Date();
+      const balanceAfterStr = String(newBalance);
+
+      // ── 5. Create cashbook transaction (consolidated salary payment) ────────
+      // No per-employee breakdown to avoid exposing payroll details in cashbook.
+      await client.query(
+        `
+          insert into cashbook (
+            id, tenant_id, branch_id, type, amount, method, category,
+            reference_id, reference_name, employee_id, note, fund_id,
+            balance_after_transaction, is_virtual, created_at, updated_at, active
+          ) values (
+            $1, $2, $3, 'payment', $4, 'transfer', 'salary_payment',
+            $5, $6, $7, $8, $9,
+            $10, 'FALSE', $11, $11, 'TRUE'
+          )
+        `,
+        [
+          input.cashbookTransactionId,
+          tenantId,
+          branchId,
+          String(totalNet),
+          input.runId,
+          input.periodLabel,
+          input.actorUserId,
+          `Chi lương ${input.periodLabel}`,
+          input.fundId,
+          balanceAfterStr,
+          now,
+        ],
+      );
+
+      // ── 6. Deduct from fund balance ────────────────────────────────────────
+      await client.query(
+        `
+          update payment_funds
+          set current_balance = $1, updated_at = $2
+          where id = $3
+            and tenant_id = $4
+            and branch_id = $5
+        `,
+        [balanceAfterStr, now, input.fundId, tenantId, branchId],
+      );
+
+      // ── 7. Insert posting (UNIQUE payroll_run_id = double-submit guard) ────
+      let postingId = input.postingId;
+      let postingInserted = false;
+      try {
+        await client.query(
+          `
+            insert into hrm_cashbook_postings (
+              id, tenant_id, branch_id, payroll_run_id,
+              cashbook_transaction_id, fund_id, amount, posted_by, posted_at
+            ) values (
+              $1, $2, $3, $4, $5, $6, $7, $8::uuid, $9
+            )
+          `,
+          [
+            postingId,
+            tenantId,
+            branchId,
+            input.runId,
+            input.cashbookTransactionId,
+            input.fundId,
+            String(totalNet),
+            input.actorUserId,
+            now,
+          ],
+        );
+        postingInserted = true;
+      } catch (pgError: unknown) {
+        // unique_violation on payroll_run_id → already posted (concurrent request)
+        const isUniqueViolation =
+          pgError &&
+          typeof pgError === 'object' &&
+          'code' in pgError &&
+          (pgError as { code: string }).code === '23505';
+
+        if (!isUniqueViolation) throw pgError;
+
+        // Read the existing posting for idempotent return
+        await client.query('rollback');
+        client.release();
+
+        const existingPosting = await this.pool.query<{
+          id: string;
+          cashbook_transaction_id: string;
+          fund_id: string;
+          amount: string | number;
+          posted_at: Date | string;
+        }>(
+          `
+            select id, cashbook_transaction_id, fund_id, amount, posted_at
+            from hrm_cashbook_postings
+            where payroll_run_id = $1
+            limit 1
+          `,
+          [input.runId],
+        );
+        const existingRun = await this.getPayrollRun(input.runId);
+        if (!existingRun || !existingPosting.rows[0]) {
+          throw new HrmPayrollRunNotFoundError();
+        }
+        const ep = existingPosting.rows[0];
+        return {
+          payrollRun: existingRun,
+          posting: {
+            id: ep.id,
+            cashbookTransactionId: ep.cashbook_transaction_id,
+            fundId: ep.fund_id,
+            amount: Number(ep.amount),
+            postedAt:
+              ep.posted_at instanceof Date
+                ? ep.posted_at.toISOString()
+                : String(ep.posted_at),
+          },
+        };
+      }
+
+      if (!postingInserted) {
+        // Should not reach here — safety net
+        throw new HrmPayrollRunStateError('Không thể ghi nhận phiếu chi lương.');
+      }
+
+      // ── 8. Transition payroll run to paid ──────────────────────────────────
+      await client.query(
+        `
+          update hrm_payroll_runs
+          set status = 'paid',
+              paid_at = $1,
+              version = version + 1,
+              updated_at = $1
+          where id = $2
+            and tenant_id = $3
+            and branch_id = $4
+            and status = 'finalized'
+        `,
+        [now, input.runId, tenantId, branchId],
+      );
+
+      // ── 9. Audit log ───────────────────────────────────────────────────────
+      await client.query(
+        `
+          insert into hrm_audit_logs (
+            id, tenant_id, branch_id, actor_user_id, event_type,
+            entity_type, entity_id, summary, created_at
+          ) values ($1, $2, $3, $4::uuid, 'payroll.paid',
+            'payroll_run', $5, $6::jsonb, $7)
+        `,
+        [
+          input.auditId,
+          tenantId,
+          branchId,
+          input.actorUserId,
+          input.runId,
+          JSON.stringify({
+            postingId,
+            cashbookTransactionId: input.cashbookTransactionId,
+            fundId: input.fundId,
+            amount: totalNet,
+          }),
+          now,
+        ],
+      );
+
+      await client.query('commit');
+
+      const run = await this.getPayrollRun(input.runId);
+      if (!run) throw new HrmPayrollRunNotFoundError();
+
+      return {
+        payrollRun: run,
+        posting: {
+          id: postingId,
+          cashbookTransactionId: input.cashbookTransactionId,
+          fundId: input.fundId,
+          amount: totalNet,
+          postedAt: now.toISOString(),
+        },
+      };
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      // Only release if not already released in idempotency branches
+      try {
+        client.release();
+      } catch {
+        // Already released
+      }
+    }
+  }
+
   async withTransaction<T>(
     operation: (
       client: PoolClient,
@@ -2804,3 +3227,4 @@ export class PostgresHrmRepository {
     }
   }
 }
+

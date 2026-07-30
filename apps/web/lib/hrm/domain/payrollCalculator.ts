@@ -3,6 +3,8 @@ export type PayrollSalaryType = 'monthly' | 'daily' | 'hourly';
 export interface PayrollMoneyItem {
   label: string;
   amount: number;
+  /** If true (default), prorate by actual days worked. Only applies to recurringAllowances. */
+  prorate?: boolean;
 }
 
 export interface PayrollCalculationInput {
@@ -140,7 +142,50 @@ export function calculatePayroll(
     }
   }
 
-  const recurringAllowanceTotal = sumItems(input.recurringAllowances);
+  // Recurring allowances: prorated or fixed depending on the prorate flag.
+  // prorate=true (default): scales with paidWorkDays / standardWorkDays (monthly)
+  //   or paidWorkDays directly (daily/hourly — rare but consistent).
+  // prorate=false: always paid in full, regardless of attendance.
+  let recurringAllowanceTotal = 0;
+  for (const allowance of input.recurringAllowances ?? []) {
+    const shouldProrate = allowance.prorate !== false; // default true
+    const fullAmount = assertInteger(allowance.amount, allowance.label);
+    if (!shouldProrate || fullAmount === 0) {
+      recurringAllowanceTotal += fullAmount;
+    } else if (input.salaryType === 'monthly') {
+      const standardDays = assertInteger(
+        input.standardWorkDays ?? 0,
+        'standardWorkDays',
+      );
+      if (standardDays === 0) throw new Error('standardWorkDays is required.');
+      recurringAllowanceTotal += roundedDivide(
+        [fullAmount, paidWorkDaysMilli],
+        [standardDays, 1000],
+      );
+    } else if (input.salaryType === 'daily') {
+      recurringAllowanceTotal += roundedDivide(
+        [fullAmount, paidWorkDaysMilli],
+        [1000],
+      );
+    } else {
+      // hourly — prorate by worked minutes vs standard hours (as minutes)
+      const standardHoursMilli = assertInteger(
+        input.standardWorkHoursMilli ?? 0,
+        'standardWorkHoursMilli',
+      );
+      if (standardHoursMilli === 0) {
+        recurringAllowanceTotal += fullAmount; // fallback: pay full
+      } else {
+        // standardHoursMilli / 1000 = standard hours in milli-hours → convert to minutes
+        // prorate = amount * workedMinutes / standardMinutes
+        // standardMinutes = standardHoursMilli / 1000 * 60 = standardHoursMilli * 60 / 1000
+        recurringAllowanceTotal += roundedDivide(
+          [fullAmount, workedMinutes, 1000],
+          [standardHoursMilli, 60],
+        );
+      }
+    }
+  }
   const additionalAllowanceTotal = sumItems(input.additionalAllowances);
   const bonusTotal = sumItems(input.bonuses);
   const commissionTotal = sumItems(input.commissions);

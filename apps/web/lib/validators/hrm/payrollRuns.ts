@@ -25,3 +25,8 @@ export const adjustPayrollItemSchema = z.object({
 export const finalizePayrollRunSchema = z.object({
   expected_version: z.number().int().min(1),
 });
+
+export const payPayrollRunSchema = z.object({
+  fund_id: z.string().trim().min(1, 'Cần chọn quỹ thanh toán.'),
+  expected_version: z.number().int().min(1),
+});

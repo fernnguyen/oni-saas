@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import {
+  HrmFundNotFoundError,
+  HrmInsufficientFundBalanceError,
+  HrmPayrollAlreadyPaidError,
   HrmPayrollRunNotFoundError,
   HrmPayrollRunStateError,
   HrmPayrollVersionConflictError,
@@ -36,6 +39,24 @@ export function respondPayrollError(error: unknown) {
     return NextResponse.json(
       { error: { code: error.code, message: error.message } },
       { status: 404 },
+    );
+  }
+  if (error instanceof HrmFundNotFoundError) {
+    return NextResponse.json(
+      { error: { code: error.code, message: error.message } },
+      { status: 404 },
+    );
+  }
+  if (error instanceof HrmInsufficientFundBalanceError) {
+    return NextResponse.json(
+      { error: { code: error.code, message: error.message } },
+      { status: 422 },
+    );
+  }
+  if (error instanceof HrmPayrollAlreadyPaidError) {
+    return NextResponse.json(
+      { error: { code: error.code, message: error.message } },
+      { status: 409 },
     );
   }
   if (

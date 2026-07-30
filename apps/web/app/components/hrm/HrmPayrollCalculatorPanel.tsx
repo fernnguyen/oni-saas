@@ -7,6 +7,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import {
+  Banknote,
   Calculator,
   CalendarDays,
   CheckCircle2,
@@ -169,6 +170,14 @@ const EMPTY_ADJUSTMENT_FORM: AdjustmentForm = {
   manualNote: '',
 };
 
+interface PaymentFund {
+  id: string;
+  name: string;
+  type: string;
+  currentBalance: number;
+  isDefault: boolean;
+}
+
 function firstAdjustment(
   values: PayrollMoneyItem[] | undefined,
   fallbackLabel: string,
@@ -212,6 +221,9 @@ export function HrmPayrollCalculatorPanel({
   const [adjustmentForm, setAdjustmentForm] = useState<AdjustmentForm>(
     EMPTY_ADJUSTMENT_FORM,
   );
+  const [payModalOpen, setPayModalOpen] = useState(false);
+  const [selectedFundId, setSelectedFundId] = useState<string>('');
+  const [lastPostingRef, setLastPostingRef] = useState<string | null>(null);
 
   const attendanceQuery = useQuery({
     queryKey: ['hrm-attendance-month', shopId, month],
@@ -441,6 +453,64 @@ export function HrmPayrollCalculatorPanel({
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const fundsQuery = useQuery({
+    queryKey: ['hrm-payment-funds', shopId, currentRunSummary?.id],
+    enabled: payModalOpen && Boolean(currentRunSummary?.id),
+    staleTime: 30_000,
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/shops/${encodeURIComponent(shopId)}/hrm/payroll-runs/${encodeURIComponent(currentRunSummary?.id ?? '')}/funds`,
+        { cache: 'no-store' },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? 'Không tải được danh sách quỹ.');
+      }
+      const funds = (payload.data ?? []) as PaymentFund[];
+      // Auto-select default fund when modal opens
+      if (funds.length > 0 && !selectedFundId) {
+        const defaultFund = funds.find((f) => f.isDefault) ?? funds[0];
+        setSelectedFundId(defaultFund.id);
+      }
+      return funds;
+    },
+  });
+
+  const payMutation = useMutation({
+    mutationFn: async () => {
+      const run = detailQuery.data?.data;
+      if (!run || !selectedFundId) return;
+      const response = await fetch(
+        `/api/shops/${encodeURIComponent(shopId)}/hrm/payroll-runs/${encodeURIComponent(run.id)}/pay`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fund_id: selectedFundId,
+            expected_version: run.version,
+          }),
+        },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? 'Không thể thanh toán lương.');
+      }
+      return payload.data as {
+        payrollRun: typeof run;
+        posting: { id: string; cashbookTransactionId: string; fundId: string; amount: number; postedAt: string };
+      };
+    },
+    onSuccess: (data) => {
+      if (data) {
+        setLastPostingRef(data.posting.cashbookTransactionId);
+      }
+      toast.success('Đã thanh toán lương và ghi sổ quỹ thành công');
+      setPayModalOpen(false);
+      invalidatePayroll();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const adjustmentMutation = useMutation({
     mutationFn: async () => {
       const run = detailQuery.data?.data;
@@ -509,6 +579,20 @@ export function HrmPayrollCalculatorPanel({
       variant: 'danger',
     });
     if (accepted) finalizeMutation.mutate();
+  }
+
+  async function confirmPay() {
+    const run = detailQuery.data?.data;
+    if (!run || !selectedFundId) return;
+    const selectedFund = fundsQuery.data?.find((f) => f.id === selectedFundId);
+    const [periodYear, periodMonth] = run.periodStart.split('-');
+    const accepted = await confirm({
+      title: 'Xác nhận thanh toán lương?',
+      description: `Kỳ ${periodMonth}/${periodYear} · ${currency(run.totalNet)} · Quỹ: ${selectedFund?.name ?? selectedFundId}. Thao tác này sẽ tạo phiếu chi sổ quỹ và chuyển kỳ lương sang trạng thái Đã thanh toán.`,
+      confirmLabel: 'Thanh toán lương',
+      variant: 'danger',
+    });
+    if (accepted) payMutation.mutate();
   }
 
   function openAdjustment(item: PayrollRunItem) {
@@ -698,6 +782,19 @@ export function HrmPayrollCalculatorPanel({
               Xuất CSV
             </a>
           )}
+          {run?.status === 'finalized' && runsQuery.data?.canPay && (
+            <button
+              id="hrm-pay-payroll-btn"
+              type="button"
+              onClick={() => {
+                setPayModalOpen(true);
+              }}
+              className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 disabled:opacity-50"
+            >
+              <Banknote className="h-4 w-4" aria-hidden="true" />
+              Thanh toán lương
+            </button>
+          )}
           {run?.status === 'draft' && runsQuery.data?.canManage && (
             <button
               type="button"
@@ -783,12 +880,20 @@ export function HrmPayrollCalculatorPanel({
             detailQuery.error?.message}
         </p>
       )}
+      {run?.status === 'paid' && lastPostingRef && (
+        <p className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          <Banknote className="mr-1 inline h-4 w-4" aria-hidden="true" />
+          Đã thanh toán · Mã phiếu chi: <span className="font-mono font-semibold">{lastPostingRef}</span>
+        </p>
+      )}
       <p className="mt-3 text-xs leading-5 text-slate-500">
-        {run?.status === 'finalized'
-          ? 'Kỳ lương đã chốt và đang chờ thanh toán. Ghi sổ quỹ được thực hiện ở phase thanh toán tiếp theo.'
-          : run
-            ? 'Kỳ lương nháp có thể tính lại hoặc điều chỉnh trước khi chốt.'
-            : 'Số liệu hiện tại là bản xem trước và chưa tạo kỳ lương.'}
+        {run?.status === 'paid'
+          ? 'Kỳ lương đã thanh toán và ghi sổ quỹ. Không thể chỉnh sửa.'
+          : run?.status === 'finalized'
+            ? 'Kỳ lương đã chốt, sẵn sàng thanh toán. Chọn quỹ và xác nhận để ghi sổ.'
+            : run
+              ? 'Kỳ lương nháp có thể tính lại hoặc điều chỉnh trước khi chốt.'
+              : 'Số liệu hiện tại là bản xem trước và chưa tạo kỳ lương.'}
       </p>
 
       <SlideOver
@@ -898,6 +1003,111 @@ export function HrmPayrollCalculatorPanel({
           </div>
         )}
       </SlideOver>
+
+      {/* ── Payment Fund Selection Modal ─────────────────────────────────── */}
+      {payModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pay-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2
+              id="pay-modal-title"
+              className="flex items-center gap-2 text-base font-semibold text-slate-900"
+            >
+              <Banknote className="h-5 w-5 text-blue-600" aria-hidden="true" />
+              Chọn quỹ thanh toán lương
+            </h2>
+
+            {run && (
+              <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Kỳ lương</span>
+                  <span className="font-medium">
+                    {run.periodStart.slice(5, 7)}/{run.periodStart.slice(0, 4)}
+                  </span>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span className="text-slate-500">Tổng thực nhận</span>
+                  <span className="font-semibold text-slate-900">{currency(run.totalNet)}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4">
+              <label
+                htmlFor="pay-fund-select"
+                className="block text-sm font-medium text-slate-700"
+              >
+                Quỹ nguồn
+              </label>
+              {fundsQuery.isLoading ? (
+                <p className="mt-2 text-sm text-slate-400">Đang tải danh sách quỹ...</p>
+              ) : fundsQuery.isError ? (
+                <p className="mt-2 text-sm text-red-600">Không tải được quỹ. Thử lại sau.</p>
+              ) : (fundsQuery.data?.length ?? 0) === 0 ? (
+                <p className="mt-2 text-sm text-amber-600">
+                  Chưa có quỹ nào trong chi nhánh này. Vui lòng tạo quỹ trong sổ quỹ trước.
+                </p>
+              ) : (
+                <select
+                  id="pay-fund-select"
+                  value={selectedFundId}
+                  onChange={(e) => setSelectedFundId(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                >
+                  {fundsQuery.data?.map((fund) => (
+                    <option key={fund.id} value={fund.id}>
+                      {fund.name} — {currency(fund.currentBalance)}
+                      {fund.isDefault ? ' (mặc định)' : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {selectedFundId && run && (() => {
+              const fund = fundsQuery.data?.find((f) => f.id === selectedFundId);
+              const insufficientBalance = fund && fund.currentBalance < run.totalNet;
+              return insufficientBalance ? (
+                <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Số dư quỹ ({currency(fund.currentBalance)}) thấp hơn tổng lương cần thanh toán ({currency(run.totalNet)}).
+                  Vui lòng nạp thêm hoặc chọn quỹ khác.
+                </p>
+              ) : null;
+            })()}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                id="pay-modal-cancel"
+                onClick={() => {
+                  setPayModalOpen(false);
+                  payMutation.reset();
+                }}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm"
+              >
+                Hủy
+              </button>
+              <button
+                id="pay-modal-confirm"
+                type="button"
+                onClick={() => void confirmPay()}
+                disabled={
+                  payMutation.isPending ||
+                  !selectedFundId ||
+                  (fundsQuery.data?.length ?? 0) === 0
+                }
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {payMutation.isPending ? 'Đang thanh toán...' : 'Xác nhận thanh toán'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
