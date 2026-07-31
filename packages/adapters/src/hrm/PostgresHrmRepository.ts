@@ -1451,9 +1451,19 @@ export class PostgresHrmRepository {
     );
 
     const now = new Date();
+    
+    // Fetch holidays for the period's year to dynamically apply holiday status
+    const year = Number(input.periodStart.split('-')[0]);
+    const holidays = await this.listHolidays(year);
 
     return result.rows.map((row) => {
       let calculatedStatus = row.status;
+      
+      const isHoliday = holidays.some(h => h.date === row.work_date);
+      if (isHoliday && (!calculatedStatus || calculatedStatus === 'absent')) {
+        calculatedStatus = 'holiday';
+      }
+      
       const errors: { type: string; minutes?: number; message: string }[] = [];
       const rules = row.attendance_rules || {};
       const autoAbsentMinutes = rules.auto_absent_minutes ?? 120;
@@ -3599,11 +3609,17 @@ export class PostgresHrmRepository {
       `,
       [this.scope.tenantId, this.scope.branchId, year]
     );
-    return result.rows.map((r) => ({
-      id: r.id,
-      date: r.date.toISOString().split('T')[0],
-      name: r.name,
-    }));
+    return result.rows.map((r) => {
+      const d = r.date;
+      const dateStr = typeof d === 'string' 
+        ? d 
+        : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return {
+        id: r.id,
+        date: dateStr,
+        name: r.name,
+      };
+    });
   }
 
   async createHoliday(input: { id: string; date: string; name: string }): Promise<void> {
@@ -3611,6 +3627,8 @@ export class PostgresHrmRepository {
       `
         insert into hrm_holidays (id, tenant_id, branch_id, date, name, created_at, updated_at)
         values ($1, $2, $3, $4, $5, now(), now())
+        on conflict (tenant_id, branch_id, date) do update
+        set name = excluded.name, updated_at = now()
       `,
       [input.id, this.scope.tenantId, this.scope.branchId, input.date, input.name]
     );

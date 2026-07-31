@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 interface AttendanceRules {
-  standard_workdays: number[]; // 0=CN, 1=T2...
+  standard_workdays: Record<string, number>; // "1"=T2: 1 (full), 0.5 (half), 0 (off)
   late_half_day_threshold_minutes: number;
   late_no_day_threshold_minutes: number;
   min_hours_half_day: number;
@@ -14,7 +14,7 @@ interface AttendanceRules {
 }
 
 const defaultRules: AttendanceRules = {
-  standard_workdays: [1, 2, 3, 4, 5, 6], // T2 -> T7
+  standard_workdays: { '1': 1, '2': 1, '3': 1, '4': 1, '5': 1, '6': 1, '0': 0 }, // T2 -> T7 full, CN off
   late_half_day_threshold_minutes: 60,
   late_no_day_threshold_minutes: 240,
   min_hours_half_day: 4,
@@ -45,7 +45,16 @@ export function HrmAttendanceRulesPanel({ shopId }: { shopId: string }) {
       
       const loadedRules = payload.data?.attendanceRules;
       if (loadedRules && Object.keys(loadedRules).length > 0) {
-        setRules({ ...defaultRules, ...loadedRules });
+        // If loaded rules are using the old number[] format for standard_workdays
+        if (Array.isArray(loadedRules.standard_workdays)) {
+           const migrated: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0 };
+           loadedRules.standard_workdays.forEach((day: number) => {
+             migrated[day.toString()] = 1;
+           });
+           setRules({ ...defaultRules, ...loadedRules, standard_workdays: migrated });
+        } else {
+           setRules({ ...defaultRules, ...loadedRules });
+        }
       }
       return payload.data;
     },
@@ -74,13 +83,18 @@ export function HrmAttendanceRulesPanel({ shopId }: { shopId: string }) {
     return <div className="animate-pulse text-sm text-slate-500">Đang tải cấu hình...</div>;
   }
 
-  const toggleDay = (day: number) => {
+  const cycleDay = (dayStr: string) => {
     setRules((prev) => {
-      const isSelected = prev.standard_workdays.includes(day);
-      if (isSelected) {
-        return { ...prev, standard_workdays: prev.standard_workdays.filter((d) => d !== day) };
-      }
-      return { ...prev, standard_workdays: [...prev.standard_workdays, day].sort() };
+      const current = prev.standard_workdays[dayStr] ?? 0;
+      let next = 0;
+      if (current === 1) next = 0.5;
+      else if (current === 0.5) next = 0;
+      else next = 1;
+      
+      return { 
+        ...prev, 
+        standard_workdays: { ...prev.standard_workdays, [dayStr]: next } 
+      };
     });
   };
 
@@ -89,33 +103,39 @@ export function HrmAttendanceRulesPanel({ shopId }: { shopId: string }) {
   };
 
   return (
-    <div className="max-w-3xl space-y-8">
+    <div className="space-y-8 w-full">
       {/* Ngày làm việc */}
       <div>
         <h3 className="text-sm font-semibold text-slate-900">Lịch làm việc tiêu chuẩn trong tuần</h3>
         <p className="text-sm text-slate-500 mt-1">
-          Chọn các ngày được tính là ngày làm việc mặc định. (Các ngày không chọn sẽ là ngày nghỉ cuối tuần).
+          Bấm để chuyển đổi giữa các trạng thái: <strong>Cả ngày</strong>, <strong>Nửa ngày</strong>, hoặc <strong>Nghỉ</strong>.
         </p>
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-4 flex flex-wrap gap-4">
           {DAYS_OF_WEEK.map((day) => {
-            const isSelected = rules.standard_workdays.includes(day.value);
+            const value = rules.standard_workdays[day.value.toString()] ?? 0;
+            const isFull = value === 1;
+            const isHalf = value === 0.5;
+
             return (
-              <label
+              <button
+                type="button"
                 key={day.value}
-                className={`flex cursor-pointer select-none items-center gap-2 rounded-xl border px-4 py-2 transition-colors ${
-                  isSelected
-                    ? 'border-primary bg-primary/5 text-primary'
-                    : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                onClick={() => cycleDay(day.value.toString())}
+                className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border p-4 w-[120px] transition-all hover:scale-[1.02] active:scale-95 ${
+                  isFull
+                    ? 'border-primary bg-primary/5 text-primary shadow-sm'
+                    : isHalf
+                    ? 'border-amber-500 bg-amber-50 text-amber-700 shadow-sm'
+                    : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300'
                 }`}
               >
-                <input
-                  type="checkbox"
-                  className="hidden"
-                  checked={isSelected}
-                  onChange={() => toggleDay(day.value)}
-                />
-                <span className="text-sm font-medium">{day.label}</span>
-              </label>
+                <span className="text-sm font-semibold">{day.label}</span>
+                <span className={`text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                  isFull ? 'bg-primary/10' : isHalf ? 'bg-amber-500/10' : 'bg-slate-200/50'
+                }`}>
+                  {isFull ? 'Cả ngày' : isHalf ? 'Nửa ngày' : 'Nghỉ'}
+                </span>
+              </button>
             );
           })}
         </div>
@@ -225,7 +245,7 @@ export function HrmAttendanceRulesPanel({ shopId }: { shopId: string }) {
           type="button"
           onClick={() => updateMutation.mutate()}
           disabled={updateMutation.isPending}
-          className="rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
+          className="rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-white transition-opacity disabled:opacity-50 hover:bg-primary/90"
         >
           {updateMutation.isPending ? 'Đang lưu...' : 'Lưu quy tắc'}
         </button>

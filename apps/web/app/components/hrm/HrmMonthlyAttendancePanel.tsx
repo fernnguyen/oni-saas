@@ -48,7 +48,7 @@ interface Holiday {
 }
 
 interface AttendanceRules {
-  standard_workdays: number[];
+  standard_workdays: Record<string, number>;
   late_half_day_threshold_minutes: number;
   late_no_day_threshold_minutes: number;
   min_hours_half_day: number;
@@ -148,7 +148,14 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
   const { employees, daysInMonth } = useMemo(() => {
     const rawData = query.data?.data ?? [];
     const holidays = query.data?.holidays ?? [];
-    const rules = query.data?.attendanceRules ?? { standard_workdays: [1, 2, 3, 4, 5, 6] };
+    const rules = query.data?.attendanceRules ?? { standard_workdays: { '1': 1, '2': 1, '3': 1, '4': 1, '5': 1, '6': 1, '0': 0 } };
+    
+    // Normalize if backend returned old array format
+    let standardWorkdays = rules.standard_workdays;
+    if (Array.isArray(standardWorkdays)) {
+       standardWorkdays = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0 };
+       rules.standard_workdays.forEach((d: number) => standardWorkdays[d.toString()] = 1);
+    }
     
     const [year, m] = month.split('-');
     const daysCount = new Date(Number(year), Number(m), 0).getDate();
@@ -173,7 +180,10 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
       
       const dayNum = parseInt(row.workDate.split('-')[2]);
       const dateObj = new Date(row.workDate);
-      const isWeekend = !rules.standard_workdays.includes(dateObj.getDay());
+      const dayIndex = dateObj.getDay().toString();
+      const maxWorkday = standardWorkdays[dayIndex] ?? 0;
+      
+      const isWeekend = maxWorkday === 0;
       const isHoliday = holidays.some((h) => h.date === row.workDate);
       
       const hasMissingCheckout = row.exceptions?.missing_checkout;
@@ -183,16 +193,17 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
       
       let workday = 0;
       if (row.status === 'present') {
-        workday = 1;
+        workday = maxWorkday === 0 ? 1 : maxWorkday; // OT on weekend gets 1 day by default for UI, though can be customized
         if (rules.late_half_day_threshold_minutes && (row.lateMinutes + row.earlyLeaveMinutes) > rules.late_half_day_threshold_minutes) {
-          workday = 0.5;
+          if (maxWorkday === 0.5) workday = 0;
+          else workday = 0.5;
         }
         if (rules.late_no_day_threshold_minutes && (row.lateMinutes + row.earlyLeaveMinutes) > rules.late_no_day_threshold_minutes) {
           workday = 0;
         }
         if (hasMissingCheckout) workday = 0; // Requires manual resolution
       } else if (row.status === 'paid_leave' || row.status === 'holiday') {
-        workday = 1;
+        workday = maxWorkday === 0 ? 0 : maxWorkday;
       }
       
       emp.totalWorkdays += workday;
@@ -341,7 +352,7 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
         ) : employees.length === 0 ? (
           <EmptyState title="Không có nhân viên trong bộ lọc này" />
         ) : (
-          <table className="w-full text-left text-sm text-slate-600 border-collapse">
+          <table className="w-full min-w-max text-left text-sm text-slate-600 border-collapse">
             <thead className="bg-slate-50 sticky top-0 z-10 text-xs uppercase text-slate-500 font-semibold shadow-sm">
               <tr>
                 <th className="sticky left-0 bg-slate-50 px-4 py-3 min-w-[200px] z-20 border-b border-r border-slate-200">Nhân viên</th>
@@ -376,11 +387,36 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
                     </div>
                   </td>
                   {daysArray.map((day) => {
+                    const dateStr = `${year}-${m}-${String(day).padStart(2, '0')}`;
+                    const dateObj = new Date(Number(year), Number(m) - 1, day);
+                    const dayIndex = dateObj.getDay().toString();
+                    const maxWorkday = standardWorkdays[dayIndex] ?? 0;
+                    
+                    const colIsWeekend = maxWorkday === 0;
+                    const colIsHoliday = holidays.some((h) => h.date === dateStr);
+                    
                     const cell = emp.days[day];
+                    
                     if (!cell) {
+                      let bgClass = "bg-slate-50/50";
+                      let title = "Chưa làm việc";
+                      let content = "";
+                      
+                      if (colIsHoliday) {
+                        bgClass = "bg-rose-50/50";
+                        title = "Ngày lễ";
+                        content = "Nghỉ";
+                      } else if (colIsWeekend) {
+                        bgClass = "bg-slate-100/50";
+                        title = "Cuối tuần";
+                        content = "Nghỉ";
+                      }
+                      
                       return (
-                        <td key={day} className="px-1 py-1 text-center border-r border-slate-200 bg-slate-50/50">
-                          <div className="w-full h-full min-h-[40px]" title="Chưa làm việc"></div>
+                        <td key={day} className={`px-1 py-1 text-center border-r border-slate-200 ${bgClass}`}>
+                          <div className="flex items-center justify-center w-full h-full min-h-[40px]" title={title}>
+                            {content && <span className="text-xs font-semibold text-slate-400">{content}</span>}
+                          </div>
                         </td>
                       );
                     }
