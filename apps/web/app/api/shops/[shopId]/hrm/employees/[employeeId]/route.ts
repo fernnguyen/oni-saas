@@ -117,6 +117,7 @@ export async function PATCH(
       email: input.email,
       address: input.address,
       departmentId: input.department_id,
+      defaultShiftTemplateId: input.default_shift_template_id,
       customData,
     });
     return NextResponse.json({ success: true });

@@ -12,6 +12,7 @@ export const updateHrmEmployeeProfileSchema = z.object({
   email: z.string().trim().email('Email không hợp lệ').or(z.literal('')).default(''),
   address: z.string().trim().max(1000).optional().default(''),
   department_id: z.string().trim().max(255).optional().default(''),
+  default_shift_template_id: z.string().trim().max(255).optional().default(''),
   custom_data: z.record(z.unknown()).default({}),
 });
 

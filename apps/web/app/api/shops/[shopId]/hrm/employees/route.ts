@@ -87,6 +87,7 @@ export async function POST(
       phone: input.phone,
       jobTitle: input.job_title,
       departmentId: input.department_id,
+      defaultShiftTemplateId: input.default_shift_template_id,
       employmentType: input.employment_type,
       joinedAt: input.joined_at,
       email: input.email,

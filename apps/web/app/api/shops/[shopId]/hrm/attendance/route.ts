@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { ZodError } from 'zod';
+import { z, ZodError } from 'zod';
 import { HrmAttendanceStateError } from '@oni/adapters';
 import {
   HrmAccessError,
@@ -10,6 +10,19 @@ import { attendanceActionSchema } from '@/lib/validators/hrm/profile';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+const updateAttendanceDaySchema = z.object({
+  employee_id: z.string(),
+  work_date: z.string(),
+  shift_template_id: z.string().nullable().optional(),
+  clock_in: z.string().nullable().optional(),
+  clock_out: z.string().nullable().optional(),
+  shift_template_id_2: z.string().nullable().optional(),
+  clock_in_2: z.string().nullable().optional(),
+  clock_out_2: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+});
 
 function respondError(error: unknown) {
   if (error instanceof HrmAccessError) {
@@ -159,6 +172,35 @@ export async function POST(
         actorUserId: access.userId,
       });
     }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return respondError(error);
+  }
+}
+
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ shopId: string }> },
+) {
+  try {
+    const { shopId } = await params;
+    const access = await requireHrmAccess(shopId, 'hrm.attendance.manage');
+    const input = updateAttendanceDaySchema.parse(await request.json());
+
+    await access.repository.updateAttendanceDay({
+      employeeId: input.employee_id,
+      workDate: input.work_date,
+      shiftTemplateId: input.shift_template_id,
+      clockIn: input.clock_in,
+      clockOut: input.clock_out,
+      shiftTemplateId2: input.shift_template_id_2,
+      clockIn2: input.clock_in_2,
+      clockOut2: input.clock_out_2,
+      note: input.note,
+      status: input.status,
+      actorUserId: access.userId,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

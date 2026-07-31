@@ -47,6 +47,7 @@ export interface CreateHrmEmployeeInput {
   email?: string;
   address?: string;
   departmentId?: string;
+  defaultShiftTemplateId?: string;
 }
 
 export interface HrmCustomFieldDefinition {
@@ -585,6 +586,7 @@ export class PostgresHrmRepository {
       address: string | null;
       department_id: string | null;
       department_name: string | null;
+      default_shift_template_id: string | null;
       custom_data: Record<string, unknown> | null;
       total_count: number | string;
     }>(
@@ -605,6 +607,7 @@ export class PostgresHrmRepository {
           p.department_id,
           d.name as department_name,
           coalesce(p.custom_data, '{}'::jsonb) as custom_data,
+          p.default_shift_template_id,
           count(*) over()::integer as total_count
         from employees e
         left join hrm_employee_profiles p
@@ -645,6 +648,7 @@ export class PostgresHrmRepository {
         address: row.address,
         departmentId: row.department_id,
         departmentName: row.department_name,
+        defaultShiftTemplateId: row.default_shift_template_id,
         customData: row.custom_data ?? {},
       })),
       total: Number(result.rows[0]?.total_count ?? 0),
@@ -698,12 +702,12 @@ export class PostgresHrmRepository {
           insert into hrm_employee_profiles (
             id, tenant_id, branch_id, source_employee_id, department_id, job_title,
             employment_status, employment_type, joined_at, email, address,
-            custom_data, created_at, updated_at
+            default_shift_template_id, custom_data, created_at, updated_at
           )
           values (
             $1, $2, $3, $4, nullif($5, ''), nullif($6, ''), 'active', $7,
             nullif($8, '')::date, nullif($9, ''), nullif($10, ''),
-            '{}'::jsonb, now(), now()
+            nullif($11, ''), '{}'::jsonb, now(), now()
           )
         `,
         [
@@ -717,6 +721,7 @@ export class PostgresHrmRepository {
           input.joinedAt ?? '',
           input.email ?? '',
           input.address ?? '',
+          input.defaultShiftTemplateId ?? '',
         ],
       );
 
@@ -741,6 +746,7 @@ export class PostgresHrmRepository {
     email?: string;
     address?: string;
     departmentId?: string;
+    defaultShiftTemplateId?: string;
     customData: Record<string, unknown>;
   }): Promise<void> {
     await this.withTransaction(async (client, scope) => {
@@ -789,12 +795,12 @@ export class PostgresHrmRepository {
           insert into hrm_employee_profiles (
             id, tenant_id, branch_id, source_employee_id, auth_user_id, department_id,
             job_title, employment_status, employment_type, joined_at,
-            email, address, custom_data, created_at, updated_at
+            email, address, default_shift_template_id, custom_data, created_at, updated_at
           )
           values (
             $1, $2, $3, $4, $5::uuid, nullif($6, ''), nullif($7, ''), $8, $9,
             nullif($10, '')::date, nullif($11, ''), nullif($12, ''),
-            $13::jsonb, now(), now()
+            nullif($13, ''), $14::jsonb, now(), now()
           )
           on conflict (tenant_id, source_employee_id) do update set
             auth_user_id = excluded.auth_user_id,
@@ -805,6 +811,7 @@ export class PostgresHrmRepository {
             joined_at = excluded.joined_at,
             email = excluded.email,
             address = excluded.address,
+            default_shift_template_id = excluded.default_shift_template_id,
             custom_data = excluded.custom_data,
             updated_at = now()
         `,
@@ -821,6 +828,7 @@ export class PostgresHrmRepository {
           input.joinedAt ?? '',
           input.email ?? '',
           input.address ?? '',
+          input.defaultShiftTemplateId ?? '',
           JSON.stringify(input.customData),
         ],
       );
@@ -1233,8 +1241,14 @@ export class PostgresHrmRepository {
       work_date: string;
       shift_template_id: string | null;
       shift_name: string | null;
+      shift_start_time: string | null;
+      shift_late_grace_minutes: number | null;
+      shift_template_id_2: string | null;
+      shift_name_2: string | null;
       clock_in: Date | string | null;
       clock_out: Date | string | null;
+      clock_in_2: Date | string | null;
+      clock_out_2: Date | string | null;
       worked_minutes: number | string | null;
       late_minutes: number | string | null;
       early_leave_minutes: number | string | null;
@@ -1255,10 +1269,16 @@ export class PostgresHrmRepository {
           coalesce(a.department_id_snapshot, p.department_id) as department_id,
           d.name as department_name,
           c.work_date::text,
-          a.shift_template_id,
+          coalesce(a.shift_template_id, p.default_shift_template_id) as shift_template_id,
           s.name as shift_name,
+          s.start_time::text as shift_start_time,
+          s.late_grace_minutes as shift_late_grace_minutes,
+          a.shift_template_id_2,
+          s2.name as shift_name_2,
           a.clock_in,
           a.clock_out,
+          a.clock_in_2,
+          a.clock_out_2,
           a.worked_minutes,
           a.late_minutes,
           a.early_leave_minutes,
@@ -1279,9 +1299,13 @@ export class PostgresHrmRepository {
           and d.tenant_id = e.tenant_id
           and d.branch_id = e.branch_id
         left join hrm_shift_templates s
-          on s.id = a.shift_template_id
-          and s.tenant_id = a.tenant_id
-          and s.branch_id = a.branch_id
+          on s.id = coalesce(a.shift_template_id, p.default_shift_template_id)
+          and s.tenant_id = e.tenant_id
+          and s.branch_id = e.branch_id
+        left join hrm_shift_templates s2
+          on s2.id = a.shift_template_id_2
+          and s2.tenant_id = e.tenant_id
+          and s2.branch_id = e.branch_id
         where e.tenant_id = $1 and e.branch_id = $2
           and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
           and ($5::varchar is null or coalesce(a.department_id_snapshot, p.department_id) = $5)
@@ -1296,26 +1320,48 @@ export class PostgresHrmRepository {
       ],
     );
 
-    return result.rows.map((row) => ({
-      attendanceId: row.attendance_id,
-      employeeId: row.employee_id,
-      profileId: row.profile_id,
-      employeeCode: row.employee_code,
-      employeeName: row.employee_name ?? '',
-      departmentId: row.department_id,
-      departmentName: row.department_name,
-      workDate: row.work_date,
-      shiftTemplateId: row.shift_template_id,
-      shiftName: row.shift_name,
-      clockIn: row.clock_in ? new Date(row.clock_in).toISOString() : null,
-      clockOut: row.clock_out ? new Date(row.clock_out).toISOString() : null,
-      workedMinutes: Number(row.worked_minutes ?? 0),
-      lateMinutes: Number(row.late_minutes ?? 0),
-      earlyLeaveMinutes: Number(row.early_leave_minutes ?? 0),
-      overtimeMinutes: Number(row.overtime_minutes ?? 0),
-      status: row.status,
-      note: row.note,
-    }));
+    const now = new Date();
+
+    return result.rows.map((row) => {
+      let calculatedStatus = row.status;
+
+      // On-the-fly absent calculation: if they have a shift today but no check-in yet,
+      // and it's past the shift start time + grace period, mark as absent.
+      if (!calculatedStatus && row.shift_start_time && !row.clock_in) {
+        // Assume Vietnam timezone (+07:00) for shop operations for simplicity
+        const shiftStartDateTime = new Date(`${row.work_date}T${row.shift_start_time}+07:00`);
+        const graceMs = (Number(row.shift_late_grace_minutes) || 0) * 60000;
+        
+        if (now.getTime() > shiftStartDateTime.getTime() + graceMs) {
+          calculatedStatus = 'absent';
+        }
+      }
+
+      return {
+        attendanceId: row.attendance_id,
+        employeeId: row.employee_id,
+        profileId: row.profile_id,
+        employeeCode: row.employee_code,
+        employeeName: row.employee_name ?? '',
+        departmentId: row.department_id,
+        departmentName: row.department_name,
+        workDate: row.work_date,
+        shiftTemplateId: row.shift_template_id,
+        shiftName: row.shift_name,
+        shiftTemplateId2: row.shift_template_id_2,
+        shiftName2: row.shift_name_2,
+        clockIn: row.clock_in ? new Date(row.clock_in).toISOString() : null,
+        clockOut: row.clock_out ? new Date(row.clock_out).toISOString() : null,
+        clockIn2: row.clock_in_2 ? new Date(row.clock_in_2).toISOString() : null,
+        clockOut2: row.clock_out_2 ? new Date(row.clock_out_2).toISOString() : null,
+        workedMinutes: Number(row.worked_minutes ?? 0),
+        lateMinutes: Number(row.late_minutes ?? 0),
+        earlyLeaveMinutes: Number(row.early_leave_minutes ?? 0),
+        overtimeMinutes: Number(row.overtime_minutes ?? 0),
+        status: calculatedStatus,
+        note: row.note,
+      };
+    });
   }
 
 
@@ -1579,6 +1625,104 @@ export class PostgresHrmRepository {
       );
       if (inserted.rowCount !== 1) {
         throw new HrmAttendanceStateError('Nhân viên đã check-in hôm nay.');
+      }
+    });
+  }
+
+  async updateAttendanceDay(input: {
+    employeeId: string;
+    workDate: string;
+    shiftTemplateId?: string | null;
+    clockIn?: string | null;
+    clockOut?: string | null;
+    shiftTemplateId2?: string | null;
+    clockIn2?: string | null;
+    clockOut2?: string | null;
+    note?: string | null;
+    status?: string | null;
+    actorUserId: string;
+  }): Promise<void> {
+    await this.withTransaction(async (client, scope) => {
+      const profile = await client.query<{ id: string, department_id: string | null }>(
+        `select id, department_id from hrm_employee_profiles where tenant_id = $1 and source_employee_id = $2`,
+        [scope.tenantId, input.employeeId]
+      );
+      if (!profile.rows[0]) throw new HrmAttendanceStateError('Không tìm thấy nhân viên.');
+      const profileId = profile.rows[0].id;
+      
+      const existing = await client.query<{ id: string }>(
+        `select id from hrm_attendance_days where tenant_id = $1 and branch_id = $2 and profile_id = $3 and work_date = $4`,
+        [scope.tenantId, scope.branchId, profileId, input.workDate]
+      );
+
+      if (existing.rows[0]) {
+        // Update (dynamically build coalesce or use nulls if we want to clear them? Actually the modal will pass full state or undefined)
+        // If undefined, don't update. If null, clear it.
+        const setClauses = [];
+        const values: any[] = [];
+        let index = 1;
+
+        if (input.shiftTemplateId !== undefined) {
+          setClauses.push(`shift_template_id = $${index++}`);
+          values.push(input.shiftTemplateId);
+        }
+        if (input.clockIn !== undefined) {
+          setClauses.push(`clock_in = $${index++}::timestamp with time zone`);
+          values.push(input.clockIn);
+        }
+        if (input.clockOut !== undefined) {
+          setClauses.push(`clock_out = $${index++}::timestamp with time zone`);
+          values.push(input.clockOut);
+        }
+        if (input.shiftTemplateId2 !== undefined) {
+          setClauses.push(`shift_template_id_2 = $${index++}`);
+          values.push(input.shiftTemplateId2);
+        }
+        if (input.clockIn2 !== undefined) {
+          setClauses.push(`clock_in_2 = $${index++}::timestamp with time zone`);
+          values.push(input.clockIn2);
+        }
+        if (input.clockOut2 !== undefined) {
+          setClauses.push(`clock_out_2 = $${index++}::timestamp with time zone`);
+          values.push(input.clockOut2);
+        }
+        if (input.note !== undefined) {
+          setClauses.push(`note = $${index++}`);
+          values.push(input.note);
+        }
+        if (input.status !== undefined) {
+          setClauses.push(`status = $${index++}`);
+          values.push(input.status);
+        }
+
+        if (setClauses.length > 0) {
+          setClauses.push(`updated_by = $${index++}`, `updated_at = now()`);
+          values.push(input.actorUserId);
+          
+          values.push(existing.rows[0].id);
+          await client.query(`
+            update hrm_attendance_days
+            set ${setClauses.join(', ')}
+            where id = $${index}
+          `, values);
+        }
+      } else {
+        // Insert
+        await client.query(`
+          insert into hrm_attendance_days (
+            id, tenant_id, branch_id, profile_id, department_id_snapshot, work_date,
+            shift_template_id, clock_in, clock_out,
+            shift_template_id_2, clock_in_2, clock_out_2,
+            note, status, source, updated_by, created_at, updated_at
+          ) values (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'manual', $15, now(), now()
+          )
+        `, [
+          `HRMA-${crypto.randomUUID()}`, scope.tenantId, scope.branchId, profileId, profile.rows[0].department_id, input.workDate,
+          input.shiftTemplateId ?? null, input.clockIn ?? null, input.clockOut ?? null,
+          input.shiftTemplateId2 ?? null, input.clockIn2 ?? null, input.clockOut2 ?? null,
+          input.note ?? null, input.status ?? 'present', input.actorUserId
+        ]);
       }
     });
   }

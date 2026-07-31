@@ -29,6 +29,7 @@ interface HrmEmployeeSummary {
   address: string | null;
   departmentId: string | null;
   departmentName: string | null;
+  defaultShiftTemplateId: string | null;
   customData: Record<string, unknown>;
 }
 
@@ -49,6 +50,7 @@ const EMPTY_FORM = {
   phone: '',
   job_title: '',
   department_id: '',
+  default_shift_template_id: '',
   employment_type: 'monthly',
   employment_status: 'active',
   joined_at: '',
@@ -116,6 +118,22 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
         throw new Error('Không tải được danh sách phòng ban.');
       }
       return payload as { data: HrmDepartmentOption[]; total: number };
+    },
+  });
+  const shiftsQuery = useQuery({
+    queryKey: ['hrm-shifts', shopId],
+    staleTime: 0,
+    refetchOnMount: 'always',
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/shops/${encodeURIComponent(shopId)}/hrm/shifts`,
+        { cache: 'no-store' },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error('Không tải được danh sách ca làm việc.');
+      }
+      return payload as { data: any[] };
     },
   });
   const usersQuery = useQuery({
@@ -275,6 +293,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
       phone: row.phone ?? '',
       job_title: row.jobTitle ?? '',
       department_id: row.departmentId ?? '',
+      default_shift_template_id: row.defaultShiftTemplateId ?? '',
       employment_type: row.employmentType,
       employment_status: row.employmentStatus,
       joined_at: row.joinedAt ?? '',
@@ -476,6 +495,32 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
             {departmentsQuery.isError && (
               <p className="mt-1 text-xs text-rose-600">
                 {departmentsQuery.error.message}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Ca làm việc mặc định
+            </label>
+            <select
+              value={formData.default_shift_template_id}
+              onChange={(event) =>
+                updateForm('default_shift_template_id', event.target.value)
+              }
+              disabled={shiftsQuery.isLoading}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
+            >
+              <option value="">Không phân ca mặc định</option>
+              {shiftsQuery.data?.data.map((shift) => (
+                <option key={shift.id} value={shift.id}>
+                  {shift.name} ({shift.startTime} - {shift.endTime})
+                </option>
+              ))}
+            </select>
+            {shiftsQuery.isError && (
+              <p className="mt-1 text-xs text-rose-600">
+                {shiftsQuery.error.message}
               </p>
             )}
           </div>
