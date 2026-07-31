@@ -78,6 +78,9 @@ export interface HrmAttendanceRow {
   profileId: string | null;
   employeeCode: string | null;
   employeeName: string;
+  employeePhone?: string | null;
+  departmentName?: string | null;
+  shiftTemplateId?: string | null;
   clockIn: string | null;
   clockOut: string | null;
   workedMinutes: number;
@@ -1319,10 +1322,13 @@ export class PostgresHrmRepository {
         select
           a.id as attendance_id, e.id as employee_id, p.id as profile_id,
           e.employee_code, coalesce(e.name, '') as employee_name,
-          a.clock_in, a.clock_out, a.worked_minutes, a.status
+          e.phone as employee_phone, d.name as department_name,
+          a.shift_template_id, a.clock_in, a.clock_out, a.worked_minutes, a.status
         from employees e
         left join hrm_employee_profiles p
           on p.tenant_id = e.tenant_id and p.source_employee_id = e.id
+        left join departments d
+          on d.id = p.department_id and d.tenant_id = e.tenant_id and d.branch_id = e.branch_id
         left join hrm_attendance_days a
           on a.tenant_id = e.tenant_id
           and a.profile_id = p.id
@@ -1339,6 +1345,9 @@ export class PostgresHrmRepository {
       profileId: row.profile_id,
       employeeCode: row.employee_code,
       employeeName: row.employee_name ?? '',
+      employeePhone: (row as any).employee_phone ?? null,
+      departmentName: (row as any).department_name ?? null,
+      shiftTemplateId: (row as any).shift_template_id ?? null,
       clockIn: row.clock_in ? new Date(row.clock_in).toISOString() : null,
       clockOut: row.clock_out ? new Date(row.clock_out).toISOString() : null,
       workedMinutes: Number(row.worked_minutes ?? 0),
@@ -1746,6 +1755,8 @@ export class PostgresHrmRepository {
     actorUserId: string;
     source: 'manual' | 'self';
     customTime?: string;
+    note?: string;
+    shiftTemplateId?: string;
   }): Promise<void> {
     await this.withTransaction(async (client, scope) => {
       const employee = await client.query<{ department_id: string | null }>(
@@ -1791,12 +1802,15 @@ export class PostgresHrmRepository {
             id, tenant_id, branch_id, profile_id, department_id_snapshot,
             work_date, clock_in, worked_minutes, late_minutes,
             early_leave_minutes, overtime_minutes, status, source,
+            note, shift_template_id,
             updated_by, created_at, updated_at
           )
           values (
             $1, $2, $3, $4, $5,
             (coalesce($8::timestamp, now()) at time zone 'Asia/Ho_Chi_Minh')::date,
-            coalesce($8::timestamp, now()), 0, 0, 0, 0, 'present', $6, $7, now(), now()
+            coalesce($8::timestamp, now()), 0, 0, 0, 0, 'present', $6, 
+            $9, $10,
+            $7, now(), now()
           )
           on conflict (tenant_id, profile_id, work_date) do nothing
           returning id
@@ -1809,7 +1823,9 @@ export class PostgresHrmRepository {
           resolvedProfile.department_id,
           input.source,
           input.actorUserId,
-          input.customTime ?? null
+          input.customTime ?? null,
+          input.note ?? null,
+          input.shiftTemplateId ?? null
         ],
       );
       if (inserted.rowCount !== 1) {
@@ -1920,6 +1936,8 @@ export class PostgresHrmRepository {
     employeeId: string;
     actorUserId: string;
     customTime?: string;
+    note?: string;
+    shiftTemplateId?: string;
   }): Promise<void> {
     await this.withTransaction(async (client, scope) => {
       const workDateStr = input.customTime 
@@ -1958,11 +1976,13 @@ export class PostgresHrmRepository {
                 0,
                 floor(extract(epoch from (coalesce($3::timestamp, now()) - clock_in)) / 60)::integer
               ),
+              note = coalesce($4, note),
+              shift_template_id = coalesce($5, shift_template_id),
               updated_by = $2,
               updated_at = now()
           where id = $1
         `,
-        [attendance.id, input.actorUserId, input.customTime ?? null],
+        [attendance.id, input.actorUserId, input.customTime ?? null, input.note ?? null, input.shiftTemplateId ?? null],
       );
     });
   }
@@ -3598,10 +3618,10 @@ export class PostgresHrmRepository {
     }
   }
 
-  async listHolidays(year: number): Promise<{ id: string; date: string; name: string }[]> {
+  async listHolidays(year: number): Promise<{ id: string; date: string; name: string; note?: string; created_by?: string; created_at?: string }[]> {
     const result = await this.pool.query(
       `
-        select id, date, name
+        select id, date, name, note, created_by, created_at
         from hrm_holidays
         where tenant_id = $1 and branch_id = $2
           and extract(year from date) = $3
@@ -3618,19 +3638,22 @@ export class PostgresHrmRepository {
         id: r.id,
         date: dateStr,
         name: r.name,
+        note: r.note,
+        created_by: r.created_by,
+        created_at: r.created_at ? new Date(r.created_at).toISOString() : undefined,
       };
     });
   }
 
-  async createHoliday(input: { id: string; date: string; name: string }): Promise<void> {
+  async createHoliday(input: { id: string; date: string; name: string; note?: string; created_by?: string }): Promise<void> {
     await this.pool.query(
       `
-        insert into hrm_holidays (id, tenant_id, branch_id, date, name, created_at, updated_at)
-        values ($1, $2, $3, $4, $5, now(), now())
+        insert into hrm_holidays (id, tenant_id, branch_id, date, name, note, created_by, created_at, updated_at)
+        values ($1, $2, $3, $4, $5, $6, $7, now(), now())
         on conflict (tenant_id, branch_id, date) do update
-        set name = excluded.name, updated_at = now()
+        set name = excluded.name, note = excluded.note, updated_at = now()
       `,
-      [input.id, this.scope.tenantId, this.scope.branchId, input.date, input.name]
+      [input.id, this.scope.tenantId, this.scope.branchId, input.date, input.name, input.note || null, input.created_by || null]
     );
   }
 

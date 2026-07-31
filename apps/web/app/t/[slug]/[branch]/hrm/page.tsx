@@ -17,5 +17,5 @@ interface Props {
  */
 export default async function HrmRootPage({ params }: Props) {
   const { branch } = await params;
-  redirect(`/${branch}/hrm/dashboard`);
+  redirect(`/${branch}/hrm/attendance`);
 }

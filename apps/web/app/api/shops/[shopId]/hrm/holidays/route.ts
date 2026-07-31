@@ -51,14 +51,23 @@ export async function POST(
     const access = await requireHrmAccess(shopId, 'hrm.settings.manage');
     
     const body = await request.json();
-    const { date, name } = body;
+    const { date, name, note } = body;
     
     if (!date || !name) {
       return NextResponse.json({ error: { message: 'Dữ liệu không hợp lệ (cần date và name)' } }, { status: 400 });
     }
 
+    const { getSupabaseServerClient } = await import('@/lib/server/supabaseServer');
+    const supabase = await getSupabaseServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    let createdBy = 'Hệ thống';
+    if (user) {
+      createdBy = user.user_metadata?.full_name || user.user_metadata?.name || user.email || user.id;
+    }
+
     const id = `HOL-${crypto.randomUUID()}`;
-    await access.repository.createHoliday({ id, date, name });
+    await access.repository.createHoliday({ id, date, name, note, created_by: createdBy });
 
     return NextResponse.json({ success: true, data: { id, date, name } });
   } catch (error) {

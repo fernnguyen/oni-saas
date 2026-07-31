@@ -35,7 +35,7 @@ export function HrmDailyAttendanceModal({
   // get shifts from cache
   const queryClient = useQueryClient();
   const month = workDate.slice(0, 7);
-  const cache: any = queryClient.getQueryData(['hrm-attendance-month-widget', shopId, month]);
+  const cache: any = queryClient.getQueryData(['hrm-attendance-month', shopId, month]);
   const shifts: any[] = cache?.shifts || [];
 
   const mutation = useMutation({

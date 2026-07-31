@@ -125,9 +125,15 @@ export async function GET(
       });
     }
 
+    const [data, shifts] = await Promise.all([
+      access.repository.listTodayAttendance(),
+      access.repository.listShiftTemplates({ includeInactive: true }),
+    ]);
+
     return NextResponse.json({
       mode: 'today',
-      data: await access.repository.listTodayAttendance(),
+      data,
+      shifts,
       canManage: access.permissions.includes('hrm.attendance.manage'),
       selfEmployeeId,
     });
@@ -170,12 +176,16 @@ export async function POST(
         actorUserId: access.userId,
         source: employeeId === selfEmployeeId ? 'self' : 'manual',
         customTime: input.custom_time,
+        note: input.note,
+        shiftTemplateId: input.shift_template_id,
       });
     } else {
       await access.repository.clockOut({
         employeeId,
         actorUserId: access.userId,
         customTime: input.custom_time,
+        note: input.note,
+        shiftTemplateId: input.shift_template_id,
       });
     }
 

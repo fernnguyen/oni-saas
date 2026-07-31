@@ -8,6 +8,7 @@ import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { formatHrmDate } from '@/lib/hrm/formatDate';
+import { HrmDailyAttendanceModal } from './HrmDailyAttendanceModal';
 
 type AttendanceStatus = 'present' | 'absent' | 'paid_leave' | 'unpaid_leave' | 'holiday';
 
@@ -55,23 +56,6 @@ interface AttendanceRules {
   min_hours_full_day: number;
 }
 
-interface AttendanceForm {
-  employee_id: string;
-  work_date: string;
-  shift_template_id: string;
-  clock_in: string;
-  clock_out: string;
-  status: AttendanceStatus;
-  note: string;
-}
-
-const STATUS_OPTIONS: Array<{ value: AttendanceStatus; label: string }> = [
-  { value: 'present', label: 'Có mặt' },
-  { value: 'absent', label: 'Vắng' },
-  { value: 'paid_leave', label: 'Nghỉ có lương' },
-  { value: 'unpaid_leave', label: 'Nghỉ không lương' },
-  { value: 'holiday', label: 'Ngày lễ' },
-];
 
 function timeFromIso(value: string | null): string {
   if (!value) return '';
@@ -90,6 +74,7 @@ function duration(minutes: number): string {
 function getMonthOptions() {
   const options = [];
   const d = new Date();
+  d.setDate(1); // Set to 1st to prevent overflow on months with fewer days
   for (let i = 0; i < 12; i++) {
     const year = d.getFullYear();
     const month = (d.getMonth() + 1).toString().padStart(2, '0');
@@ -103,14 +88,12 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
   const monthOptions = useMemo(() => getMonthOptions(), []);
+  
   const [month, setMonth] = useState(monthOptions[0].value);
   const [departmentId, setDepartmentId] = useState('');
-  
-  const [editingRow, setEditingRow] = useState<MonthlyAttendanceRow | null>(null);
-  const [form, setForm] = useState<AttendanceForm | null>(null);
   const [viewingErrorsForEmployee, setViewingErrorsForEmployee] = useState<{ id: string; name: string } | null>(null);
+  const [selectedCell, setSelectedCell] = useState<any>(null);
 
   const query = useQuery({
     queryKey: ['hrm-attendance-month', shopId, month],
@@ -145,17 +128,20 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
     return [...values.entries()].sort((a, b) => a[1].localeCompare(b[1], 'vi'));
   }, [query.data?.data]);
 
+  const { rules, holidays, standardWorkdays } = useMemo(() => {
+    const r = (query.data?.attendanceRules ?? { standard_workdays: { '1': 1, '2': 1, '3': 1, '4': 1, '5': 1, '6': 1, '0': 0 } }) as any;
+    const h = query.data?.holidays ?? [];
+    
+    let sw = r.standard_workdays;
+    if (Array.isArray(sw)) {
+       sw = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0 };
+       r.standard_workdays.forEach((d: number) => sw[d.toString()] = 1);
+    }
+    return { rules: r, holidays: h, standardWorkdays: sw as Record<string, number> };
+  }, [query.data]);
+
   const { employees, daysInMonth } = useMemo(() => {
     const rawData = query.data?.data ?? [];
-    const holidays = query.data?.holidays ?? [];
-    const rules = query.data?.attendanceRules ?? { standard_workdays: { '1': 1, '2': 1, '3': 1, '4': 1, '5': 1, '6': 1, '0': 0 } };
-    
-    // Normalize if backend returned old array format
-    let standardWorkdays = rules.standard_workdays;
-    if (Array.isArray(standardWorkdays)) {
-       standardWorkdays = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0 };
-       rules.standard_workdays.forEach((d: number) => standardWorkdays[d.toString()] = 1);
-    }
     
     const [year, m] = month.split('-');
     const daysCount = new Date(Number(year), Number(m), 0).getDate();
@@ -234,63 +220,6 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
     };
   }, [query.data, month, departmentId]);
 
-  const saveMutation = useMutation({
-    mutationFn: async (value: AttendanceForm) => {
-      const response = await fetch(
-        `/api/shops/${encodeURIComponent(shopId)}/hrm/attendance/days`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            source: 'manual',
-            rows: [
-              {
-                ...value,
-                shift_template_id: value.shift_template_id || null,
-                clock_in: value.clock_in || null,
-                clock_out: value.clock_out || null,
-                note: value.note || null,
-              },
-            ],
-          }),
-        },
-      );
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error?.message ?? 'Không thể lưu ngày công.');
-      }
-    },
-    onSuccess: () => {
-      toast.success('Đã cập nhật ngày công');
-      setEditingRow(null);
-      setForm(null);
-      void queryClient.invalidateQueries({ queryKey: ['hrm-attendance-month', shopId] });
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
-
-  function openEdit(row: MonthlyAttendanceRow) {
-    setEditingRow(row);
-    setForm({
-      employee_id: row.employeeId,
-      work_date: row.workDate,
-      shift_template_id: row.shiftTemplateId ?? '',
-      clock_in: timeFromIso(row.clockIn),
-      clock_out: timeFromIso(row.clockOut),
-      status: row.status ?? 'present',
-      note: row.note ?? '',
-    });
-  }
-
-  async function confirmSaveAttendance() {
-    if (!form || !editingRow) return;
-    const accepted = await confirm({
-      title: 'Lưu thay đổi ngày công?',
-      description: `${editingRow.employeeName} · ${formatHrmDate(form.work_date)}. Thao tác sẽ được ghi audit.`,
-      confirmLabel: 'Lưu ngày công',
-    });
-    if (accepted) saveMutation.mutate(form);
-  }
 
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
@@ -308,42 +237,52 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
         </div>
       </div>
 
-      <div className="my-4 flex flex-wrap items-end gap-3">
-        <label className="text-sm font-medium text-slate-700">
-          Tháng
-          <select
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="mt-1 block w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+      <div className="my-4 flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-slate-700">
+            Tháng
+            <select
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="mt-1 block w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              {monthOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={() => setMonth(monthOptions[0].value)}
+            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50 transition-colors"
           >
-            {monthOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          onClick={() => setMonth(monthOptions[0].value)}
-          className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50 transition-colors"
-        >
-          Tháng này
-        </button>
-        <label className="text-sm font-medium text-slate-700 ml-auto">
-          Phòng ban
-          <select
-            value={departmentId}
-            onChange={(e) => setDepartmentId(e.target.value)}
-            className="mt-1 block w-48 rounded-xl border border-slate-200 px-3 py-2 text-sm"
-          >
-            <option value="">Tất cả phòng ban</option>
-            {departments.map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
+            Tháng này
+          </button>
+          <label className="text-sm font-medium text-slate-700">
+            Phòng ban
+            <select
+              value={departmentId}
+              onChange={(e) => setDepartmentId(e.target.value)}
+              className="mt-1 block w-48 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">Tất cả phòng ban</option>
+              {departments.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-500 bg-slate-50 px-4 py-2.5 rounded-xl border border-slate-200">
+          <span className="flex items-center gap-1.5"><span className="font-bold text-emerald-500 text-sm tracking-tighter">//</span> Đủ ca</span>
+          <span className="flex items-center gap-1.5"><span className="font-bold text-amber-500 text-sm">/</span> Thiếu ca</span>
+          <span className="flex items-center gap-1.5"><span className="font-bold text-red-500 text-sm">X</span> Vắng</span>
+          <span className="flex items-center gap-1.5"><span className="font-bold text-blue-500 text-sm">P</span> Phép</span>
+          <span className="flex items-center gap-1.5"><span className="font-bold text-purple-500 text-sm">L</span> Lễ</span>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -387,6 +326,7 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
                     </div>
                   </td>
                   {daysArray.map((day) => {
+                    const [year, m] = month.split('-');
                     const dateStr = `${year}-${m}-${String(day).padStart(2, '0')}`;
                     const dateObj = new Date(Number(year), Number(m) - 1, day);
                     const dayIndex = dateObj.getDay().toString();
@@ -401,47 +341,67 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
                       let bgClass = "bg-slate-50/50";
                       let title = "Chưa làm việc";
                       let content = "";
+                      let textClass = "text-slate-400";
                       
                       if (colIsHoliday) {
                         bgClass = "bg-rose-50/50";
                         title = "Ngày lễ";
-                        content = "Nghỉ";
+                        content = "L";
+                        textClass = "text-rose-700";
                       } else if (colIsWeekend) {
                         bgClass = "bg-slate-100/50";
                         title = "Cuối tuần";
-                        content = "Nghỉ";
+                        content = "";
                       }
                       
                       return (
                         <td key={day} className={`px-1 py-1 text-center border-r border-slate-200 ${bgClass}`}>
                           <div className="flex items-center justify-center w-full h-full min-h-[40px]" title={title}>
-                            {content && <span className="text-xs font-semibold text-slate-400">{content}</span>}
+                            {content && <span className={`text-xs font-bold ${textClass}`}>{content}</span>}
                           </div>
                         </td>
                       );
                     }
                     
-                    const { row, isWeekend, isHoliday, hasError } = cell;
+                    const { row, isWeekend, isHoliday, hasError, workday } = cell;
                     let bgClass = "bg-white";
-                    let content = row.status === 'present' ? 'V' : '-';
-                    
-                    if (isHoliday || isWeekend) {
-                      bgClass = "bg-slate-100/50";
-                      content = 'Nghỉ';
-                      if (row.status === 'present') {
-                        content = 'OT';
-                        bgClass = "bg-emerald-50";
-                      }
-                    } else if (hasError) {
-                      bgClass = "bg-rose-50";
+                    let content = '';
+
+                    if (row.status === 'present') {
+                       if (workday >= (maxWorkday || 1)) content = '//';
+                       else if (workday > 0) content = '/';
+                       else content = 'X';
+                    } else if (row.status === 'absent') {
+                       content = 'X';
+                    } else if (row.status === 'paid_leave' || row.status === 'unpaid_leave') {
+                       content = 'P';
+                    } else if (row.status === 'holiday') {
+                       content = 'L';
+                    } else {
+                       content = '-';
                     }
                     
+                    let textClass = "text-slate-700 font-bold";
+                    if (content === '//') textClass = "text-emerald-500 font-bold";
+                    else if (content === '/') textClass = "text-amber-500 font-bold";
+                    else if (content === 'X') textClass = "text-red-500 font-bold";
+                    else if (content === 'P') textClass = "text-blue-500 font-bold";
+                    else if (content === 'L') textClass = "text-purple-500 font-bold";
+                    
                     return (
-                      <td key={day} className={`px-1 py-1 text-center border-r border-slate-200 ${bgClass} cursor-pointer hover:bg-slate-100 transition-colors`} onClick={() => {
-                        if (query.data?.canManage) openEdit(row);
+                      <td key={day} className={`relative px-1 py-1 text-center border-r border-slate-200 ${bgClass} cursor-pointer hover:bg-slate-100 transition-colors`} onClick={() => {
+                        if (query.data?.canManage) {
+                          setSelectedCell({
+                            employeeId: emp.id,
+                            employeeName: emp.name,
+                            workDate: dateStr,
+                            currentData: cell ? cell.row : undefined,
+                          });
+                        }
                       }}>
+                        {hasError && <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-rose-500 shadow-sm" title="Có lỗi chấm công"></div>}
                         <div className="flex flex-col items-center justify-center min-h-[40px]" title={hasError ? 'Có lỗi chấm công' : 'Bình thường'}>
-                          <span className={`text-xs font-semibold ${hasError ? 'text-rose-600' : 'text-slate-700'}`}>
+                          <span className={`text-xs font-bold ${textClass} tracking-tighter`}>
                             {content}
                           </span>
                           {row.status === 'present' && row.clockIn && (
@@ -475,7 +435,15 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
                 <p className="text-xs text-rose-600/80 mt-1">Giờ vào: {timeFromIso(err.row.clockIn) || '--:--'} | Giờ ra: {timeFromIso(err.row.clockOut) || '--:--'}</p>
               </div>
               <button 
-                onClick={() => openEdit(err.row)}
+                onClick={() => {
+                  setViewingErrorsForEmployee(null);
+                  setSelectedCell({
+                    employeeId: viewingErrorsForEmployee?.id,
+                    employeeName: viewingErrorsForEmployee?.name,
+                    workDate: err.date,
+                    currentData: err.row,
+                  });
+                }}
                 className="text-sm font-semibold text-rose-600 hover:text-rose-800"
               >
                 Sửa
@@ -485,116 +453,20 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
         </div>
       </SlideOver>
 
-      {/* SlideOver for Edit */}
-      <SlideOver
-        open={Boolean(editingRow && form)}
-        onClose={() => {
-          setEditingRow(null);
-          setForm(null);
-        }}
-        title="Chỉnh ngày công"
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingRow(null);
-                setForm(null);
-              }}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm"
-            >
-              Hủy
-            </button>
-            <button
-              type="button"
-              disabled={!form || saveMutation.isPending}
-              onClick={() => void confirmSaveAttendance()}
-              className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {saveMutation.isPending ? 'Đang lưu...' : 'Lưu ngày công'}
-            </button>
-          </>
-        }
-      >
-        {form && editingRow && (
-          <div className="space-y-4">
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="font-semibold text-slate-900">{editingRow.employeeName}</p>
-              <p className="text-sm text-slate-500">{formatHrmDate(form.work_date)}</p>
-            </div>
-            <label className="block text-sm font-medium text-slate-700">
-              Trạng thái
-              <select
-                value={form.status}
-                onChange={(event) =>
-                  setForm({ ...form, status: event.target.value as AttendanceStatus })
-                }
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-              >
-                {STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm font-medium text-slate-700">
-              Ca làm
-              <select
-                value={form.shift_template_id}
-                disabled={form.status !== 'present'}
-                onChange={(event) =>
-                  setForm({ ...form, shift_template_id: event.target.value })
-                }
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 disabled:bg-slate-100"
-              >
-                <option value="">Không gán ca</option>
-                {(query.data?.shifts ?? []).map((shift) => (
-                  <option key={shift.id} value={shift.id}>
-                    {shift.name}
-                    {!shift.active ? ' (đã tắt)' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="text-sm font-medium text-slate-700">
-                Giờ vào
-                <input
-                  type="time"
-                  value={form.clock_in}
-                  disabled={form.status !== 'present'}
-                  onChange={(event) =>
-                    setForm({ ...form, clock_in: event.target.value })
-                  }
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 disabled:bg-slate-100"
-                />
-              </label>
-              <label className="text-sm font-medium text-slate-700">
-                Giờ ra
-                <input
-                  type="time"
-                  value={form.clock_out}
-                  disabled={form.status !== 'present'}
-                  onChange={(event) =>
-                    setForm({ ...form, clock_out: event.target.value })
-                  }
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 disabled:bg-slate-100"
-                />
-              </label>
-            </div>
-            <label className="block text-sm font-medium text-slate-700">
-              Ghi chú / Giải trình
-              <textarea
-                value={form.note}
-                onChange={(event) => setForm({ ...form, note: event.target.value })}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                rows={3}
-              />
-            </label>
-          </div>
-        )}
-      </SlideOver>
+      {selectedCell && (
+        <HrmDailyAttendanceModal
+          shopId={shopId}
+          employeeId={selectedCell.employeeId}
+          employeeName={selectedCell.employeeName}
+          workDate={selectedCell.workDate}
+          currentData={selectedCell.currentData}
+          onClose={() => setSelectedCell(null)}
+          onSuccess={() => {
+            setSelectedCell(null);
+            queryClient.invalidateQueries({ queryKey: ['hrm-attendance-month', shopId] });
+          }}
+        />
+      )}
     </div>
   );
 }

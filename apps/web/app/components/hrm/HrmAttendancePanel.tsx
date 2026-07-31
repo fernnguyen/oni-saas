@@ -5,14 +5,19 @@ import { toast } from 'sonner';
 import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { TagBadge } from '@/app/components/ui/TagBadge';
-import { useConfirm } from '@/app/components/ui/ConfirmProvider';
-import { HrmMonthlyAttendancePanel } from './HrmMonthlyAttendancePanel';
+import { useState } from 'react';
+import { Clock, CheckCircle2, Timer, Settings, LogIn, LogOut, AlertCircle, CalendarX } from 'lucide-react';
+import { HrmQuickAttendanceModal } from './HrmQuickAttendanceModal';
+import { HrmChangeShiftModal } from './HrmChangeShiftModal';
 
 interface AttendanceRow {
   id: string | null;
   employeeId: string;
   employeeCode: string | null;
   employeeName: string;
+  employeePhone?: string | null;
+  departmentName?: string | null;
+  shiftTemplateId?: string | null;
   clockIn: string | null;
   clockOut: string | null;
   workedMinutes: number;
@@ -31,7 +36,10 @@ function formatTime(value: string | null) {
 
 export function HrmAttendancePanel({ shopId }: { shopId: string }) {
   const queryClient = useQueryClient();
-  const confirm = useConfirm();
+  const [selectedRow, setSelectedRow] = useState<AttendanceRow | null>(null);
+  const [selectedAction, setSelectedAction] = useState<'check_in' | 'check_out' | 'manage'>('check_in');
+  const [changingShiftRow, setChangingShiftRow] = useState<AttendanceRow | null>(null);
+  
   const query = useQuery({
     queryKey: ['hrm-attendance', shopId],
     staleTime: 0,
@@ -47,53 +55,51 @@ export function HrmAttendancePanel({ shopId }: { shopId: string }) {
       }
       return payload as {
         data: AttendanceRow[];
+        shifts: any[];
         canManage: boolean;
         selfEmployeeId: string | null;
       };
     },
   });
-  const mutation = useMutation({
-    mutationFn: async ({
-      employeeId,
-      action,
-    }: {
-      employeeId: string;
-      action: 'check_in' | 'check_out';
-    }) => {
-      const response = await fetch(
-        `/api/shops/${encodeURIComponent(shopId)}/hrm/attendance`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, employee_id: employeeId }),
-        },
-      );
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error?.message ?? 'Chấm công thất bại.');
-      }
-    },
-    onSuccess: () => {
-      toast.success('Đã cập nhật chấm công');
-      void queryClient.invalidateQueries({ queryKey: ['hrm-attendance', shopId] });
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
-  async function confirmAttendance(row: AttendanceRow) {
-    const action = row.clockIn ? 'check_out' : 'check_in';
-    const accepted = await confirm({
-      title: action === 'check_in' ? 'Xác nhận vào ca?' : 'Xác nhận ra ca?',
-      description: `${row.employeeName} · thao tác sẽ ghi nhận thời điểm hiện tại.`,
-      confirmLabel: action === 'check_in' ? 'Check-in' : 'Check-out',
-    });
-    if (accepted) mutation.mutate({ employeeId: row.employeeId, action });
-  }
 
   const canAct = (row: AttendanceRow) =>
     query.data?.canManage || query.data?.selfEmployeeId === row.employeeId;
   const columns: Column<AttendanceRow>[] = [
     { key: 'employeeCode', label: 'Mã NV', render: (row) => row.employeeCode || '—' },
-    { key: 'employeeName', label: 'Nhân viên' },
+    { 
+      key: 'employeeName', 
+      label: 'Nhân viên',
+      render: (row) => (
+        <div>
+          <div className="font-medium">{row.employeeName}</div>
+          {row.employeePhone && <div className="text-xs text-slate-500">{row.employeePhone}</div>}
+        </div>
+      )
+    },
+    { key: 'departmentName', label: 'Bộ phận', render: (row) => row.departmentName || '—' },
+    {
+      key: 'shiftTemplateId',
+      label: 'Ca làm việc',
+      render: (row) => {
+        const isManager = query.data?.canManage;
+        const shiftName =
+          query.data?.shifts?.find((s) => s.id === row.shiftTemplateId)?.name ||
+          'Tự động / Không có';
+
+        if (isManager) {
+          return (
+            <button
+              onClick={() => setChangingShiftRow(row)}
+              className="group flex items-center gap-1.5 text-blue-600 hover:text-blue-700 font-medium"
+            >
+              {shiftName}
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity">✎</span>
+            </button>
+          );
+        }
+        return <span className="text-slate-600">{shiftName}</span>;
+      },
+    },
     { key: 'clockIn', label: 'Vào ca', render: (row) => formatTime(row.clockIn) },
     { key: 'clockOut', label: 'Ra ca', render: (row) => formatTime(row.clockOut) },
     {
@@ -107,32 +113,120 @@ export function HrmAttendancePanel({ shopId }: { shopId: string }) {
     {
       key: 'status',
       label: 'Trạng thái',
-      render: (row) => (
-        <TagBadge
-          label={
-            !row.clockIn
-              ? 'Chưa vào ca'
-              : row.clockOut
-                ? 'Đã hoàn thành'
-                : 'Đang làm'
+      render: (row) => {
+        const status = row.status?.toLowerCase();
+        
+        if (status === 'paid_leave' || status === 'unpaid_leave' || status === 'leave') {
+          const leaveLabel = status === 'paid_leave' ? 'Nghỉ (Có lương)' : status === 'unpaid_leave' ? 'Nghỉ (Không lương)' : 'Nghỉ';
+          return (
+            <div className="flex items-center gap-1.5 text-purple-700 bg-purple-100 px-2 py-0.5 rounded-md w-max text-xs font-medium">
+              <CalendarX className="w-3.5 h-3.5" />
+              {leaveLabel}
+            </div>
+          );
+        }
+
+        const shift = query.data?.shifts?.find((s) => s.id === row.shiftTemplateId);
+        let isAbsent = status === 'absent';
+        let isLateMissing = false;
+        
+        if (!isAbsent && !row.clockIn && shift && shift.endTime) {
+          const now = new Date();
+          const currentHourMin = now.getHours() * 60 + now.getMinutes();
+          const [h, m] = shift.endTime.split(':').map(Number);
+          if (currentHourMin > (h * 60 + m)) {
+            isLateMissing = true;
           }
-        />
-      ),
+        }
+
+        if (isAbsent) {
+          return (
+            <div className="flex items-center gap-1.5 text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md w-max text-xs font-medium">
+              <AlertCircle className="w-3.5 h-3.5" />
+              Vắng mặt
+            </div>
+          );
+        }
+
+        if (isLateMissing) {
+          return (
+            <div className="flex items-center gap-1.5 text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md w-max text-xs font-medium">
+              <AlertCircle className="w-3.5 h-3.5" />
+              Không chấm công
+            </div>
+          );
+        }
+
+        if (!row.clockIn) {
+          return (
+            <div className="flex items-center gap-1.5 text-slate-500 bg-slate-100/75 px-2 py-0.5 rounded-md w-max text-xs font-medium">
+              <Clock className="w-3.5 h-3.5" />
+              Chưa vào ca
+            </div>
+          );
+        }
+        if (row.clockOut) {
+          return (
+            <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md w-max text-xs font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Đã hoàn thành
+            </div>
+          );
+        }
+        return (
+          <div className="flex items-center gap-1.5 text-blue-700 bg-blue-100 px-2 py-0.5 rounded-md w-max text-xs font-medium">
+            <Timer className="w-3.5 h-3.5 animate-pulse" />
+            Đang làm
+          </div>
+        );
+      },
     },
     {
       key: 'actions',
-      label: '',
-      render: (row) =>
-        canAct(row) ? (
+      label: 'Thao tác',
+      align: 'right',
+      render: (row) => {
+        const isManager = query.data?.canManage;
+        
+        let action: 'check_in' | 'check_out' | 'manage' = 'check_in';
+        let btnText = 'Check-in';
+        let btnColor = 'bg-emerald-600 hover:bg-emerald-700';
+        let Icon = LogIn;
+
+        if (row.clockIn && row.clockOut) {
+          action = 'manage';
+          btnText = 'Quản lý';
+          btnColor = 'bg-slate-600 hover:bg-slate-700';
+          Icon = Settings;
+        } else if (row.clockIn && !row.clockOut) {
+          action = 'check_out';
+          btnText = 'Check-out';
+          btnColor = 'bg-rose-600 hover:bg-rose-700';
+          Icon = LogOut;
+        } else if (row.status === 'absent' || row.status === 'paid_leave' || row.status === 'unpaid_leave') {
+          action = 'manage';
+          btnText = 'Quản lý';
+          btnColor = 'bg-slate-600 hover:bg-slate-700';
+          Icon = Settings;
+        }
+
+        if (!isManager && action === 'manage') {
+          return <span className="text-sm text-slate-400">Không có quyền</span>;
+        }
+
+        return (
           <button
-            type="button"
-            disabled={mutation.isPending || Boolean(row.clockOut)}
-            onClick={() => void confirmAttendance(row)}
-            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+            onClick={() => {
+              setSelectedRow(row);
+              setSelectedAction(action);
+            }}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors ${btnColor}`}
           >
-            {row.clockIn ? 'Check-out' : 'Check-in'}
+            <Icon className="w-3.5 h-3.5" />
+            {btnText}
           </button>
-        ) : null,
+        );
+      },
     },
   ];
 
@@ -156,7 +250,43 @@ export function HrmAttendancePanel({ shopId }: { shopId: string }) {
           <p className="mt-3 text-sm text-rose-600">{query.error.message}</p>
         )}
       </div>
-      <HrmMonthlyAttendancePanel shopId={shopId} />
+
+      {selectedRow && (
+        <HrmQuickAttendanceModal
+          shopId={shopId}
+          employeeId={selectedRow.employeeId}
+          employeeName={selectedRow.employeeName}
+          employeePhone={selectedRow.employeePhone}
+          departmentName={selectedRow.departmentName}
+          action={selectedAction}
+          canManage={query.data?.canManage}
+          initialClockIn={selectedRow.clockIn}
+          initialClockOut={selectedRow.clockOut}
+          initialStatus={selectedRow.status || undefined}
+          initialShiftId={selectedRow.shiftTemplateId}
+          shifts={query.data?.shifts ?? []}
+          onClose={() => setSelectedRow(null)}
+          onSuccess={() => {
+            setSelectedRow(null);
+            void queryClient.invalidateQueries({ queryKey: ['hrm-attendance', shopId] });
+          }}
+        />
+      )}
+
+      {changingShiftRow && (
+        <HrmChangeShiftModal
+          shopId={shopId}
+          employeeId={changingShiftRow.employeeId}
+          employeeName={changingShiftRow.employeeName}
+          currentShiftId={changingShiftRow.shiftTemplateId || null}
+          shifts={query.data?.shifts ?? []}
+          onClose={() => setChangingShiftRow(null)}
+          onSuccess={() => {
+            setChangingShiftRow(null);
+            void queryClient.invalidateQueries({ queryKey: ['hrm-attendance', shopId] });
+          }}
+        />
+      )}
     </div>
   );
 }

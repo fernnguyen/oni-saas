@@ -168,6 +168,8 @@ export const hrmHolidays = pgTable('hrm_holidays', {
   branch_id: varchar('branch_id', { length: 255 }).notNull(),
   date: date('date').notNull(),
   name: varchar('name', { length: 255 }).notNull(),
+  note: text('note'),
+  created_by: varchar('created_by', { length: 255 }),
   created_at: auditTimestamp('created_at'),
   updated_at: auditTimestamp('updated_at'),
 }, (table) => [
