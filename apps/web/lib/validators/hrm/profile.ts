@@ -70,6 +70,7 @@ export const createHrmCustomFieldSchema = z
 export const attendanceActionSchema = z.object({
   action: z.enum(['check_in', 'check_out']),
   employee_id: z.string().trim().min(1).optional(),
+  custom_time: z.string().optional(),
 });
 
 export const updateHrmCustomFieldSchema = z

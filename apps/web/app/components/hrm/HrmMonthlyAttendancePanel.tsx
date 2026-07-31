@@ -2,21 +2,14 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, Pencil, Upload } from 'lucide-react';
+import { CalendarDays, Pencil, Upload, ChevronRight, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
-import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SlideOver } from '@/app/components/ui/SlideOver';
-import { TagBadge } from '@/app/components/ui/TagBadge';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { formatHrmDate } from '@/lib/hrm/formatDate';
 
-type AttendanceStatus =
-  | 'present'
-  | 'absent'
-  | 'paid_leave'
-  | 'unpaid_leave'
-  | 'holiday';
+type AttendanceStatus = 'present' | 'absent' | 'paid_leave' | 'unpaid_leave' | 'holiday';
 
 interface MonthlyAttendanceRow {
   attendanceId: string | null;
@@ -37,6 +30,8 @@ interface MonthlyAttendanceRow {
   overtimeMinutes: number;
   status: AttendanceStatus | null;
   note: string | null;
+  exceptions: any;
+  workdayCount?: number;
 }
 
 interface ShiftOption {
@@ -45,6 +40,19 @@ interface ShiftOption {
   startTime: string;
   endTime: string;
   active: boolean;
+}
+
+interface Holiday {
+  date: string;
+  name: string;
+}
+
+interface AttendanceRules {
+  standard_workdays: number[];
+  late_half_day_threshold_minutes: number;
+  late_no_day_threshold_minutes: number;
+  min_hours_half_day: number;
+  min_hours_full_day: number;
 }
 
 interface AttendanceForm {
@@ -65,26 +73,6 @@ const STATUS_OPTIONS: Array<{ value: AttendanceStatus; label: string }> = [
   { value: 'holiday', label: 'Ngày lễ' },
 ];
 
-function vietnamMonth(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Ho_Chi_Minh',
-    year: 'numeric',
-    month: '2-digit',
-  })
-    .format(new Date())
-    .slice(0, 7);
-}
-
-function defaultDay(month: string): string {
-  const today = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Ho_Chi_Minh',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-  return today.startsWith(month) ? today : `${month}-01`;
-}
-
 function timeFromIso(value: string | null): string {
   if (!value) return '';
   return new Intl.DateTimeFormat('en-GB', {
@@ -96,84 +84,33 @@ function timeFromIso(value: string | null): string {
 }
 
 function duration(minutes: number): string {
-  return minutes > 0
-    ? `${Math.floor(minutes / 60)}h ${minutes % 60}p`
-    : '—';
+  return minutes > 0 ? `${Math.floor(minutes / 60)}h ${minutes % 60}p` : '—';
 }
 
-function statusLabel(status: AttendanceStatus | null): string {
-  return (
-    STATUS_OPTIONS.find((option) => option.value === status)?.label ??
-    'Chưa ghi công'
-  );
-}
-
-function parseCsvLine(line: string): string[] {
-  const values: string[] = [];
-  let value = '';
-  let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    if (character === '"') {
-      if (quoted && line[index + 1] === '"') {
-        value += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (character === ',' && !quoted) {
-      values.push(value.trim());
-      value = '';
-    } else {
-      value += character;
-    }
+function getMonthOptions() {
+  const options = [];
+  const d = new Date();
+  for (let i = 0; i < 12; i++) {
+    const year = d.getFullYear();
+    const month = (d.getMonth() + 1).toString().padStart(2, '0');
+    options.push({ value: `${year}-${month}`, label: `Tháng ${month}/${year}` });
+    d.setMonth(d.getMonth() - 1);
   }
-  values.push(value.trim());
-  return values;
-}
-
-function parseAttendanceCsv(content: string) {
-  const lines = content
-    .replace(/^\uFEFF/, '')
-    .split(/\r?\n/)
-    .filter((line) => line.trim());
-  const headers = parseCsvLine(lines[0] ?? '');
-  const required = ['employee_id', 'work_date', 'status'];
-  if (!required.every((header) => headers.includes(header))) {
-    throw new Error(
-      'CSV cần có các cột employee_id, work_date và status.',
-    );
-  }
-  return lines.slice(1).map((line) => {
-    const values = parseCsvLine(line);
-    const row = Object.fromEntries(
-      headers.map((header, index) => [header, values[index] ?? '']),
-    );
-    return {
-      employee_id: row.employee_id,
-      work_date: row.work_date,
-      status: row.status,
-      shift_template_id: row.shift_template_id || null,
-      clock_in: row.clock_in || null,
-      clock_out: row.clock_out || null,
-      note: row.note || null,
-    };
-  });
+  return options;
 }
 
 export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [month, setMonth] = useState(vietnamMonth);
-  const [selectedDay, setSelectedDay] = useState(() =>
-    defaultDay(vietnamMonth()),
-  );
+  
+  const monthOptions = useMemo(() => getMonthOptions(), []);
+  const [month, setMonth] = useState(monthOptions[0].value);
   const [departmentId, setDepartmentId] = useState('');
-  const [editingRow, setEditingRow] = useState<MonthlyAttendanceRow | null>(
-    null,
-  );
+  
+  const [editingRow, setEditingRow] = useState<MonthlyAttendanceRow | null>(null);
   const [form, setForm] = useState<AttendanceForm | null>(null);
+  const [viewingErrorsForEmployee, setViewingErrorsForEmployee] = useState<{ id: string; name: string } | null>(null);
 
   const query = useQuery({
     queryKey: ['hrm-attendance-month', shopId, month],
@@ -186,13 +123,13 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
       );
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(
-          payload.error?.message ?? 'Không tải được bảng công tháng.',
-        );
+        throw new Error(payload.error?.message ?? 'Không tải được bảng công tháng.');
       }
       return payload as {
         data: MonthlyAttendanceRow[];
         shifts: ShiftOption[];
+        holidays: Holiday[];
+        attendanceRules: AttendanceRules;
         canManage: boolean;
       };
     },
@@ -205,31 +142,86 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
         values.set(row.departmentId, row.departmentName ?? 'Chưa đặt tên');
       }
     }
-    return [...values.entries()].sort((a, b) =>
-      a[1].localeCompare(b[1], 'vi'),
-    );
+    return [...values.entries()].sort((a, b) => a[1].localeCompare(b[1], 'vi'));
   }, [query.data?.data]);
 
-  const visibleRows = useMemo(
-    () =>
-      (query.data?.data ?? []).filter(
-        (row) =>
-          row.workDate === selectedDay &&
-          (!departmentId || row.departmentId === departmentId),
-      ),
-    [departmentId, query.data?.data, selectedDay],
-  );
-
-  const totals = useMemo(() => {
-    const rows = (query.data?.data ?? []).filter(
-      (row) => !departmentId || row.departmentId === departmentId,
-    );
+  const { employees, daysInMonth } = useMemo(() => {
+    const rawData = query.data?.data ?? [];
+    const holidays = query.data?.holidays ?? [];
+    const rules = query.data?.attendanceRules ?? { standard_workdays: [1, 2, 3, 4, 5, 6] };
+    
+    const [year, m] = month.split('-');
+    const daysCount = new Date(Number(year), Number(m), 0).getDate();
+    
+    const empMap = new Map<string, any>();
+    
+    for (const row of rawData) {
+      if (departmentId && row.departmentId !== departmentId) continue;
+      
+      if (!empMap.has(row.employeeId)) {
+        empMap.set(row.employeeId, {
+          id: row.employeeId,
+          code: row.employeeCode,
+          name: row.employeeName,
+          departmentName: row.departmentName,
+          days: {},
+          totalWorkdays: 0,
+          errors: [],
+        });
+      }
+      const emp = empMap.get(row.employeeId);
+      
+      const dayNum = parseInt(row.workDate.split('-')[2]);
+      const dateObj = new Date(row.workDate);
+      const isWeekend = !rules.standard_workdays.includes(dateObj.getDay());
+      const isHoliday = holidays.some((h) => h.date === row.workDate);
+      
+      const hasMissingCheckout = row.exceptions?.missing_checkout;
+      const isLate = row.lateMinutes > 0;
+      const isEarly = row.earlyLeaveMinutes > 0;
+      const hasError = hasMissingCheckout || isLate || isEarly || (row.status === 'absent' && !isWeekend && !isHoliday);
+      
+      let workday = 0;
+      if (row.status === 'present') {
+        workday = 1;
+        if (rules.late_half_day_threshold_minutes && (row.lateMinutes + row.earlyLeaveMinutes) > rules.late_half_day_threshold_minutes) {
+          workday = 0.5;
+        }
+        if (rules.late_no_day_threshold_minutes && (row.lateMinutes + row.earlyLeaveMinutes) > rules.late_no_day_threshold_minutes) {
+          workday = 0;
+        }
+        if (hasMissingCheckout) workday = 0; // Requires manual resolution
+      } else if (row.status === 'paid_leave' || row.status === 'holiday') {
+        workday = 1;
+      }
+      
+      emp.totalWorkdays += workday;
+      
+      if (hasError) {
+        emp.errors.push({
+          date: row.workDate,
+          reason: hasMissingCheckout ? 'Thiếu check-out' 
+                : isLate ? `Đi muộn ${row.lateMinutes}p` 
+                : isEarly ? `Về sớm ${row.earlyLeaveMinutes}p` 
+                : 'Vắng mặt',
+          row,
+        });
+      }
+      
+      emp.days[dayNum] = {
+        row,
+        isWeekend,
+        isHoliday,
+        hasError,
+        workday
+      };
+    }
+    
     return {
-      present: rows.filter((row) => row.status === 'present').length,
-      worked: rows.reduce((sum, row) => sum + row.workedMinutes, 0),
-      overtime: rows.reduce((sum, row) => sum + row.overtimeMinutes, 0),
+      employees: Array.from(empMap.values()),
+      daysInMonth: daysCount,
     };
-  }, [departmentId, query.data?.data]);
+  }, [query.data, month, departmentId]);
 
   const saveMutation = useMutation({
     mutationFn: async (value: AttendanceForm) => {
@@ -261,12 +253,7 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
       toast.success('Đã cập nhật ngày công');
       setEditingRow(null);
       setForm(null);
-      void queryClient.invalidateQueries({
-        queryKey: ['hrm-attendance-month', shopId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ['hrm-attendance', shopId],
-      });
+      void queryClient.invalidateQueries({ queryKey: ['hrm-attendance-month', shopId] });
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -294,108 +281,7 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
     if (accepted) saveMutation.mutate(form);
   }
 
-  async function handleImport(file: File) {
-    try {
-      const rows = parseAttendanceCsv(await file.text());
-      if (rows.length === 0) throw new Error('File CSV không có dữ liệu.');
-      const endpoint = `/api/shops/${encodeURIComponent(shopId)}/hrm/attendance/import`;
-      const preview = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source: 'import', dry_run: true, rows }),
-      });
-      const previewPayload = await preview.json();
-      if (!preview.ok) {
-        throw new Error(
-          previewPayload.error?.message ?? 'Dữ liệu import không hợp lệ.',
-        );
-      }
-      const accepted = await confirm({
-        title: 'Xác nhận import bảng công',
-        description: `${previewPayload.validRows} dòng hợp lệ sẽ được ghi trong một transaction.`,
-        confirmLabel: 'Import',
-      });
-      if (!accepted) return;
-      const committed = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source: 'import', dry_run: false, rows }),
-      });
-      const committedPayload = await committed.json();
-      if (!committed.ok) {
-        throw new Error(
-          committedPayload.error?.message ?? 'Không thể import bảng công.',
-        );
-      }
-      toast.success(`Đã import ${committedPayload.validRows} dòng bảng công`);
-      void queryClient.invalidateQueries({
-        queryKey: ['hrm-attendance-month', shopId],
-      });
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Không thể đọc file CSV.',
-      );
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  }
-
-  const columns: Column<MonthlyAttendanceRow>[] = [
-    {
-      key: 'employeeCode',
-      label: 'Mã NV',
-      render: (row) => row.employeeCode || '—',
-    },
-    { key: 'employeeName', label: 'Nhân viên' },
-    {
-      key: 'departmentName',
-      label: 'Phòng ban',
-      render: (row) => row.departmentName || 'Chưa phân phòng',
-    },
-    {
-      key: 'shiftName',
-      label: 'Ca',
-      render: (row) => row.shiftName || '—',
-    },
-    {
-      key: 'clock',
-      label: 'Vào – Ra',
-      render: (row) =>
-        row.clockIn
-          ? `${timeFromIso(row.clockIn)} – ${timeFromIso(row.clockOut) || '…'}`
-          : '—',
-    },
-    {
-      key: 'workedMinutes',
-      label: 'Giờ công',
-      render: (row) => duration(row.workedMinutes),
-    },
-    {
-      key: 'overtimeMinutes',
-      label: 'Tăng ca',
-      render: (row) => duration(row.overtimeMinutes),
-    },
-    {
-      key: 'status',
-      label: 'Trạng thái',
-      render: (row) => <TagBadge label={statusLabel(row.status)} />,
-    },
-    {
-      key: 'actions',
-      label: '',
-      render: (row) =>
-        query.data?.canManage ? (
-          <button
-            type="button"
-            onClick={() => openEdit(row)}
-            className="rounded-lg p-2 text-primary hover:bg-blue-50"
-            aria-label={`Sửa công ${row.employeeName} ngày ${formatHrmDate(row.workDate)}`}
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
-        ) : null,
-    },
-  ];
+  const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
@@ -406,78 +292,38 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
             Bảng công tháng
           </h2>
           <p className="mt-0.5 text-sm text-slate-500">
-            Theo dõi từng ngày, chỉnh công có audit và snapshot phòng ban.
-          </p>
-        </div>
-        {query.data?.canManage && (
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-            <Upload className="h-4 w-4" />
-            Import CSV
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void handleImport(file);
-              }}
-            />
-          </label>
-        )}
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl bg-slate-50 p-3">
-          <p className="text-xs text-slate-500">Ngày có mặt</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">
-            {totals.present}
-          </p>
-        </div>
-        <div className="rounded-xl bg-slate-50 p-3">
-          <p className="text-xs text-slate-500">Tổng giờ công</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">
-            {duration(totals.worked)}
-          </p>
-        </div>
-        <div className="rounded-xl bg-slate-50 p-3">
-          <p className="text-xs text-slate-500">Tổng tăng ca</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">
-            {duration(totals.overtime)}
+            Theo dõi từng ngày, quản lý ngày nghỉ lễ, xử lý lỗi đi muộn/về sớm.
           </p>
         </div>
       </div>
 
-      <div className="my-4 grid gap-3 sm:grid-cols-3">
+      <div className="my-4 flex flex-wrap items-end gap-3">
         <label className="text-sm font-medium text-slate-700">
           Tháng
-          <input
-            type="month"
+          <select
             value={month}
-            onChange={(event) => {
-              setMonth(event.target.value);
-              setSelectedDay(defaultDay(event.target.value));
-            }}
-            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-          />
+            onChange={(e) => setMonth(e.target.value)}
+            className="mt-1 block w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          >
+            {monthOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </label>
-        <label className="text-sm font-medium text-slate-700">
-          Ngày
-          <input
-            type="date"
-            value={selectedDay}
-            min={`${month}-01`}
-            max={`${month}-31`}
-            onChange={(event) => setSelectedDay(event.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-          />
-        </label>
-        <label className="text-sm font-medium text-slate-700">
+        <button
+          onClick={() => setMonth(monthOptions[0].value)}
+          className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50 transition-colors"
+        >
+          Tháng này
+        </button>
+        <label className="text-sm font-medium text-slate-700 ml-auto">
           Phòng ban
           <select
             value={departmentId}
-            onChange={(event) => setDepartmentId(event.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+            onChange={(e) => setDepartmentId(e.target.value)}
+            className="mt-1 block w-48 rounded-xl border border-slate-200 px-3 py-2 text-sm"
           >
             <option value="">Tất cả phòng ban</option>
             {departments.map(([id, name]) => (
@@ -489,17 +335,121 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
         </label>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={visibleRows}
-        loading={query.isLoading}
-        rowKey={(row) => `${row.employeeId}:${row.workDate}`}
-        emptyState={<EmptyState title="Không có nhân viên trong bộ lọc này" />}
-      />
-      {query.isError && (
-        <p className="mt-3 text-sm text-rose-600">{query.error.message}</p>
-      )}
+      <div className="overflow-x-auto rounded-xl border border-slate-200">
+        {query.isLoading ? (
+          <div className="p-8 text-center text-sm text-slate-500 animate-pulse">Đang tải bảng công...</div>
+        ) : employees.length === 0 ? (
+          <EmptyState title="Không có nhân viên trong bộ lọc này" />
+        ) : (
+          <table className="w-full text-left text-sm text-slate-600 border-collapse">
+            <thead className="bg-slate-50 sticky top-0 z-10 text-xs uppercase text-slate-500 font-semibold shadow-sm">
+              <tr>
+                <th className="sticky left-0 bg-slate-50 px-4 py-3 min-w-[200px] z-20 border-b border-r border-slate-200">Nhân viên</th>
+                {daysArray.map((day) => (
+                  <th key={day} className="px-3 py-3 text-center min-w-[60px] border-b border-r border-slate-200 whitespace-nowrap">
+                    Ngày {day}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {employees.map((emp) => (
+                <tr key={emp.id} className="hover:bg-slate-50/50">
+                  <td className="sticky left-0 bg-white px-4 py-3 z-10 border-r border-slate-200 group">
+                    <div className="font-semibold text-slate-900 truncate max-w-[180px]" title={emp.name}>
+                      {emp.name}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+                      <span>{emp.code || '—'}</span>
+                    </div>
+                    <div className="mt-2 text-xs">
+                      <span className="font-medium text-slate-700">{emp.totalWorkdays} công</span>
+                      {emp.errors.length > 0 && (
+                        <button 
+                          onClick={() => setViewingErrorsForEmployee({ id: emp.id, name: emp.name })}
+                          className="ml-2 text-rose-600 font-semibold hover:underline inline-flex items-center gap-1"
+                        >
+                          <AlertTriangle className="w-3 h-3" />
+                          ({emp.errors.length} lỗi)
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  {daysArray.map((day) => {
+                    const cell = emp.days[day];
+                    if (!cell) {
+                      return (
+                        <td key={day} className="px-1 py-1 text-center border-r border-slate-200 bg-slate-50/50">
+                          <div className="w-full h-full min-h-[40px]" title="Chưa làm việc"></div>
+                        </td>
+                      );
+                    }
+                    
+                    const { row, isWeekend, isHoliday, hasError } = cell;
+                    let bgClass = "bg-white";
+                    let content = row.status === 'present' ? 'V' : '-';
+                    
+                    if (isHoliday || isWeekend) {
+                      bgClass = "bg-slate-100/50";
+                      content = 'Nghỉ';
+                      if (row.status === 'present') {
+                        content = 'OT';
+                        bgClass = "bg-emerald-50";
+                      }
+                    } else if (hasError) {
+                      bgClass = "bg-rose-50";
+                    }
+                    
+                    return (
+                      <td key={day} className={`px-1 py-1 text-center border-r border-slate-200 ${bgClass} cursor-pointer hover:bg-slate-100 transition-colors`} onClick={() => {
+                        if (query.data?.canManage) openEdit(row);
+                      }}>
+                        <div className="flex flex-col items-center justify-center min-h-[40px]" title={hasError ? 'Có lỗi chấm công' : 'Bình thường'}>
+                          <span className={`text-xs font-semibold ${hasError ? 'text-rose-600' : 'text-slate-700'}`}>
+                            {content}
+                          </span>
+                          {row.status === 'present' && row.clockIn && (
+                            <span className="text-[10px] text-slate-400 mt-0.5">
+                              {timeFromIso(row.clockIn)}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      
+      {/* SlideOver for Error Details */}
+      <SlideOver
+        open={Boolean(viewingErrorsForEmployee)}
+        onClose={() => setViewingErrorsForEmployee(null)}
+        title={`Chi tiết lỗi: ${viewingErrorsForEmployee?.name}`}
+      >
+        <div className="space-y-4">
+          {viewingErrorsForEmployee && employees.find(e => e.id === viewingErrorsForEmployee.id)?.errors.map((err: any, idx: number) => (
+            <div key={idx} className="rounded-xl border border-rose-200 bg-rose-50 p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-rose-900">{formatHrmDate(err.date)}</p>
+                <p className="text-sm text-rose-700 mt-1">{err.reason}</p>
+                <p className="text-xs text-rose-600/80 mt-1">Giờ vào: {timeFromIso(err.row.clockIn) || '--:--'} | Giờ ra: {timeFromIso(err.row.clockOut) || '--:--'}</p>
+              </div>
+              <button 
+                onClick={() => openEdit(err.row)}
+                className="text-sm font-semibold text-rose-600 hover:text-rose-800"
+              >
+                Sửa
+              </button>
+            </div>
+          ))}
+        </div>
+      </SlideOver>
 
+      {/* SlideOver for Edit */}
       <SlideOver
         open={Boolean(editingRow && form)}
         onClose={() => {
@@ -533,22 +483,15 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
         {form && editingRow && (
           <div className="space-y-4">
             <div className="rounded-xl bg-slate-50 p-3">
-              <p className="font-semibold text-slate-900">
-                {editingRow.employeeName}
-              </p>
-              <p className="text-sm text-slate-500">
-                {formatHrmDate(form.work_date)}
-              </p>
+              <p className="font-semibold text-slate-900">{editingRow.employeeName}</p>
+              <p className="text-sm text-slate-500">{formatHrmDate(form.work_date)}</p>
             </div>
             <label className="block text-sm font-medium text-slate-700">
               Trạng thái
               <select
                 value={form.status}
                 onChange={(event) =>
-                  setForm({
-                    ...form,
-                    status: event.target.value as AttendanceStatus,
-                  })
+                  setForm({ ...form, status: event.target.value as AttendanceStatus })
                 }
                 className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
               >
@@ -605,20 +548,14 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
               </label>
             </div>
             <label className="block text-sm font-medium text-slate-700">
-              Ghi chú
+              Ghi chú / Giải trình
               <textarea
                 value={form.note}
-                rows={3}
-                onChange={(event) =>
-                  setForm({ ...form, note: event.target.value })
-                }
+                onChange={(event) => setForm({ ...form, note: event.target.value })}
                 className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                rows={3}
               />
             </label>
-            <p className="text-xs leading-5 text-slate-500">
-              Mẫu CSV: employee_id, work_date, status, shift_template_id,
-              clock_in, clock_out, note.
-            </p>
           </div>
         )}
       </SlideOver>

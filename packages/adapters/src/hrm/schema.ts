@@ -162,6 +162,27 @@ export const hrmSettings = pgTable('hrm_settings', {
   primaryKey({ columns: [table.tenant_id, table.branch_id] }),
 ]);
 
+export const hrmHolidays = pgTable('hrm_holidays', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  tenant_id: tenantId(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  date: date('date').notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  created_at: auditTimestamp('created_at'),
+  updated_at: auditTimestamp('updated_at'),
+}, (table) => [
+  uniqueIndex('uq_hrm_holidays_tenant_branch_date').on(
+    table.tenant_id,
+    table.branch_id,
+    table.date,
+  ),
+  index('idx_hrm_holidays_tenant_branch_date').on(
+    table.tenant_id,
+    table.branch_id,
+    table.date,
+  ),
+]);
+
 export const hrmShiftTemplates = pgTable(
   'hrm_shift_templates',
   {
@@ -208,6 +229,7 @@ export const hrmAttendanceDays = pgTable(
     late_minutes: integer('late_minutes').default(0).notNull(),
     early_leave_minutes: integer('early_leave_minutes').default(0).notNull(),
     overtime_minutes: integer('overtime_minutes').default(0).notNull(),
+    workday_count: numeric('workday_count', { precision: 3, scale: 2 }).default('0').notNull(),
     status: varchar('status', { length: 30 }).notNull(),
     source: varchar('source', { length: 30 }).default('manual').notNull(),
     note: text('note'),

@@ -104,18 +104,22 @@ export async function GET(
         .padStart(2, '0');
       const periodEnd = `${month}-${lastDay}`;
       const departmentId = searchParams.get('department_id');
-      const [data, shifts] = await Promise.all([
+      const [data, shifts, holidays, settings] = await Promise.all([
         access.repository.listMonthlyAttendance({
           periodStart,
           periodEnd,
           departmentId: departmentId || null,
         }),
         access.repository.listShiftTemplates({ includeInactive: true }),
+        access.repository.listHolidays(year),
+        access.repository.getSettings(),
       ]);
       return NextResponse.json({
         mode: 'monthly',
         data,
         shifts,
+        holidays,
+        attendanceRules: settings.attendanceRules,
         canManage: access.permissions.includes('hrm.attendance.manage'),
         selfEmployeeId,
       });
@@ -165,11 +169,13 @@ export async function POST(
         employeeId,
         actorUserId: access.userId,
         source: employeeId === selfEmployeeId ? 'self' : 'manual',
+        customTime: input.custom_time,
       });
     } else {
       await access.repository.clockOut({
         employeeId,
         actorUserId: access.userId,
+        customTime: input.custom_time,
       });
     }
 

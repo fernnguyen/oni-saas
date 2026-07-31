@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { HrmAccessError, requireHrmAccess } from '@/lib/server/hrm/access';
 
@@ -15,7 +16,7 @@ function errorResponse(error: unknown) {
     {
       error: {
         code: 'HRM_DATA_PLANE_UNAVAILABLE',
-        message: 'Không thể xử lý yêu cầu.',
+        message: 'Không thể xử lý yêu cầu về ngày lễ.',
       },
     },
     { status: 503 },
@@ -29,9 +30,13 @@ export async function GET(
   try {
     const { shopId } = await params;
     const access = await requireHrmAccess(shopId, 'hrm.settings.manage');
-    const settings = await access.repository.getSettings();
+    
+    const url = new URL(request.url);
+    const year = Number(url.searchParams.get('year')) || new Date().getFullYear();
+    
+    const holidays = await access.repository.listHolidays(year);
 
-    return NextResponse.json({ data: settings });
+    return NextResponse.json({ data: holidays });
   } catch (error) {
     return errorResponse(error);
   }
@@ -46,26 +51,16 @@ export async function POST(
     const access = await requireHrmAccess(shopId, 'hrm.settings.manage');
     
     const body = await request.json();
-    const updatePayload: { maxUploadSizeMb?: number; attendanceRules?: Record<string, unknown> } = {};
-
-    if (body.max_upload_size_mb !== undefined) {
-      const maxUploadSizeMb = Number(body.max_upload_size_mb);
-      if (isNaN(maxUploadSizeMb) || maxUploadSizeMb <= 0 || maxUploadSizeMb > 100) {
-        return NextResponse.json({ error: { message: 'Dung lượng tối đa không hợp lệ (1-100MB)' } }, { status: 400 });
-      }
-      updatePayload.maxUploadSizeMb = maxUploadSizeMb;
+    const { date, name } = body;
+    
+    if (!date || !name) {
+      return NextResponse.json({ error: { message: 'Dữ liệu không hợp lệ (cần date và name)' } }, { status: 400 });
     }
 
-    if (body.attendance_rules !== undefined) {
-      if (typeof body.attendance_rules !== 'object' || body.attendance_rules === null) {
-        return NextResponse.json({ error: { message: 'Cấu hình chấm công không hợp lệ' } }, { status: 400 });
-      }
-      updatePayload.attendanceRules = body.attendance_rules;
-    }
+    const id = `HOL-${crypto.randomUUID()}`;
+    await access.repository.createHoliday({ id, date, name });
 
-    await access.repository.updateSettings(updatePayload);
-
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, data: { id, date, name } });
   } catch (error) {
     return errorResponse(error);
   }

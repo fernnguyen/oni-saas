@@ -5,9 +5,11 @@ import { CalendarCheck2, SlidersHorizontal, Settings2 } from 'lucide-react';
 import { HrmShiftsPanel } from './HrmShiftsPanel';
 import { HrmCustomFieldsPanel } from './HrmCustomFieldsPanel';
 import { HrmGeneralSettingsPanel } from './HrmGeneralSettingsPanel';
+import { HrmAttendanceRulesPanel } from './HrmAttendanceRulesPanel';
+import { HrmHolidaysPanel } from './HrmHolidaysPanel';
 import { usePermissions } from '@/app/components/ui/PermissionGate';
 
-type SettingsTab = 'general' | 'shifts' | 'custom-fields';
+type SettingsTab = 'general' | 'shifts' | 'custom-fields' | 'attendance' | 'holidays';
 
 const TABS: Array<{
   key: SettingsTab;
@@ -24,6 +26,18 @@ const TABS: Array<{
   {
     key: 'shifts',
     label: 'Ca làm việc',
+    icon: CalendarCheck2,
+    permission: 'hrm.settings.manage',
+  },
+  {
+    key: 'attendance',
+    label: 'Quy tắc chấm công',
+    icon: SlidersHorizontal,
+    permission: 'hrm.settings.manage',
+  },
+  {
+    key: 'holidays',
+    label: 'Ngày nghỉ / Lễ',
     icon: CalendarCheck2,
     permission: 'hrm.settings.manage',
   },
@@ -100,6 +114,16 @@ export function HrmSettingsPanel({ shopId }: { shopId: string }) {
       {safeTab === 'custom-fields' && (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <HrmCustomFieldsPanel shopId={shopId} />
+        </div>
+      )}
+      {safeTab === 'attendance' && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <HrmAttendanceRulesPanel shopId={shopId} />
+        </div>
+      )}
+      {safeTab === 'holidays' && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <HrmHolidaysPanel shopId={shopId} />
         </div>
       )}
     </div>

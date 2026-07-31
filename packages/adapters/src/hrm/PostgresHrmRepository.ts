@@ -549,10 +549,10 @@ export class PostgresHrmRepository {
     return { ...this.scope };
   }
 
-  async getSettings(): Promise<{ maxUploadSizeMb: number }> {
+  async getSettings(): Promise<{ maxUploadSizeMb: number; attendanceRules?: Record<string, unknown> }> {
     const result = await this.pool.query(
       `
-        select max_upload_size_mb
+        select max_upload_size_mb, attendance_rules
         from hrm_settings
         where tenant_id = $1 and branch_id = $2
         limit 1
@@ -562,19 +562,28 @@ export class PostgresHrmRepository {
     if (result.rowCount === 0) {
       return { maxUploadSizeMb: 10 };
     }
-    return { maxUploadSizeMb: result.rows[0].max_upload_size_mb };
+    return { 
+      maxUploadSizeMb: result.rows[0].max_upload_size_mb,
+      attendanceRules: result.rows[0].attendance_rules
+    };
   }
 
-  async updateSettings(input: { maxUploadSizeMb: number }): Promise<void> {
+  async updateSettings(input: { maxUploadSizeMb?: number; attendanceRules?: Record<string, unknown> }): Promise<void> {
     await this.pool.query(
       `
-        insert into hrm_settings (tenant_id, branch_id, max_upload_size_mb, created_at, updated_at)
-        values ($1, $2, $3, now(), now())
+        insert into hrm_settings (tenant_id, branch_id, max_upload_size_mb, attendance_rules, created_at, updated_at)
+        values ($1, $2, coalesce($3, 10), coalesce($4::jsonb, '{}'::jsonb), now(), now())
         on conflict (tenant_id, branch_id) do update set
-          max_upload_size_mb = excluded.max_upload_size_mb,
+          max_upload_size_mb = coalesce(excluded.max_upload_size_mb, hrm_settings.max_upload_size_mb),
+          attendance_rules = coalesce(excluded.attendance_rules, hrm_settings.attendance_rules),
           updated_at = now()
       `,
-      [this.scope.tenantId, this.scope.branchId, input.maxUploadSizeMb]
+      [
+        this.scope.tenantId, 
+        this.scope.branchId, 
+        input.maxUploadSizeMb ?? null,
+        input.attendanceRules ? JSON.stringify(input.attendanceRules) : null
+      ]
     );
   }
 
@@ -1726,6 +1735,7 @@ export class PostgresHrmRepository {
     employeeId: string;
     actorUserId: string;
     source: 'manual' | 'self';
+    customTime?: string;
   }): Promise<void> {
     await this.withTransaction(async (client, scope) => {
       const employee = await client.query<{ department_id: string | null }>(
@@ -1775,8 +1785,8 @@ export class PostgresHrmRepository {
           )
           values (
             $1, $2, $3, $4, $5,
-            (now() at time zone 'Asia/Ho_Chi_Minh')::date,
-            now(), 0, 0, 0, 0, 'present', $6, $7, now(), now()
+            (coalesce($8::timestamp, now()) at time zone 'Asia/Ho_Chi_Minh')::date,
+            coalesce($8::timestamp, now()), 0, 0, 0, 0, 'present', $6, $7, now(), now()
           )
           on conflict (tenant_id, profile_id, work_date) do nothing
           returning id
@@ -1789,6 +1799,7 @@ export class PostgresHrmRepository {
           resolvedProfile.department_id,
           input.source,
           input.actorUserId,
+          input.customTime ?? null
         ],
       );
       if (inserted.rowCount !== 1) {
@@ -1898,8 +1909,13 @@ export class PostgresHrmRepository {
   async clockOut(input: {
     employeeId: string;
     actorUserId: string;
+    customTime?: string;
   }): Promise<void> {
     await this.withTransaction(async (client, scope) => {
+      const workDateStr = input.customTime 
+        ? `(coalesce($4::timestamp, now()) at time zone 'Asia/Ho_Chi_Minh')::date`
+        : `(now() at time zone 'Asia/Ho_Chi_Minh')::date`;
+
       const openAttendance = await client.query<{ id: string }>(
         `
           select a.id
@@ -1908,13 +1924,15 @@ export class PostgresHrmRepository {
             on p.id = a.profile_id and p.tenant_id = a.tenant_id
           where a.tenant_id = $1 and a.branch_id = $2
             and p.source_employee_id = $3
-            and a.work_date = (now() at time zone 'Asia/Ho_Chi_Minh')::date
+            and a.work_date = ${workDateStr}
             and a.clock_in is not null and a.clock_out is null
           order by a.work_date desc, a.clock_in desc
           limit 1
           for update of a
         `,
-        [scope.tenantId, scope.branchId, input.employeeId],
+        input.customTime 
+          ? [scope.tenantId, scope.branchId, input.employeeId, input.customTime]
+          : [scope.tenantId, scope.branchId, input.employeeId],
       );
       const attendance = openAttendance.rows[0];
       if (!attendance) {
@@ -1925,16 +1943,16 @@ export class PostgresHrmRepository {
       await client.query(
         `
           update hrm_attendance_days
-          set clock_out = now(),
+          set clock_out = coalesce($3::timestamp, now()),
               worked_minutes = greatest(
                 0,
-                floor(extract(epoch from (now() - clock_in)) / 60)::integer
+                floor(extract(epoch from (coalesce($3::timestamp, now()) - clock_in)) / 60)::integer
               ),
               updated_by = $2,
               updated_at = now()
           where id = $1
         `,
-        [attendance.id, input.actorUserId],
+        [attendance.id, input.actorUserId, input.customTime ?? null],
       );
     });
   }
@@ -3569,5 +3587,39 @@ export class PostgresHrmRepository {
       client.release();
     }
   }
-}
 
+  async listHolidays(year: number): Promise<{ id: string; date: string; name: string }[]> {
+    const result = await this.pool.query(
+      `
+        select id, date, name
+        from hrm_holidays
+        where tenant_id = $1 and branch_id = $2
+          and extract(year from date) = $3
+        order by date asc
+      `,
+      [this.scope.tenantId, this.scope.branchId, year]
+    );
+    return result.rows.map((r) => ({
+      id: r.id,
+      date: r.date.toISOString().split('T')[0],
+      name: r.name,
+    }));
+  }
+
+  async createHoliday(input: { id: string; date: string; name: string }): Promise<void> {
+    await this.pool.query(
+      `
+        insert into hrm_holidays (id, tenant_id, branch_id, date, name, created_at, updated_at)
+        values ($1, $2, $3, $4, $5, now(), now())
+      `,
+      [input.id, this.scope.tenantId, this.scope.branchId, input.date, input.name]
+    );
+  }
+
+  async deleteHoliday(id: string): Promise<void> {
+    await this.pool.query(
+      `delete from hrm_holidays where id = $1 and tenant_id = $2 and branch_id = $3`,
+      [id, this.scope.tenantId, this.scope.branchId]
+    );
+  }
+}
