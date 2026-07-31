@@ -97,6 +97,20 @@ export function HrmDailyAttendanceModal({
             </div>
           </div>
 
+          {currentData?.errors?.length > 0 && (
+            <div className="bg-red-50 border border-red-100 rounded-lg p-3 space-y-2">
+              <div className="flex gap-2 text-sm text-red-800 font-medium">
+                <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                Hệ thống phát hiện vi phạm
+              </div>
+              <ul className="list-disc pl-9 text-sm text-red-700">
+                {currentData.errors.map((err: any, idx: number) => (
+                  <li key={idx}>{err.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Trạng thái (Status)</label>

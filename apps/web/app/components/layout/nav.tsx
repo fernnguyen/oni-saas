@@ -48,6 +48,10 @@ import {
   Smartphone,
   AlertTriangle,
   UserRoundCog,
+  CalendarClock,
+  UsersRound,
+  CircleDollarSign,
+  Settings2,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -269,15 +273,23 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     },
     {
       label: 'Nhân sự',
-      items: [
-        {
-          href: joinPath(base, '/hrm'),
-          label: 'Quản lý nhân sự',
-          icon: UserRoundCog,
-          locked: options.hrmEnabled !== true,
-          upgradeFeature: 'hrm',
-        },
-      ],
+      items: options.hrmEnabled === true
+        ? [
+            { href: joinPath(base, '/hrm/dashboard'), label: 'Tổng quan HRM', icon: LayoutDashboard },
+            { href: joinPath(base, '/hrm/attendance'), label: 'Chấm công', icon: CalendarClock },
+            { href: joinPath(base, '/hrm/employees'), label: 'Nhân viên', icon: UsersRound },
+            { href: joinPath(base, '/hrm/payroll'), label: 'Tiền lương', icon: CircleDollarSign, permission: 'hrm.payroll.view' },
+            { href: joinPath(base, '/hrm/settings'), label: 'Cài đặt HRM', icon: Settings2, permission: 'hrm.settings.manage' },
+          ]
+        : [
+            {
+              href: joinPath(base, '/hrm'),
+              label: 'Quản lý nhân sự',
+              icon: UserRoundCog,
+              locked: true,
+              upgradeFeature: 'hrm',
+            },
+          ],
     },
     {
       label: 'Kênh bán hàng',

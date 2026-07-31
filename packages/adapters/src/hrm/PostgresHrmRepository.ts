@@ -46,8 +46,15 @@ export interface CreateHrmEmployeeInput {
   joinedAt?: string;
   email?: string;
   address?: string;
+  ethnicity?: string;
+  taxCode?: string;
+  insuranceCode?: string;
+  bankName?: string;
+  bankAccountCiphertext?: string;
+  bankAccountLast4?: string;
   departmentId?: string;
   defaultShiftTemplateId?: string;
+  customData?: Record<string, unknown>;
 }
 
 export interface HrmCustomFieldDefinition {
@@ -108,6 +115,8 @@ export interface HrmMonthlyAttendanceRow {
   overtimeMinutes: number;
   status: string | null;
   note: string | null;
+  exceptions?: any;
+  errors?: { type: string; minutes?: number; message: string }[];
 }
 
 export interface HrmAttendanceUpsertInput {
@@ -616,6 +625,11 @@ export class PostgresHrmRepository {
       auth_user_id: string | null;
       email: string | null;
       address: string | null;
+      ethnicity: string | null;
+      tax_code: string | null;
+      insurance_code: string | null;
+      bank_name: string | null;
+      bank_account_ciphertext: string | null;
       department_id: string | null;
       department_name: string | null;
       default_shift_template_id: string | null;
@@ -636,6 +650,11 @@ export class PostgresHrmRepository {
           coalesce(p.joined_at::text, nullif(e.hire_date, '')) as joined_at,
           p.email,
           p.address,
+          p.ethnicity,
+          p.tax_code,
+          p.insurance_code,
+          p.bank_name,
+          p.bank_account_ciphertext,
           p.department_id,
           d.name as department_name,
           coalesce(p.custom_data, '{}'::jsonb) as custom_data,
@@ -678,6 +697,11 @@ export class PostgresHrmRepository {
         joinedAt: row.joined_at,
         email: row.email,
         address: row.address,
+        ethnicity: row.ethnicity,
+        taxCode: row.tax_code,
+        insuranceCode: row.insurance_code,
+        bankName: row.bank_name,
+        bankAccount: row.bank_account_ciphertext,
         departmentId: row.department_id,
         departmentName: row.department_name,
         defaultShiftTemplateId: row.default_shift_template_id,
@@ -734,12 +758,14 @@ export class PostgresHrmRepository {
           insert into hrm_employee_profiles (
             id, tenant_id, branch_id, source_employee_id, department_id, job_title,
             employment_status, employment_type, joined_at, email, address,
+            ethnicity, tax_code, insurance_code, bank_name, bank_account_ciphertext, bank_account_last4,
             default_shift_template_id, custom_data, created_at, updated_at
           )
           values (
             $1, $2, $3, $4, nullif($5, ''), nullif($6, ''), 'active', $7,
             nullif($8, '')::date, nullif($9, ''), nullif($10, ''),
-            nullif($11, ''), '{}'::jsonb, now(), now()
+            nullif($11, ''), nullif($12, ''), nullif($13, ''), nullif($14, ''), nullif($15, ''), nullif($16, ''),
+            nullif($17, ''), coalesce($18::jsonb, '{}'::jsonb), now(), now()
           )
         `,
         [
@@ -753,7 +779,14 @@ export class PostgresHrmRepository {
           input.joinedAt ?? '',
           input.email ?? '',
           input.address ?? '',
+          input.ethnicity ?? '',
+          input.taxCode ?? '',
+          input.insuranceCode ?? '',
+          input.bankName ?? '',
+          input.bankAccountCiphertext ?? '',
+          input.bankAccountLast4 ?? '',
           input.defaultShiftTemplateId ?? '',
+          JSON.stringify(input.customData ?? {}),
         ],
       );
 
@@ -777,6 +810,12 @@ export class PostgresHrmRepository {
     joinedAt?: string;
     email?: string;
     address?: string;
+    ethnicity?: string;
+    taxCode?: string;
+    insuranceCode?: string;
+    bankName?: string;
+    bankAccountCiphertext?: string;
+    bankAccountLast4?: string;
     departmentId?: string;
     defaultShiftTemplateId?: string;
     customData: Record<string, unknown>;
@@ -827,11 +866,15 @@ export class PostgresHrmRepository {
           insert into hrm_employee_profiles (
             id, tenant_id, branch_id, source_employee_id, auth_user_id, department_id,
             job_title, employment_status, employment_type, joined_at,
-            email, address, default_shift_template_id, custom_data, created_at, updated_at
+            email, address, ethnicity, tax_code, insurance_code,
+            bank_name, bank_account_ciphertext, bank_account_last4,
+            default_shift_template_id, custom_data, created_at, updated_at
           )
           values (
             $1, $2, $3, $4, $5::uuid, nullif($6, ''), nullif($7, ''), $8, $9,
             nullif($10, '')::date, nullif($11, ''), nullif($12, ''),
+            nullif($15, ''), nullif($16, ''), nullif($17, ''),
+            nullif($18, ''), nullif($19, ''), nullif($20, ''),
             nullif($13, ''), $14::jsonb, now(), now()
           )
           on conflict (tenant_id, source_employee_id) do update set
@@ -843,6 +886,12 @@ export class PostgresHrmRepository {
             joined_at = excluded.joined_at,
             email = excluded.email,
             address = excluded.address,
+            ethnicity = excluded.ethnicity,
+            tax_code = excluded.tax_code,
+            insurance_code = excluded.insurance_code,
+            bank_name = excluded.bank_name,
+            bank_account_ciphertext = excluded.bank_account_ciphertext,
+            bank_account_last4 = excluded.bank_account_last4,
             default_shift_template_id = excluded.default_shift_template_id,
             custom_data = excluded.custom_data,
             updated_at = now()
@@ -862,6 +911,12 @@ export class PostgresHrmRepository {
           input.address ?? '',
           input.defaultShiftTemplateId ?? '',
           JSON.stringify(input.customData),
+          input.ethnicity ?? '',
+          input.taxCode ?? '',
+          input.insuranceCode ?? '',
+          input.bankName ?? '',
+          input.bankAccountCiphertext ?? '',
+          input.bankAccountLast4 ?? '',
         ],
       );
     });
@@ -1300,6 +1355,7 @@ export class PostgresHrmRepository {
       shift_template_id: string | null;
       shift_name: string | null;
       shift_start_time: string | null;
+      shift_end_time: string | null;
       shift_late_grace_minutes: number | null;
       shift_template_id_2: string | null;
       shift_name_2: string | null;
@@ -1313,6 +1369,8 @@ export class PostgresHrmRepository {
       overtime_minutes: number | string | null;
       status: string | null;
       note: string | null;
+      exceptions: any;
+      attendance_rules: any;
     }>(
       `
         with calendar as (
@@ -1330,6 +1388,7 @@ export class PostgresHrmRepository {
           coalesce(a.shift_template_id, p.default_shift_template_id) as shift_template_id,
           s.name as shift_name,
           s.start_time::text as shift_start_time,
+          s.end_time::text as shift_end_time,
           s.late_grace_minutes as shift_late_grace_minutes,
           a.shift_template_id_2,
           s2.name as shift_name_2,
@@ -1342,8 +1401,11 @@ export class PostgresHrmRepository {
           a.early_leave_minutes,
           a.overtime_minutes,
           a.status,
-          a.note
+          a.note,
+          a.exceptions,
+          hs.attendance_rules
         from employees e
+        left join hrm_settings hs on hs.tenant_id = e.tenant_id and hs.branch_id = e.branch_id
         left join hrm_employee_profiles p
           on p.tenant_id = e.tenant_id and p.source_employee_id = e.id
         cross join calendar c
@@ -1367,6 +1429,7 @@ export class PostgresHrmRepository {
         where e.tenant_id = $1 and e.branch_id = $2
           and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
           and ($5::varchar is null or coalesce(a.department_id_snapshot, p.department_id) = $5)
+          and c.work_date >= coalesce(p.joined_at, '1900-01-01'::date)
         order by e.name asc, c.work_date asc
       `,
       [
@@ -1382,16 +1445,61 @@ export class PostgresHrmRepository {
 
     return result.rows.map((row) => {
       let calculatedStatus = row.status;
+      const errors: { type: string; minutes?: number; message: string }[] = [];
+      const rules = row.attendance_rules || {};
+      const autoAbsentMinutes = rules.auto_absent_minutes ?? 120;
+      const lateThreshold = rules.late_threshold_for_half_day_minutes ?? 60;
+      const earlyThreshold = rules.early_leave_threshold_for_half_day_minutes ?? 60;
 
-      // On-the-fly absent calculation: if they have a shift today but no check-in yet,
-      // and it's past the shift start time + grace period, mark as absent.
+      // 1. Auto-absent calculation
       if (!calculatedStatus && row.shift_start_time && !row.clock_in) {
-        // Assume Vietnam timezone (+07:00) for shop operations for simplicity
         const shiftStartDateTime = new Date(`${row.work_date}T${row.shift_start_time}+07:00`);
-        const graceMs = (Number(row.shift_late_grace_minutes) || 0) * 60000;
-        
-        if (now.getTime() > shiftStartDateTime.getTime() + graceMs) {
+        if (now.getTime() > shiftStartDateTime.getTime() + autoAbsentMinutes * 60000) {
           calculatedStatus = 'absent';
+          errors.push({ type: 'AUTO_ABSENT', message: `Quá ${autoAbsentMinutes} phút chưa check-in` });
+        }
+      }
+
+      // 2. Late calculation
+      if (row.clock_in && row.shift_start_time) {
+        const shiftStartDateTime = new Date(`${row.work_date}T${row.shift_start_time}+07:00`);
+        const clockInTime = new Date(row.clock_in);
+        const graceMs = (Number(row.shift_late_grace_minutes) || 0) * 60000;
+        const diffMs = clockInTime.getTime() - shiftStartDateTime.getTime();
+        
+        if (diffMs > graceMs) {
+          const lateMins = Math.floor(diffMs / 60000);
+          errors.push({ 
+            type: lateMins > lateThreshold ? 'LATE_CRITICAL' : 'LATE', 
+            minutes: lateMins, 
+            message: `Đi muộn ${lateMins} phút` 
+          });
+        }
+      }
+
+      // 3. Early leave calculation
+      if (row.clock_out && row.shift_end_time) {
+        const shiftEndDateTime = new Date(`${row.work_date}T${row.shift_end_time}+07:00`);
+        const clockOutTime = new Date(row.clock_out);
+        // If they end shift on the next day, shiftEndDateTime needs +1 day. 
+        // For simplicity, assuming same day shifts.
+        const diffMs = shiftEndDateTime.getTime() - clockOutTime.getTime();
+        
+        if (diffMs > 0) {
+          const earlyMins = Math.floor(diffMs / 60000);
+          errors.push({ 
+            type: earlyMins > earlyThreshold ? 'EARLY_CRITICAL' : 'EARLY', 
+            minutes: earlyMins, 
+            message: `Về sớm ${earlyMins} phút` 
+          });
+        }
+      }
+
+      // 4. Missing clock_out if time passed
+      if (row.clock_in && !row.clock_out && row.shift_end_time) {
+        const shiftEndDateTime = new Date(`${row.work_date}T${row.shift_end_time}+07:00`);
+        if (now.getTime() > shiftEndDateTime.getTime() + 120 * 60000) { // 2 hours after shift ends
+          errors.push({ type: 'MISSING_OUT', message: `Quên check-out` });
         }
       }
 
@@ -1418,6 +1526,8 @@ export class PostgresHrmRepository {
         overtimeMinutes: Number(row.overtime_minutes ?? 0),
         status: calculatedStatus,
         note: row.note,
+        exceptions: row.exceptions,
+        errors,
       };
     });
   }

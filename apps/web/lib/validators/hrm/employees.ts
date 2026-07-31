@@ -22,4 +22,10 @@ export const createHrmEmployeeSchema = z.object({
     .default(''),
   email: z.string().trim().email('Email không hợp lệ').optional().or(z.literal('')).default(''),
   address: optionalText(1000),
+  ethnicity: optionalText(50),
+  tax_code: optionalText(20),
+  insurance_code: optionalText(20),
+  bank_name: optionalText(255),
+  bank_account: optionalText(50),
+  custom_data: z.record(z.unknown()).default({}),
 });

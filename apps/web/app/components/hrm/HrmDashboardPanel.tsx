@@ -3,10 +3,8 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
-  ArrowRight,
   CalendarClock,
   CircleDollarSign,
-  ClipboardList,
   UsersRound,
 } from 'lucide-react';
 import { useHrmModuleAccess } from './HrmModuleAccess';
@@ -139,26 +137,9 @@ export function HrmDashboardPanel() {
       )}
 
       {/* ── Bảng công tháng (compact) ─────────────────────────── */}
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <ClipboardList className="h-4 w-4 text-slate-400" aria-hidden="true" />
-            <h2 className="text-sm font-semibold text-slate-900">
-              Bảng công tháng
-            </h2>
-          </div>
-          <Link
-            href={`${hrmBase}/attendance`}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-          >
-            Xem đầy đủ
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-          </Link>
-        </div>
-        <div className="p-4">
-          <HrmAttendanceSummaryWidget shopId={shopId} />
-        </div>
-      </div>
+      <section className="mt-8">
+        <HrmAttendanceSummaryWidget shopId={shopId} branchSlug={branchSlug} />
+      </section>
     </div>
   );
 }

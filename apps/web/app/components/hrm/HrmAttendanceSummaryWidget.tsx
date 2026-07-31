@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { HrmDailyAttendanceModal } from './HrmDailyAttendanceModal';
@@ -35,8 +36,8 @@ function vietnamMonth() {
 /**
  * HrmAttendanceSummaryWidget — month-wide matrix attendance view for dashboard.
  */
-export function HrmAttendanceSummaryWidget({ shopId }: { shopId: string }) {
-  const [month] = useState(vietnamMonth);
+export function HrmAttendanceSummaryWidget({ shopId, branchSlug }: { shopId: string; branchSlug: string }) {
+  const [month, setMonth] = useState(vietnamMonth);
   const [viewAllDays, setViewAllDays] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{
     employeeId: string;
@@ -68,9 +69,27 @@ export function HrmAttendanceSummaryWidget({ shopId }: { shopId: string }) {
   });
 
   const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
+  const currentMonthValue = todayStr.slice(0, 7);
   const isCurrentMonth = todayStr.startsWith(month);
   const todayDay = parseInt(todayStr.slice(-2), 10);
   
+  // Generate month options (past 12 months up to current month)
+  const monthOptions = useMemo(() => {
+    const options = [];
+    const [currY, currM] = currentMonthValue.split('-').map(Number);
+    for (let i = 0; i < 12; i++) {
+      let m = currM - i;
+      let y = currY;
+      while (m <= 0) {
+        m += 12;
+        y -= 1;
+      }
+      const val = `${y}-${m < 10 ? '0' + m : m}`;
+      options.push({ value: val, label: `Tháng ${m}/${y}` });
+    }
+    return options;
+  }, [currentMonthValue]);
+
   if (!viewAllDays) {
     if (isCurrentMonth) {
       const startDay = Math.max(1, todayDay - 9);
@@ -112,16 +131,42 @@ export function HrmAttendanceSummaryWidget({ shopId }: { shopId: string }) {
     {
       key: 'employeeName',
       label: 'Nhân viên',
-      width: 160,
-      className: 'sticky left-0 bg-white shadow-[1px_0_0_0_#f1f5f9] z-10', // sticky column
-      render: (row) => (
-        <span className="font-medium text-slate-800 line-clamp-1" title={row.employeeName}>
-          {row.employeeName}
-          {row.employeeCode && (
-            <span className="ml-1 text-xs text-slate-400">({row.employeeCode})</span>
-          )}
-        </span>
-      ),
+      width: 200,
+      className: 'sticky left-0 bg-white shadow-[1px_0_0_0_#f1f5f9] z-10 w-[200px] min-w-[200px] max-w-[200px] shrink-0 truncate', // sticky column with fixed width
+      render: (row) => {
+        let cong = 0;
+        let loi = 0;
+        Object.values(row.attendance).forEach((att: any) => {
+          if (att.status === 'present') {
+            let shiftCong = 1;
+            let hasError = false;
+            if (att.errors?.length > 0) {
+              hasError = true;
+              if (att.errors.some((e: any) => e.type === 'LATE_CRITICAL' || e.type === 'EARLY_CRITICAL' || e.type === 'MISSING_OUT')) {
+                shiftCong = 0.5;
+              }
+            }
+            cong += shiftCong;
+            if (hasError) loi += 1;
+          } else if (att.status === 'absent') {
+            loi += 1;
+          }
+        });
+
+        return (
+          <div className="flex flex-col">
+            <span className="font-medium text-slate-800 line-clamp-1" title={row.employeeName}>
+              {row.employeeName}
+              {row.employeeCode && (
+                <span className="ml-1 text-xs text-slate-400">({row.employeeCode})</span>
+              )}
+            </span>
+            <span className="text-[10px] text-slate-500 mt-0.5">
+              {cong} công {loi > 0 && <span className="text-red-500 ml-1">({loi} lỗi)</span>}
+            </span>
+          </div>
+        );
+      },
     },
   ];
 
@@ -162,7 +207,7 @@ export function HrmAttendanceSummaryWidget({ shopId }: { shopId: string }) {
         return (
           <button
             type="button"
-            className="flex h-8 w-full cursor-pointer items-center justify-center hover:bg-slate-100 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-primary rounded-sm"
+            className="relative flex h-8 w-full cursor-pointer items-center justify-center hover:bg-slate-100 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-primary rounded-sm"
             onClick={() => setSelectedCell({
               employeeId: row.employeeId,
               employeeName: row.employeeName,
@@ -171,6 +216,9 @@ export function HrmAttendanceSummaryWidget({ shopId }: { shopId: string }) {
             })}
           >
             {display}
+            {att?.errors?.length > 0 && (
+              <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-red-500 ring-1 ring-white" title="Có lỗi" />
+            )}
           </button>
         );
       },
@@ -187,16 +235,49 @@ export function HrmAttendanceSummaryWidget({ shopId }: { shopId: string }) {
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 px-4 py-3">
-        <h3 className="font-semibold text-slate-800">
-          Bảng công tháng {monthStr}/{yearStr}
-        </h3>
-        <button 
-          onClick={() => setViewAllDays(!viewAllDays)}
-          className="text-xs font-medium text-primary hover:underline focus:outline-none"
-        >
-          {viewAllDays ? 'Thu gọn (10 ngày)' : 'Xem toàn bộ tháng'}
-        </button>
+      <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <h3 className="font-semibold text-slate-800">
+            Bảng công tháng
+          </h3>
+          <select
+            value={month}
+            onChange={(e) => {
+              setMonth(e.target.value);
+              if (e.target.value !== currentMonthValue) setViewAllDays(true);
+            }}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary bg-white cursor-pointer"
+          >
+            {monthOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => {
+              setMonth(currentMonthValue);
+              setViewAllDays(false);
+            }}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-primary"
+            title="Quay về tháng này"
+          >
+            Tháng này
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setViewAllDays(!viewAllDays)}
+            className="text-xs font-medium text-slate-600 hover:text-primary hover:underline focus:outline-none"
+          >
+            {viewAllDays ? 'Thu gọn' : 'Xem toàn bộ tháng'}
+          </button>
+          <span className="h-4 w-px bg-slate-200 hidden sm:block" />
+          <Link
+            href={`/${branchSlug}/hrm/attendance`}
+            className="text-xs font-semibold text-primary hover:underline hidden sm:block"
+          >
+            Xem chi tiết →
+          </Link>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <DataTable

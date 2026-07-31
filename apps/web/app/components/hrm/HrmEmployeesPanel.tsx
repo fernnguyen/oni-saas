@@ -12,6 +12,7 @@ import { SlideOver } from '@/app/components/ui/SlideOver';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { formatHrmDate } from '@/lib/hrm/formatDate';
+import { BANKS } from '@/lib/constants/banks';
 import type { HrmCustomField } from './HrmCustomFieldsPanel';
 import { HrmCustomFieldUpload } from './HrmCustomFieldUpload';
 
@@ -28,6 +29,11 @@ interface HrmEmployeeSummary {
   joinedAt: string | null;
   email: string | null;
   address: string | null;
+  ethnicity: string | null;
+  taxCode: string | null;
+  insuranceCode: string | null;
+  bankName: string | null;
+  bankAccount: string | null;
   departmentId: string | null;
   departmentName: string | null;
   defaultShiftTemplateId: string | null;
@@ -57,6 +63,11 @@ const EMPTY_FORM = {
   joined_at: '',
   email: '',
   address: '',
+  ethnicity: '',
+  tax_code: '',
+  insurance_code: '',
+  bank_name: '',
+  bank_account: '',
 };
 
 export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
@@ -232,12 +243,26 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
   }
 
   const canManage = employeesQuery.data?.canManage ?? false;
+  
+  const getDisplayId = (id: string | null) => {
+    if (!id) return '';
+    const parts = id.split('-');
+    const tenantHashRegex = /^[a-zA-Z0-9]{8}$/;
+    if (parts.length >= 3) {
+      const hashIndex = parts.findIndex(part => tenantHashRegex.test(part));
+      if (hashIndex !== -1 && hashIndex < parts.length - 1) {
+        return parts.slice(hashIndex + 1).join('-');
+      }
+    }
+    return id;
+  };
+
   const columns = useMemo<Column<HrmEmployeeSummary>[]>(
     () => [
       {
         key: 'employeeCode',
         label: 'Mã NV',
-        render: (row) => row.employeeCode || '—',
+        render: (row) => getDisplayId(row.employeeCode) || '—',
       },
       { key: 'name', label: 'Họ tên' },
       {
@@ -311,12 +336,120 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
       joined_at: row.joinedAt ?? '',
       email: row.email ?? '',
       address: row.address ?? '',
+      ethnicity: row.ethnicity ?? '',
+      tax_code: row.taxCode ?? '',
+      insurance_code: row.insuranceCode ?? '',
+      bank_name: row.bankName ?? '',
+      bank_account: row.bankAccount ?? '',
     });
     setCustomData(row.customData ?? {});
     setActiveTab('general');
     setLinkedUserId(row.authUserId ?? '');
     setSlideOpen(true);
   }
+
+  const renderCustomFieldsByGroup = (groupName: string, isNewTab: boolean = false) => {
+    const fields = customFieldsQuery.data?.data.filter(
+      (f) => Boolean(f.newTab) === isNewTab && (f.groupName || 'Thông tin tùy chỉnh') === groupName
+    );
+    if (!fields || fields.length === 0) return null;
+
+    return fields.map((field) => (
+      <label
+        key={field.id}
+        className={`block text-sm font-medium text-slate-700 ${field.metadata?.width === '50%' ? 'sm:col-span-1' : 'sm:col-span-2'}`}
+      >
+        <span className="mb-1 block">
+          {field.label}
+          {field.required ? ' *' : ''}
+        </span>
+        {field.fieldType === 'boolean' ? (
+          <input
+            type="checkbox"
+            checked={Boolean(customData[field.key])}
+            onChange={(event) =>
+              setCustomData({
+                ...customData,
+                [field.key]: event.target.checked,
+              })
+            }
+            className="ml-3"
+          />
+        ) : field.fieldType === 'select' ? (
+          <select
+            value={String(customData[field.key] ?? '')}
+            onChange={(event) =>
+              setCustomData({
+                ...customData,
+                [field.key]: event.target.value,
+              })
+            }
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+          >
+            <option value="">Chọn...</option>
+            {field.options.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        ) : field.fieldType === 'upload' ? (
+          <HrmCustomFieldUpload
+            shopId={shopId}
+            employeeId={editingId}
+            fieldKey={field.key}
+            value={customData[field.key] as string}
+            onChange={(val) =>
+              setCustomData({ ...customData, [field.key]: val })
+            }
+            maxSizeMb={settingsQuery.data}
+          />
+        ) : (
+          <input
+            type={
+              field.fieldType === 'number'
+                ? 'number'
+                : field.fieldType === 'date'
+                  ? 'date'
+                  : 'text'
+            }
+            value={
+              Array.isArray(customData[field.key])
+                ? (customData[field.key] as string[]).join(', ')
+                : String(customData[field.key] ?? '')
+            }
+            onChange={(event) =>
+              setCustomData({
+                ...customData,
+                [field.key]:
+                  field.fieldType === 'multiselect'
+                    ? event.target.value
+                        .split(',')
+                        .map((value) => value.trim())
+                        .filter(Boolean)
+                    : field.fieldType === 'number'
+                      ? event.target.value === ''
+                        ? ''
+                        : Number(event.target.value)
+                      : event.target.value,
+              })
+            }
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+            placeholder={
+              field.fieldType === 'multiselect'
+                ? 'Nhập các giá trị, cách nhau bằng dấu phẩy'
+                : field.metadata?.placeholder || undefined
+            }
+          />
+        )}
+        {field.metadata?.description && (
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            {field.metadata.description}
+          </span>
+        )}
+      </label>
+    ));
+  };
 
   return (
     <div className="space-y-4">
@@ -359,6 +492,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
         data={employeesQuery.data?.data ?? []}
         loading={employeesQuery.isLoading}
         rowKey={(row) => row.id}
+        onRowClick={(row) => openEdit(row)}
         emptyState={
           <EmptyState
             title="Chưa có nhân viên"
@@ -437,155 +571,224 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
           })()}
 
           {/* THÔNG TIN CHUNG TAB */}
-          <div className={`space-y-4 ${activeTab === 'general' ? 'block' : 'hidden'}`}>
+          <div className={`space-y-6 ${activeTab === 'general' ? 'block' : 'hidden'}`}>
+            
+            {/* Nhóm 1: Thông tin cơ bản */}
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                Họ tên *
-              </label>
-              <input
-                value={formData.name}
-                onChange={(event) => updateForm('name', event.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                placeholder="Nguyễn Văn A"
-              />
+              <h3 className="mb-4 flex items-center text-sm font-semibold text-slate-900">
+                <span className="mr-4 shrink-0">Thông tin cơ bản</span>
+                <span className="h-px flex-1 bg-slate-200"></span>
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Mã nhân viên</label>
+                  <input
+                    value={formData.employee_code}
+                    onChange={(event) => updateForm('employee_code', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                    placeholder="Để trống sẽ tự động sinh NV-..."
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Họ tên *</label>
+                  <input
+                    value={formData.name}
+                    onChange={(event) => updateForm('name', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                    placeholder="Nguyễn Văn A"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Số điện thoại</label>
+                  <input
+                    value={formData.phone}
+                    onChange={(event) => updateForm('phone', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(event) => updateForm('email', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Địa chỉ thường trú</label>
+                  <input
+                    value={formData.address}
+                    onChange={(event) => updateForm('address', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+                {renderCustomFieldsByGroup('Thông tin cơ bản', false)}
+              </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Mã nhân viên
-                </label>
-                <input
-                  value={formData.employee_code}
-                  onChange={(event) =>
-                    updateForm('employee_code', event.target.value)
-                  }
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  placeholder="NV001"
-                />
-              </div>
+            {/* Nhóm 2: Hồ sơ nhân sự */}
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                Số điện thoại
-              </label>
-              <input
-                value={formData.phone}
-                onChange={(event) => updateForm('phone', event.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {editingId && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Trạng thái làm việc
-                </label>
-                <select
-                  value={formData.employment_status}
-                  onChange={(event) =>
-                    updateForm('employment_status', event.target.value)
-                  }
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                >
-                  <option value="active">Đang làm</option>
-                  <option value="probation">Thử việc</option>
-                  <option value="inactive">Đã nghỉ</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">
-                  Tài khoản check-in
-                </label>
-                <select
-                  value={linkedUserId}
-                  onChange={(event) => setLinkedUserId(event.target.value)}
-                  disabled={usersQuery.isLoading}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
-                >
-                  <option value="">Chưa liên kết tài khoản</option>
-                  {usersQuery.data?.data.map((user) => (
-                    <option key={user.userId} value={user.userId}>
-                      {user.displayName || user.username} ({user.username})
-                    </option>
-                  ))}
-                </select>
+              <h3 className="mb-4 flex items-center text-sm font-semibold text-slate-900">
+                <span className="mr-4 shrink-0">Hồ sơ nhân sự</span>
+                <span className="h-px flex-1 bg-slate-200"></span>
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Ngày bắt đầu làm việc</label>
+                  <input
+                    type="date"
+                    value={formData.joined_at}
+                    onChange={(event) => updateForm('joined_at', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Dân tộc</label>
+                  <input
+                    value={formData.ethnicity}
+                    onChange={(event) => updateForm('ethnicity', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Mã BHYT / BHXH</label>
+                  <input
+                    value={formData.insurance_code}
+                    onChange={(event) => updateForm('insurance_code', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Mã số thuế</label>
+                  <input
+                    value={formData.tax_code}
+                    onChange={(event) => updateForm('tax_code', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
               </div>
             </div>
-          )}
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Chức danh
-            </label>
-            <input
-              value={formData.job_title}
-              onChange={(event) => updateForm('job_title', event.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="Thu ngân, bán hàng, quản lý..."
-            />
-          </div>
+            {/* Nhóm 3: Công việc & Ca làm */}
+            <div>
+              <h3 className="mb-4 flex items-center text-sm font-semibold text-slate-900">
+                <span className="mr-4 shrink-0">Công việc & Phân ca</span>
+                <span className="h-px flex-1 bg-slate-200"></span>
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Chức danh</label>
+                  <input
+                    value={formData.job_title}
+                    onChange={(event) => updateForm('job_title', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                    placeholder="Thu ngân, bán hàng, quản lý..."
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Phòng ban / Bộ phận</label>
+                  <select
+                    value={formData.department_id}
+                    onChange={(event) => updateForm('department_id', event.target.value)}
+                    disabled={departmentsQuery.isLoading}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
+                  >
+                    <option value="">Chưa phân công</option>
+                    {departmentsQuery.data?.data.map((department) => (
+                      <option key={department.id} value={department.id}>{department.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Ca làm việc mặc định</label>
+                  <select
+                    value={formData.default_shift_template_id}
+                    onChange={(event) => updateForm('default_shift_template_id', event.target.value)}
+                    disabled={shiftsQuery.isLoading}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
+                  >
+                    <option value="">Không phân ca mặc định</option>
+                    {shiftsQuery.data?.data.map((shift) => (
+                      <option key={shift.id} value={shift.id}>{shift.name} ({shift.startTime} - {shift.endTime})</option>
+                    ))}
+                  </select>
+                </div>
+                {editingId && (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">Trạng thái làm việc</label>
+                      <select
+                        value={formData.employment_status}
+                        onChange={(event) => updateForm('employment_status', event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      >
+                        <option value="active">Đang làm</option>
+                        <option value="probation">Thử việc</option>
+                        <option value="inactive">Đã nghỉ</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">Tài khoản check-in</label>
+                      <select
+                        value={linkedUserId}
+                        onChange={(event) => setLinkedUserId(event.target.value)}
+                        disabled={usersQuery.isLoading}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
+                      >
+                        <option value="">Chưa liên kết tài khoản</option>
+                        {usersQuery.data?.data.map((user) => (
+                          <option key={user.userId} value={user.userId}>
+                            {user.displayName || user.username} ({user.username})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+                {renderCustomFieldsByGroup('Công việc & Phân ca', false)}
+              </div>
+            </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Phòng ban / Bộ phận
-            </label>
-            <select
-              value={formData.department_id}
-              onChange={(event) =>
-                updateForm('department_id', event.target.value)
-              }
-              disabled={departmentsQuery.isLoading}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
-            >
-              <option value="">Chưa phân công</option>
-              {departmentsQuery.data?.data.map((department) => (
-                <option key={department.id} value={department.id}>
-                  {department.name}
-                </option>
-              ))}
-            </select>
-            {departmentsQuery.isError && (
-              <p className="mt-1 text-xs text-rose-600">
-                {departmentsQuery.error.message}
-              </p>
-            )}
-          </div>
+            {/* Nhóm 4: Thanh toán lương */}
+            <div>
+              <h3 className="mb-4 flex items-center text-sm font-semibold text-slate-900">
+                <span className="mr-4 shrink-0">Thanh toán lương</span>
+                <span className="h-px flex-1 bg-slate-200"></span>
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Ngân hàng</label>
+                  <select
+                    value={formData.bank_name}
+                    onChange={(event) => updateForm('bank_name', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  >
+                    <option value="">Chọn ngân hàng</option>
+                    {BANKS.map((b) => (
+                      <option key={b.code} value={b.shortName}>{b.shortName} - {b.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Số tài khoản</label>
+                  <input
+                    value={formData.bank_account}
+                    onChange={(event) => updateForm('bank_account', event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  />
+                </div>
+                {renderCustomFieldsByGroup('Thanh toán lương', false)}
+              </div>
+            </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Ca làm việc mặc định
-            </label>
-            <select
-              value={formData.default_shift_template_id}
-              onChange={(event) =>
-                updateForm('default_shift_template_id', event.target.value)
-              }
-              disabled={shiftsQuery.isLoading}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
-            >
-              <option value="">Không phân ca mặc định</option>
-              {shiftsQuery.data?.data.map((shift) => (
-                <option key={shift.id} value={shift.id}>
-                  {shift.name} ({shift.startTime} - {shift.endTime})
-                </option>
-              ))}
-            </select>
-            {shiftsQuery.isError && (
-              <p className="mt-1 text-xs text-rose-600">
-                {shiftsQuery.error.message}
-              </p>
-            )}
-          </div>
-
-          {/* General Custom Fields (newTab = false) */}
-          {(customFieldsQuery.data?.data.filter(f => !f.newTab).length ?? 0) > 0 && (
+          {/* General Custom Fields (newTab = false) for non-predefined groups */}
+          {(customFieldsQuery.data?.data.filter(f => !f.newTab && !['Thông tin cơ bản', 'Hồ sơ nhân sự', 'Công việc & Phân ca', 'Thanh toán lương'].includes(f.groupName || 'Thông tin tùy chỉnh')).length ?? 0) > 0 && (
             <div className="space-y-6 pt-4">
               {Array.from(
                 new Set(
                   customFieldsQuery.data!.data
-                    .filter((f) => !f.newTab)
+                    .filter((f) => !f.newTab && !['Thông tin cơ bản', 'Hồ sơ nhân sự', 'Công việc & Phân ca', 'Thanh toán lương'].includes(f.groupName || 'Thông tin tùy chỉnh'))
                     .map((f) => f.groupName || 'Thông tin tùy chỉnh')
                 )
               ).map((groupName) => (
@@ -595,107 +798,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
                     <span className="h-px flex-1 bg-slate-200"></span>
                   </h3>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    {customFieldsQuery.data!.data
-                      .filter(
-                        (f) =>
-                          !f.newTab &&
-                          (f.groupName || 'Thông tin tùy chỉnh') === groupName
-                      )
-                      .map((field) => (
-                        <label
-                          key={field.id}
-                          className={`block text-sm font-medium text-slate-700 ${field.metadata?.width === '50%' ? 'sm:col-span-1' : 'sm:col-span-2'}`}
-                        >
-                          <span className="mb-1 block">
-                            {field.label}
-                            {field.required ? ' *' : ''}
-                          </span>
-                          {field.fieldType === 'boolean' ? (
-                            <input
-                              type="checkbox"
-                              checked={Boolean(customData[field.key])}
-                              onChange={(event) =>
-                                setCustomData({
-                                  ...customData,
-                                  [field.key]: event.target.checked,
-                                })
-                              }
-                              className="ml-3"
-                            />
-                          ) : field.fieldType === 'select' ? (
-                            <select
-                              value={String(customData[field.key] ?? '')}
-                              onChange={(event) =>
-                                setCustomData({
-                                  ...customData,
-                                  [field.key]: event.target.value,
-                                })
-                              }
-                              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                            >
-                              <option value="">Chọn...</option>
-                              {field.options.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          ) : field.fieldType === 'upload' ? (
-                            <HrmCustomFieldUpload
-                              shopId={shopId}
-                              employeeId={editingId}
-                              fieldKey={field.key}
-                              value={customData[field.key] as string}
-                              onChange={(val) =>
-                                setCustomData({ ...customData, [field.key]: val })
-                              }
-                              maxSizeMb={settingsQuery.data}
-                            />
-                          ) : (
-                            <input
-                              type={
-                                field.fieldType === 'number'
-                                  ? 'number'
-                                  : field.fieldType === 'date'
-                                    ? 'date'
-                                    : 'text'
-                              }
-                              value={
-                                Array.isArray(customData[field.key])
-                                  ? (customData[field.key] as string[]).join(', ')
-                                  : String(customData[field.key] ?? '')
-                              }
-                              onChange={(event) =>
-                                setCustomData({
-                                  ...customData,
-                                  [field.key]:
-                                    field.fieldType === 'multiselect'
-                                      ? event.target.value
-                                          .split(',')
-                                          .map((value) => value.trim())
-                                          .filter(Boolean)
-                                      : field.fieldType === 'number'
-                                        ? event.target.value === ''
-                                          ? ''
-                                          : Number(event.target.value)
-                                        : event.target.value,
-                                })
-                              }
-                              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                              placeholder={
-                                field.fieldType === 'multiselect'
-                                  ? 'Nhập các giá trị, cách nhau bằng dấu phẩy'
-                                  : field.metadata?.placeholder || undefined
-                              }
-                            />
-                          )}
-                          {field.metadata?.description && (
-                            <span className="mt-1 block text-xs font-normal text-slate-500">
-                              {field.metadata.description}
-                            </span>
-                          )}
-                        </label>
-                      ))}
+                    {renderCustomFieldsByGroup(groupName, false)}
                   </div>
                 </div>
               ))}
@@ -716,99 +819,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
                   <span className="mr-4 shrink-0">{groupName}</span>
                   <span className="h-px flex-1 bg-slate-200"></span>
                 </h3>
-                {customFieldsQuery.data?.data
-                  .filter((f) => f.newTab && f.groupName === groupName)
-                  .map((field) => (
-                    <label
-                      key={field.id}
-                      className={`block text-sm font-medium text-slate-700 ${field.metadata?.width === '50%' ? 'sm:col-span-1' : 'sm:col-span-2'}`}
-                    >
-                      <span className="mb-1 block">
-                        {field.label}
-                        {field.required ? ' *' : ''}
-                      </span>
-                      {field.fieldType === 'boolean' ? (
-                        <input
-                          type="checkbox"
-                          checked={Boolean(customData[field.key])}
-                          onChange={(event) =>
-                            setCustomData({
-                              ...customData,
-                              [field.key]: event.target.checked,
-                            })
-                          }
-                          className="ml-3"
-                        />
-                      ) : field.fieldType === 'select' ? (
-                        <select
-                          value={String(customData[field.key] ?? '')}
-                          onChange={(event) =>
-                            setCustomData({
-                              ...customData,
-                              [field.key]: event.target.value,
-                            })
-                          }
-                          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                        >
-                          <option value="">Chọn...</option>
-                          {field.options.map((option) => (
-                            <option key={option} value={option}>{option}</option>
-                          ))}
-                        </select>
-                      ) : field.fieldType === 'upload' ? (
-                        <HrmCustomFieldUpload
-                          shopId={shopId}
-                          employeeId={editingId}
-                          fieldKey={field.key}
-                          value={customData[field.key] as string}
-                          onChange={(val) => setCustomData({ ...customData, [field.key]: val })}
-                          maxSizeMb={settingsQuery.data}
-                        />
-                      ) : (
-                        <input
-                          type={
-                            field.fieldType === 'number'
-                              ? 'number'
-                              : field.fieldType === 'date'
-                                ? 'date'
-                                : 'text'
-                          }
-                          value={
-                            Array.isArray(customData[field.key])
-                              ? (customData[field.key] as string[]).join(', ')
-                              : String(customData[field.key] ?? '')
-                          }
-                          onChange={(event) =>
-                            setCustomData({
-                              ...customData,
-                              [field.key]:
-                                field.fieldType === 'multiselect'
-                                  ? event.target.value
-                                      .split(',')
-                                      .map((value) => value.trim())
-                                      .filter(Boolean)
-                                  : field.fieldType === 'number'
-                                    ? event.target.value === ''
-                                      ? ''
-                                      : Number(event.target.value)
-                                    : event.target.value,
-                            })
-                          }
-                          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                          placeholder={
-                            field.fieldType === 'multiselect'
-                              ? 'Nhập các giá trị, cách nhau bằng dấu phẩy'
-                              : field.metadata?.placeholder || undefined
-                          }
-                        />
-                      )}
-                      {field.metadata?.description && (
-                        <span className="mt-1 block text-xs font-normal text-slate-500">
-                          {field.metadata.description}
-                        </span>
-                      )}
-                    </label>
-                  ))}
+                {renderCustomFieldsByGroup(groupName as string, true)}
               </div>
             );
           })}

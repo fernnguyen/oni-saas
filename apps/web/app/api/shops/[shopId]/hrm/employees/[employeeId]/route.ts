@@ -88,7 +88,8 @@ export async function PATCH(
             (option) =>
               typeof option === 'string' &&
               definition.options.includes(option),
-          ));
+          )) ||
+        (definition.fieldType === 'upload' && typeof value === 'string');
       if (!isValid) {
         return NextResponse.json(
           {
@@ -116,6 +117,12 @@ export async function PATCH(
       joinedAt: input.joined_at,
       email: input.email,
       address: input.address,
+      ethnicity: input.ethnicity,
+      taxCode: input.tax_code,
+      insuranceCode: input.insurance_code,
+      bankName: input.bank_name,
+      bankAccountCiphertext: input.bank_account,
+      bankAccountLast4: input.bank_account ? input.bank_account.slice(-4) : undefined,
       departmentId: input.department_id,
       defaultShiftTemplateId: input.default_shift_template_id,
       customData,

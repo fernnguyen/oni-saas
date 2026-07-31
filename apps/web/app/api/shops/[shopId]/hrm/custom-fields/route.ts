@@ -94,6 +94,7 @@ export async function POST(
     });
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
+    console.error('HRM CUSTOM FIELD POST ERROR:', error);
     return respondError(error);
   }
 }

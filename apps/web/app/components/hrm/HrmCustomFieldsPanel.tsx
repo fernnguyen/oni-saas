@@ -372,11 +372,18 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
           <label className="block text-sm font-medium text-slate-700">
             Nhóm (Group)
             <input
+              list="group-suggestions"
               value={form.group_name}
               onChange={(event) => setForm({ ...form, group_name: event.target.value })}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
               placeholder="Thông tin cá nhân, Bằng cấp chứng chỉ..."
             />
+            <datalist id="group-suggestions">
+              <option value="Thông tin cơ bản" />
+              <option value="Hồ sơ nhân sự" />
+              <option value="Công việc & Phân ca" />
+              <option value="Thanh toán lương" />
+            </datalist>
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
