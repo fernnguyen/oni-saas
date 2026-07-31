@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { CalendarCheck2, SlidersHorizontal } from 'lucide-react';
+import { CalendarCheck2, SlidersHorizontal, Settings2 } from 'lucide-react';
 import { HrmShiftsPanel } from './HrmShiftsPanel';
 import { HrmCustomFieldsPanel } from './HrmCustomFieldsPanel';
+import { HrmGeneralSettingsPanel } from './HrmGeneralSettingsPanel';
 import { usePermissions } from '@/app/components/ui/PermissionGate';
 
-type SettingsTab = 'shifts' | 'custom-fields';
+type SettingsTab = 'general' | 'shifts' | 'custom-fields';
 
 const TABS: Array<{
   key: SettingsTab;
@@ -14,6 +15,12 @@ const TABS: Array<{
   icon: React.ElementType;
   permission: string;
 }> = [
+  {
+    key: 'general',
+    label: 'Cấu hình chung',
+    icon: Settings2,
+    permission: 'hrm.settings.manage',
+  },
   {
     key: 'shifts',
     label: 'Ca làm việc',
@@ -30,7 +37,7 @@ const TABS: Array<{
 
 /**
  * HrmSettingsPanel — wraps settings sub-tabs:
- *   Ca làm việc | Trường tùy chỉnh
+ *   Cấu hình chung | Ca làm việc | Trường tùy chỉnh
  *
  * Requires hrm.settings.manage — gated in HrmLayout sidebar nav.
  */
@@ -45,7 +52,7 @@ export function HrmSettingsPanel({ shopId }: { shopId: string }) {
   const safeTab =
     visibleTabs.find((t) => t.key === activeTab)?.key ??
     visibleTabs[0]?.key ??
-    'shifts';
+    'general';
 
   if (visibleTabs.length === 0) {
     return (
@@ -80,6 +87,11 @@ export function HrmSettingsPanel({ shopId }: { shopId: string }) {
       </div>
 
       {/* Tab content */}
+      {safeTab === 'general' && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <HrmGeneralSettingsPanel shopId={shopId} />
+        </div>
+      )}
       {safeTab === 'shifts' && (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <HrmShiftsPanel shopId={shopId} />

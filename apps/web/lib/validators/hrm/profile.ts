@@ -28,6 +28,7 @@ export const createHrmCustomFieldSchema = z
         'Mã field chỉ gồm chữ thường, số và dấu gạch dưới',
       ),
     label: z.string().trim().min(1, 'Tên field là bắt buộc').max(255),
+    group_name: z.string().trim().max(255).optional().default(''),
     field_type: z.enum([
       'text',
       'number',
@@ -35,10 +36,17 @@ export const createHrmCustomFieldSchema = z
       'boolean',
       'select',
       'multiselect',
+      'upload',
     ]),
     options: z.array(z.string().trim().min(1).max(100)).max(50).default([]),
+    new_tab: z.boolean().default(false),
     required: z.boolean().default(false),
     tenant_wide: z.boolean().default(false),
+    metadata: z.object({
+      width: z.enum(['100%', '50%']).optional().default('100%'),
+      placeholder: z.string().trim().max(100).optional().default(''),
+      description: z.string().trim().max(255).optional().default(''),
+    }).default({ width: '100%', placeholder: '', description: '' }),
   })
   .superRefine((input, context) => {
     if (
@@ -62,6 +70,7 @@ export const attendanceActionSchema = z.object({
 export const updateHrmCustomFieldSchema = z
   .object({
     label: z.string().trim().min(1, 'Tên field là bắt buộc').max(255),
+    group_name: z.string().trim().max(255).optional().default(''),
     field_type: z.enum([
       'text',
       'number',
@@ -69,10 +78,18 @@ export const updateHrmCustomFieldSchema = z
       'boolean',
       'select',
       'multiselect',
+      'upload',
     ]),
     options: z.array(z.string().trim().min(1).max(100)).max(50).default([]),
+    new_tab: z.boolean().default(false),
     required: z.boolean(),
     active: z.boolean(),
+    sort_order: z.number().int().min(0).optional(),
+    metadata: z.object({
+      width: z.enum(['100%', '50%']).optional().default('100%'),
+      placeholder: z.string().trim().max(100).optional().default(''),
+      description: z.string().trim().max(255).optional().default(''),
+    }).default({ width: '100%', placeholder: '', description: '' }),
   })
   .superRefine((input, context) => {
     if (

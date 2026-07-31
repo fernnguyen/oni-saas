@@ -15,19 +15,35 @@ export interface HrmCustomField {
   id: string;
   key: string;
   label: string;
-  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect';
+  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect' | 'upload';
   options: string[];
+  groupName: string | null;
+  newTab: boolean;
   required: boolean;
   active: boolean;
+  sortOrder: number;
+  metadata?: {
+    width?: '100%' | '50%';
+    placeholder?: string;
+    description?: string;
+  };
   usageCount: number;
 }
 
 const EMPTY_FORM = {
   key: '',
   label: '',
+  group_name: '',
   field_type: 'text',
   options: '',
+  new_tab: false,
   required: false,
+  sort_order: 0,
+  metadata: {
+    width: '100%' as '100%' | '50%',
+    placeholder: '',
+    description: '',
+  },
   tenant_wide: false,
 };
 
@@ -38,6 +54,7 @@ const TYPE_LABELS: Record<string, string> = {
   boolean: 'Có/Không',
   select: 'Một lựa chọn',
   multiselect: 'Nhiều lựa chọn',
+  upload: 'Tài liệu / Upload',
 };
 
 export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
@@ -110,8 +127,10 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             label: field.label,
+            group_name: field.groupName ?? '',
             field_type: field.fieldType,
             options: field.options,
+            new_tab: field.newTab,
             required: field.required,
             active: !field.active,
           }),
@@ -156,9 +175,17 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
     setForm({
       key: field.key,
       label: field.label,
+      group_name: field.groupName ?? '',
       field_type: field.fieldType,
       options: field.options.join(', '),
+      new_tab: field.newTab,
       required: field.required,
+      sort_order: field.sortOrder,
+      metadata: {
+        width: field.metadata?.width ?? '100%',
+        placeholder: field.metadata?.placeholder ?? '',
+        description: field.metadata?.description ?? '',
+      },
       tenant_wide: false,
     });
     setOpen(true);
@@ -185,6 +212,7 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
 
   const columns: Column<HrmCustomField>[] = [
     { key: 'label', label: 'Tên trường' },
+    { key: 'groupName', label: 'Nhóm', render: (row) => row.groupName || '-' },
     { key: 'key', label: 'Mã field' },
     {
       key: 'fieldType',
@@ -342,6 +370,23 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
+            Nhóm (Group)
+            <input
+              value={form.group_name}
+              onChange={(event) => setForm({ ...form, group_name: event.target.value })}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+              placeholder="Thông tin cá nhân, Bằng cấp chứng chỉ..."
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={form.new_tab}
+              onChange={(event) => setForm({ ...form, new_tab: event.target.checked })}
+            />
+            Hiển thị thành Tab riêng (trong Hồ sơ nhân viên)
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
             Kiểu dữ liệu
             <select
               value={form.field_type}
@@ -372,6 +417,48 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
             />
             Bắt buộc nhập
           </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Placeholder
+            <input
+              value={form.metadata.placeholder}
+              onChange={(event) => setForm({ ...form, metadata: { ...form.metadata, placeholder: event.target.value } })}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+              placeholder="VD: Nhập tên chứng chỉ..."
+            />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Ghi chú (Hint text)
+            <input
+              value={form.metadata.description}
+              onChange={(event) => setForm({ ...form, metadata: { ...form.metadata, description: event.target.value } })}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+              placeholder="Hiển thị nhỏ dưới trường nhập liệu"
+            />
+          </label>
+          <div className="flex gap-4">
+            <label className="block flex-1 text-sm font-medium text-slate-700">
+              Độ rộng (Width)
+              <select
+                value={form.metadata.width}
+                onChange={(event) => setForm({ ...form, metadata: { ...form.metadata, width: event.target.value as '100%' | '50%' } })}
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+              >
+                <option value="100%">100% (Đầy đủ dòng)</option>
+                <option value="50%">50% (Chia nửa dòng)</option>
+              </select>
+            </label>
+            {editingField && (
+              <label className="block flex-1 text-sm font-medium text-slate-700">
+                Thứ tự hiển thị
+                <input
+                  type="number"
+                  value={form.sort_order}
+                  onChange={(event) => setForm({ ...form, sort_order: parseInt(event.target.value, 10) || 0 })}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                />
+              </label>
+            )}
+          </div>
           {!editingField && (
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <input

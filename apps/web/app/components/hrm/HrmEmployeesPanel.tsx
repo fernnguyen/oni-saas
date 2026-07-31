@@ -13,6 +13,7 @@ import { TagBadge } from '@/app/components/ui/TagBadge';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { formatHrmDate } from '@/lib/hrm/formatDate';
 import type { HrmCustomField } from './HrmCustomFieldsPanel';
+import { HrmCustomFieldUpload } from './HrmCustomFieldUpload';
 
 interface HrmEmployeeSummary {
   id: string;
@@ -68,6 +69,17 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [customData, setCustomData] = useState<Record<string, unknown>>({});
   const [linkedUserId, setLinkedUserId] = useState('');
+  const [activeTab, setActiveTab] = useState('general');
+
+  const settingsQuery = useQuery({
+    queryKey: ['hrm-settings', shopId],
+    staleTime: Infinity,
+    queryFn: async () => {
+      const response = await fetch(`/api/shops/${encodeURIComponent(shopId)}/hrm/settings`);
+      const payload = await response.json();
+      return payload.data?.maxUploadSizeMb ?? 10;
+    },
+  });
 
   const employeesQuery = useQuery({
     queryKey: ['hrm-employees', shopId, debouncedSearch],
@@ -198,8 +210,8 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
       toast.success(editingId ? 'Đã cập nhật hồ sơ' : 'Đã thêm nhân viên');
       setSlideOpen(false);
       setFormData(EMPTY_FORM);
-      setEditingId(null);
       setCustomData({});
+      setActiveTab('general');
       setLinkedUserId('');
       void queryClient.invalidateQueries({
         queryKey: ['hrm-employees', shopId],
@@ -301,6 +313,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
       address: row.address ?? '',
     });
     setCustomData(row.customData ?? {});
+    setActiveTab('general');
     setLinkedUserId(row.authUserId ?? '');
     setSlideOpen(true);
   }
@@ -323,6 +336,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
               setFormData(EMPTY_FORM);
               setEditingId(null);
               setCustomData({});
+              setActiveTab('general');
               setLinkedUserId('');
               setSlideOpen(true);
             }}
@@ -361,8 +375,12 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
 
       <SlideOver
         open={slideOpen}
-        onClose={() => setSlideOpen(false)}
-        title={editingId ? 'Hồ sơ nhân viên' : 'Thêm nhân viên'}
+        onClose={() => {
+          setSlideOpen(false);
+          setEditingId(null);
+        }}
+        title={editingId ? 'Sửa thông tin nhân viên' : 'Thêm nhân viên mới'}
+        width={800}
         footer={
           <>
             <button
@@ -383,33 +401,69 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
           </>
         }
       >
-        <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Họ tên *
-            </label>
-            <input
-              value={formData.name}
-              onChange={(event) => updateForm('name', event.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="Nguyễn Văn A"
-            />
-          </div>
+        <div className="flex flex-col">
+          {/* TABS NAVIGATION */}
+          {(() => {
+            const fields = customFieldsQuery.data?.data || [];
+            const tabGroups = Array.from(new Set(fields.filter((f) => f.newTab).map((f) => f.groupName).filter(Boolean)));
+            
+            if (tabGroups.length === 0) return null;
+            
+            return (
+              <div className="flex gap-2 overflow-x-auto border-b border-slate-200 mb-6 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('general')}
+                  className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
+                    activeTab === 'general' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  Thông tin chung
+                </button>
+                {tabGroups.map((group) => (
+                  <button
+                    key={group!}
+                    type="button"
+                    onClick={() => setActiveTab(group!)}
+                    className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors ${
+                      activeTab === group ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    {group}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          {/* THÔNG TIN CHUNG TAB */}
+          <div className={`space-y-4 ${activeTab === 'general' ? 'block' : 'hidden'}`}>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Mã nhân viên
+                Họ tên *
               </label>
               <input
-                value={formData.employee_code}
-                onChange={(event) =>
-                  updateForm('employee_code', event.target.value)
-                }
+                value={formData.name}
+                onChange={(event) => updateForm('name', event.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                placeholder="NV001"
+                placeholder="Nguyễn Văn A"
               />
             </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Mã nhân viên
+                </label>
+                <input
+                  value={formData.employee_code}
+                  onChange={(event) =>
+                    updateForm('employee_code', event.target.value)
+                  }
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  placeholder="NV001"
+                />
+              </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
                 Số điện thoại
@@ -525,144 +579,239 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
             )}
           </div>
 
-          {(customFieldsQuery.data?.data.length ?? 0) > 0 && (
-            <div className="space-y-4 border-t border-slate-100 pt-4">
-              <h3 className="text-sm font-semibold text-slate-900">
-                Thông tin tùy chỉnh
-              </h3>
-              {customFieldsQuery.data?.data.map((field) => (
-                <label
-                  key={field.id}
-                  className="block text-sm font-medium text-slate-700"
-                >
-                  {field.label}
-                  {field.required ? ' *' : ''}
-                  {field.fieldType === 'boolean' ? (
-                    <input
-                      type="checkbox"
-                      checked={Boolean(customData[field.key])}
-                      onChange={(event) =>
-                        setCustomData({
-                          ...customData,
-                          [field.key]: event.target.checked,
-                        })
-                      }
-                      className="ml-3"
-                    />
-                  ) : field.fieldType === 'select' ? (
-                    <select
-                      value={String(customData[field.key] ?? '')}
-                      onChange={(event) =>
-                        setCustomData({
-                          ...customData,
-                          [field.key]: event.target.value,
-                        })
-                      }
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                    >
-                      <option value="">Chọn...</option>
-                      {field.options.map((option) => (
-                        <option key={option} value={option}>{option}</option>
+          {/* General Custom Fields (newTab = false) */}
+          {(customFieldsQuery.data?.data.filter(f => !f.newTab).length ?? 0) > 0 && (
+            <div className="space-y-6 pt-4">
+              {Array.from(
+                new Set(
+                  customFieldsQuery.data!.data
+                    .filter((f) => !f.newTab)
+                    .map((f) => f.groupName || 'Thông tin tùy chỉnh')
+                )
+              ).map((groupName) => (
+                <div key={groupName}>
+                  <h3 className="mb-4 flex items-center text-sm font-semibold text-slate-900">
+                    <span className="mr-4 shrink-0">{groupName}</span>
+                    <span className="h-px flex-1 bg-slate-200"></span>
+                  </h3>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {customFieldsQuery.data!.data
+                      .filter(
+                        (f) =>
+                          !f.newTab &&
+                          (f.groupName || 'Thông tin tùy chỉnh') === groupName
+                      )
+                      .map((field) => (
+                        <label
+                          key={field.id}
+                          className={`block text-sm font-medium text-slate-700 ${field.metadata?.width === '50%' ? 'sm:col-span-1' : 'sm:col-span-2'}`}
+                        >
+                          <span className="mb-1 block">
+                            {field.label}
+                            {field.required ? ' *' : ''}
+                          </span>
+                          {field.fieldType === 'boolean' ? (
+                            <input
+                              type="checkbox"
+                              checked={Boolean(customData[field.key])}
+                              onChange={(event) =>
+                                setCustomData({
+                                  ...customData,
+                                  [field.key]: event.target.checked,
+                                })
+                              }
+                              className="ml-3"
+                            />
+                          ) : field.fieldType === 'select' ? (
+                            <select
+                              value={String(customData[field.key] ?? '')}
+                              onChange={(event) =>
+                                setCustomData({
+                                  ...customData,
+                                  [field.key]: event.target.value,
+                                })
+                              }
+                              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                            >
+                              <option value="">Chọn...</option>
+                              {field.options.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          ) : field.fieldType === 'upload' ? (
+                            <HrmCustomFieldUpload
+                              shopId={shopId}
+                              employeeId={editingId}
+                              fieldKey={field.key}
+                              value={customData[field.key] as string}
+                              onChange={(val) =>
+                                setCustomData({ ...customData, [field.key]: val })
+                              }
+                              maxSizeMb={settingsQuery.data}
+                            />
+                          ) : (
+                            <input
+                              type={
+                                field.fieldType === 'number'
+                                  ? 'number'
+                                  : field.fieldType === 'date'
+                                    ? 'date'
+                                    : 'text'
+                              }
+                              value={
+                                Array.isArray(customData[field.key])
+                                  ? (customData[field.key] as string[]).join(', ')
+                                  : String(customData[field.key] ?? '')
+                              }
+                              onChange={(event) =>
+                                setCustomData({
+                                  ...customData,
+                                  [field.key]:
+                                    field.fieldType === 'multiselect'
+                                      ? event.target.value
+                                          .split(',')
+                                          .map((value) => value.trim())
+                                          .filter(Boolean)
+                                      : field.fieldType === 'number'
+                                        ? event.target.value === ''
+                                          ? ''
+                                          : Number(event.target.value)
+                                        : event.target.value,
+                                })
+                              }
+                              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                              placeholder={
+                                field.fieldType === 'multiselect'
+                                  ? 'Nhập các giá trị, cách nhau bằng dấu phẩy'
+                                  : field.metadata?.placeholder || undefined
+                              }
+                            />
+                          )}
+                          {field.metadata?.description && (
+                            <span className="mt-1 block text-xs font-normal text-slate-500">
+                              {field.metadata.description}
+                            </span>
+                          )}
+                        </label>
                       ))}
-                    </select>
-                  ) : (
-                    <input
-                      type={
-                        field.fieldType === 'number'
-                          ? 'number'
-                          : field.fieldType === 'date'
-                            ? 'date'
-                            : 'text'
-                      }
-                      value={
-                        Array.isArray(customData[field.key])
-                          ? (customData[field.key] as string[]).join(', ')
-                          : String(customData[field.key] ?? '')
-                      }
-                      onChange={(event) =>
-                        setCustomData({
-                          ...customData,
-                          [field.key]:
-                            field.fieldType === 'multiselect'
-                              ? event.target.value
-                                  .split(',')
-                                  .map((value) => value.trim())
-                                  .filter(Boolean)
-                              : field.fieldType === 'number'
-                                ? event.target.value === ''
-                                  ? ''
-                                  : Number(event.target.value)
-                                : event.target.value,
-                        })
-                      }
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                      placeholder={
-                        field.fieldType === 'multiselect'
-                          ? 'Nhập các giá trị, cách nhau bằng dấu phẩy'
-                          : undefined
-                      }
-                    />
-                  )}
-                </label>
+                  </div>
+                </div>
               ))}
             </div>
           )}
+        </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                Hình thức lương
-              </label>
-              <select
-                value={formData.employment_type}
-                onChange={(event) =>
-                  updateForm('employment_type', event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              >
-                <option value="monthly">Theo tháng</option>
-                <option value="daily">Theo ngày</option>
-                <option value="hourly">Theo giờ</option>
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                Ngày vào làm
-              </label>
-              <input
-                type="date"
-                value={formData.joined_at}
-                onChange={(event) =>
-                  updateForm('joined_at', event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Email
-            </label>
-            <input
-              type="email"
-              value={formData.email}
-              onChange={(event) => updateForm('email', event.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Địa chỉ
-            </label>
-            <textarea
-              value={formData.address}
-              onChange={(event) => updateForm('address', event.target.value)}
-              rows={3}
-              className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-primary focus:outline-none"
-            />
-          </div>
+        {/* CUSTOM TABS */}
+        {customFieldsQuery.data?.data
+          .filter(f => f.newTab)
+          .map(f => f.groupName)
+          .filter((v, i, a) => a.indexOf(v) === i && v)
+          .map((groupName) => {
+            if (activeTab !== groupName) return null;
+            return (
+              <div key={groupName} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <h3 className="flex items-center text-lg font-semibold text-slate-900 sm:col-span-2">
+                  <span className="mr-4 shrink-0">{groupName}</span>
+                  <span className="h-px flex-1 bg-slate-200"></span>
+                </h3>
+                {customFieldsQuery.data?.data
+                  .filter((f) => f.newTab && f.groupName === groupName)
+                  .map((field) => (
+                    <label
+                      key={field.id}
+                      className={`block text-sm font-medium text-slate-700 ${field.metadata?.width === '50%' ? 'sm:col-span-1' : 'sm:col-span-2'}`}
+                    >
+                      <span className="mb-1 block">
+                        {field.label}
+                        {field.required ? ' *' : ''}
+                      </span>
+                      {field.fieldType === 'boolean' ? (
+                        <input
+                          type="checkbox"
+                          checked={Boolean(customData[field.key])}
+                          onChange={(event) =>
+                            setCustomData({
+                              ...customData,
+                              [field.key]: event.target.checked,
+                            })
+                          }
+                          className="ml-3"
+                        />
+                      ) : field.fieldType === 'select' ? (
+                        <select
+                          value={String(customData[field.key] ?? '')}
+                          onChange={(event) =>
+                            setCustomData({
+                              ...customData,
+                              [field.key]: event.target.value,
+                            })
+                          }
+                          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                        >
+                          <option value="">Chọn...</option>
+                          {field.options.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                      ) : field.fieldType === 'upload' ? (
+                        <HrmCustomFieldUpload
+                          shopId={shopId}
+                          employeeId={editingId}
+                          fieldKey={field.key}
+                          value={customData[field.key] as string}
+                          onChange={(val) => setCustomData({ ...customData, [field.key]: val })}
+                          maxSizeMb={settingsQuery.data}
+                        />
+                      ) : (
+                        <input
+                          type={
+                            field.fieldType === 'number'
+                              ? 'number'
+                              : field.fieldType === 'date'
+                                ? 'date'
+                                : 'text'
+                          }
+                          value={
+                            Array.isArray(customData[field.key])
+                              ? (customData[field.key] as string[]).join(', ')
+                              : String(customData[field.key] ?? '')
+                          }
+                          onChange={(event) =>
+                            setCustomData({
+                              ...customData,
+                              [field.key]:
+                                field.fieldType === 'multiselect'
+                                  ? event.target.value
+                                      .split(',')
+                                      .map((value) => value.trim())
+                                      .filter(Boolean)
+                                  : field.fieldType === 'number'
+                                    ? event.target.value === ''
+                                      ? ''
+                                      : Number(event.target.value)
+                                    : event.target.value,
+                            })
+                          }
+                          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                          placeholder={
+                            field.fieldType === 'multiselect'
+                              ? 'Nhập các giá trị, cách nhau bằng dấu phẩy'
+                              : field.metadata?.placeholder || undefined
+                          }
+                        />
+                      )}
+                      {field.metadata?.description && (
+                        <span className="mt-1 block text-xs font-normal text-slate-500">
+                          {field.metadata.description}
+                        </span>
+                      )}
+                    </label>
+                  ))}
+              </div>
+            );
+          })}
         </div>
       </SlideOver>
     </div>

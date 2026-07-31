@@ -63,8 +63,12 @@ export async function PATCH(
       id: fieldId,
       label: input.label,
       options: input.options,
+      groupName: input.group_name,
+      newTab: input.new_tab,
       required: input.required,
       active: input.active,
+      sortOrder: input.sort_order,
+      metadata: input.metadata,
     });
     return NextResponse.json({ success: true });
   } catch (error) {

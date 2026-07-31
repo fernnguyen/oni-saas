@@ -54,11 +54,14 @@ export interface HrmCustomFieldDefinition {
   id: string;
   key: string;
   label: string;
-  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect';
+  groupName: string | null;
+  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect' | 'upload';
   options: string[];
+  newTab: boolean;
   required: boolean;
   active: boolean;
   sortOrder: number;
+  metadata?: Record<string, unknown>;
   usageCount: number;
 }
 
@@ -537,6 +540,35 @@ export class PostgresHrmRepository {
     return { ...this.scope };
   }
 
+  async getSettings(): Promise<{ maxUploadSizeMb: number }> {
+    const result = await this.pool.query(
+      `
+        select max_upload_size_mb
+        from hrm_settings
+        where tenant_id = $1 and branch_id = $2
+        limit 1
+      `,
+      [this.scope.tenantId, this.scope.branchId]
+    );
+    if (result.rowCount === 0) {
+      return { maxUploadSizeMb: 10 };
+    }
+    return { maxUploadSizeMb: result.rows[0].max_upload_size_mb };
+  }
+
+  async updateSettings(input: { maxUploadSizeMb: number }): Promise<void> {
+    await this.pool.query(
+      `
+        insert into hrm_settings (tenant_id, branch_id, max_upload_size_mb, created_at, updated_at)
+        values ($1, $2, $3, now(), now())
+        on conflict (tenant_id, branch_id) do update set
+          max_upload_size_mb = excluded.max_upload_size_mb,
+          updated_at = now()
+      `,
+      [this.scope.tenantId, this.scope.branchId, input.maxUploadSizeMb]
+    );
+  }
+
   /**
    * Generate a human-readable cashbook transaction ID in the format:
    *   CB-{TENANT_HASH_8}-{SEQUENCE_5}
@@ -842,17 +874,20 @@ export class PostgresHrmRepository {
       id: string;
       key: string;
       label: string;
+      group_name: string | null;
       field_type: HrmCustomFieldDefinition['fieldType'];
       options: string[] | null;
+      new_tab: number;
       required: number;
       active: number;
       sort_order: number;
+      metadata: Record<string, unknown> | null;
       usage_count: number | string;
     }>(
       `
         select
-          d.id, d.key, d.label, d.field_type, d.options, d.required,
-          d.active, d.sort_order,
+          d.id, d.key, d.label, d.group_name, d.field_type, d.options,
+          d.new_tab, d.required, d.active, d.sort_order, d.metadata,
           (
             select count(*)::integer
             from hrm_employee_profiles p
@@ -876,11 +911,14 @@ export class PostgresHrmRepository {
       id: row.id,
       key: row.key,
       label: row.label,
+      groupName: row.group_name,
       fieldType: row.field_type,
       options: Array.isArray(row.options) ? row.options : [],
+      newTab: row.new_tab === 1,
       required: row.required === 1,
       active: row.active === 1,
       sortOrder: row.sort_order,
+      metadata: row.metadata ?? {},
       usageCount: Number(row.usage_count ?? 0),
     }));
   }
@@ -908,24 +946,29 @@ export class PostgresHrmRepository {
     id: string;
     key: string;
     label: string;
+    groupName?: string | null;
     fieldType: HrmCustomFieldDefinition['fieldType'];
     options: string[];
+    newTab?: boolean;
     required: boolean;
     tenantWide: boolean;
+    metadata?: Record<string, unknown>;
   }): Promise<void> {
     await this.pool.query(
       `
         insert into hrm_custom_field_definitions (
-          id, tenant_id, branch_id, key, label, field_type, options,
-          required, active, sort_order, created_at, updated_at
+          id, tenant_id, branch_id, key, label, group_name, field_type, options,
+          new_tab, required, active, sort_order, metadata, created_at, updated_at
         )
         values (
-          $1, $2::varchar, $3::varchar, $4, $5, $6, $7::jsonb, $8, 1,
+          $1, $2::varchar, $3::varchar, $4, $5, nullif($6, ''), $7, $8::jsonb,
+          $9, $10, 1,
           coalesce((
             select max(sort_order) + 1
             from hrm_custom_field_definitions
             where tenant_id = $2::varchar
           ), 0),
+          $11::jsonb,
           now(), now()
         )
       `,
@@ -935,9 +978,12 @@ export class PostgresHrmRepository {
         input.tenantWide ? null : this.scope.branchId,
         input.key,
         input.label,
+        input.groupName ?? '',
         input.fieldType,
         JSON.stringify(input.options),
+        input.newTab ? 1 : 0,
         input.required ? 1 : 0,
+        JSON.stringify(input.metadata ?? {}),
       ],
     );
   }
@@ -945,17 +991,25 @@ export class PostgresHrmRepository {
   async updateCustomField(input: {
     id: string;
     label: string;
+    groupName?: string | null;
     options: string[];
+    newTab?: boolean;
     required: boolean;
     active: boolean;
+    sortOrder?: number;
+    metadata?: Record<string, unknown>;
   }): Promise<void> {
     const result = await this.pool.query(
       `
         update hrm_custom_field_definitions
         set label = $4,
-            options = $5::jsonb,
-            required = $6,
-            active = $7,
+            group_name = nullif($5, ''),
+            options = $6::jsonb,
+            new_tab = $7,
+            required = $8,
+            active = $9,
+            sort_order = coalesce($10, sort_order),
+            metadata = coalesce($11::jsonb, metadata),
             updated_at = now()
         where id = $1
           and tenant_id = $2
@@ -967,9 +1021,13 @@ export class PostgresHrmRepository {
         this.scope.tenantId,
         this.scope.branchId,
         input.label,
+        input.groupName ?? '',
         JSON.stringify(input.options),
+        input.newTab ? 1 : 0,
         input.required ? 1 : 0,
         input.active ? 1 : 0,
+        input.sortOrder ?? null,
+        input.metadata ? JSON.stringify(input.metadata) : null,
       ],
     );
     if (result.rowCount !== 1) throw new HrmCustomFieldNotFoundError();

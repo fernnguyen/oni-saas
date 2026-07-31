@@ -14,6 +14,7 @@ import {
   uniqueIndex,
   uuid,
   varchar,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 
 const tenantId = () => varchar('tenant_id', { length: 255 }).notNull();
@@ -114,11 +115,14 @@ export const hrmCustomFieldDefinitions = pgTable(
     branch_id: varchar('branch_id', { length: 255 }),
     key: varchar('key', { length: 100 }).notNull(),
     label: varchar('label', { length: 255 }).notNull(),
+    group_name: varchar('group_name', { length: 255 }),
     field_type: varchar('field_type', { length: 30 }).notNull(),
     options: jsonb('options').default(sql`'[]'::jsonb`).notNull(),
+    new_tab: integer('new_tab').default(0).notNull(),
     required: integer('required').default(0).notNull(),
     active: integer('active').default(1).notNull(),
     sort_order: integer('sort_order').default(0).notNull(),
+    metadata: jsonb('metadata').default(sql`'{}'::jsonb`).notNull(),
     created_at: auditTimestamp('created_at'),
     updated_at: auditTimestamp('updated_at'),
   },
@@ -136,12 +140,23 @@ export const hrmCustomFieldDefinitions = pgTable(
     ),
     check(
       'ck_hrm_custom_fields_type',
-      sql`${table.field_type} in ('text', 'number', 'date', 'boolean', 'select', 'multiselect')`,
+      sql`${table.field_type} in ('text', 'number', 'date', 'boolean', 'select', 'multiselect', 'upload')`,
     ),
+    check('ck_hrm_custom_fields_new_tab', sql`${table.new_tab} in (0, 1)`),
     check('ck_hrm_custom_fields_required', sql`${table.required} in (0, 1)`),
     check('ck_hrm_custom_fields_active', sql`${table.active} in (0, 1)`),
   ],
 );
+
+export const hrmSettings = pgTable('hrm_settings', {
+  tenant_id: tenantId(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  max_upload_size_mb: integer('max_upload_size_mb').default(10).notNull(),
+  created_at: auditTimestamp('created_at'),
+  updated_at: auditTimestamp('updated_at'),
+}, (table) => [
+  primaryKey({ columns: [table.tenant_id, table.branch_id] }),
+]);
 
 export const hrmShiftTemplates = pgTable(
   'hrm_shift_templates',

@@ -86,8 +86,11 @@ export async function POST(
       label: input.label,
       fieldType: input.field_type,
       options: input.options,
+      groupName: input.group_name,
+      newTab: input.new_tab,
       required: input.required,
       tenantWide: input.tenant_wide,
+      metadata: input.metadata,
     });
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
