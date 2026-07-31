@@ -47,7 +47,11 @@ export function HrmQuickAttendanceModal({
     });
   };
 
-  const defaultTime = getVietnamTime();
+  const defaultTime = new Date().toLocaleTimeString('sv-SE', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Ho_Chi_Minh',
+  });
 
   const initialTimeInStr = formatInitialTime(initialClockIn);
   const initialTimeOutStr = formatInitialTime(initialClockOut);
@@ -102,7 +106,11 @@ export function HrmQuickAttendanceModal({
               employee_id: employeeId,
               work_date: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }),
               clock_in: status === 'present' ? getIsoString(clockInTime) : getIsoString(initialTimeInStr),
+              clock_in_source: status === 'present' && getIsoString(clockInTime) !== getIsoString(initialTimeInStr) ? 'manual_by_manager' : undefined,
+              clock_in_metadata: status === 'present' && getIsoString(clockInTime) !== getIsoString(initialTimeInStr) ? { reason: 'Updated via QuickAttendanceModal' } : undefined,
               clock_out: status === 'present' ? getIsoString(clockOutTime) : getIsoString(initialTimeOutStr),
+              clock_out_source: status === 'present' && getIsoString(clockOutTime) !== getIsoString(initialTimeOutStr) ? 'manual_by_manager' : undefined,
+              clock_out_metadata: status === 'present' && getIsoString(clockOutTime) !== getIsoString(initialTimeOutStr) ? { reason: 'Updated via QuickAttendanceModal' } : undefined,
               status: status,
               note: note || undefined,
               shift_template_id: shiftId || undefined,

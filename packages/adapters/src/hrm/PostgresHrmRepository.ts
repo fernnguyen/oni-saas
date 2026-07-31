@@ -1753,7 +1753,8 @@ export class PostgresHrmRepository {
     profileId: string;
     employeeId: string;
     actorUserId: string;
-    source: 'manual' | 'self';
+    source: 'manual' | 'self' | 'manual_by_manager' | 'qr_code' | 'cross_verify' | string;
+    metadata?: any;
     customTime?: string;
     note?: string;
     shiftTemplateId?: string;
@@ -1800,7 +1801,7 @@ export class PostgresHrmRepository {
         `
           insert into hrm_attendance_days (
             id, tenant_id, branch_id, profile_id, department_id_snapshot,
-            work_date, clock_in, worked_minutes, late_minutes,
+            work_date, clock_in, clock_in_source, clock_in_metadata, worked_minutes, late_minutes,
             early_leave_minutes, overtime_minutes, status, source,
             note, shift_template_id,
             updated_by, created_at, updated_at
@@ -1808,7 +1809,7 @@ export class PostgresHrmRepository {
           values (
             $1, $2, $3, $4, $5,
             (coalesce($8::timestamp, now()) at time zone 'Asia/Ho_Chi_Minh')::date,
-            coalesce($8::timestamp, now()), 0, 0, 0, 0, 'present', $6, 
+            coalesce($8::timestamp, now()), $6, $11::jsonb, 0, 0, 0, 0, 'present', $6, 
             $9, $10,
             $7, now(), now()
           )
@@ -1825,7 +1826,8 @@ export class PostgresHrmRepository {
           input.actorUserId,
           input.customTime ?? null,
           input.note ?? null,
-          input.shiftTemplateId ?? null
+          input.shiftTemplateId ?? null,
+          input.metadata ? JSON.stringify(input.metadata) : null
         ],
       );
       if (inserted.rowCount !== 1) {
@@ -1839,7 +1841,11 @@ export class PostgresHrmRepository {
     workDate: string;
     shiftTemplateId?: string | null;
     clockIn?: string | null;
+    clockInSource?: string | null;
+    clockInMetadata?: any | null;
     clockOut?: string | null;
+    clockOutSource?: string | null;
+    clockOutMetadata?: any | null;
     shiftTemplateId2?: string | null;
     clockIn2?: string | null;
     clockOut2?: string | null;
@@ -1899,6 +1905,22 @@ export class PostgresHrmRepository {
           setClauses.push(`status = $${index++}`);
           values.push(input.status);
         }
+        if (input.clockInSource !== undefined) {
+          setClauses.push(`clock_in_source = $${index++}`);
+          values.push(input.clockInSource);
+        }
+        if (input.clockInMetadata !== undefined) {
+          setClauses.push(`clock_in_metadata = $${index++}::jsonb`);
+          values.push(input.clockInMetadata ? JSON.stringify(input.clockInMetadata) : null);
+        }
+        if (input.clockOutSource !== undefined) {
+          setClauses.push(`clock_out_source = $${index++}`);
+          values.push(input.clockOutSource);
+        }
+        if (input.clockOutMetadata !== undefined) {
+          setClauses.push(`clock_out_metadata = $${index++}::jsonb`);
+          values.push(input.clockOutMetadata ? JSON.stringify(input.clockOutMetadata) : null);
+        }
 
         if (setClauses.length > 0) {
           setClauses.push(`updated_by = $${index++}`, `updated_at = now()`);
@@ -1917,14 +1939,16 @@ export class PostgresHrmRepository {
           insert into hrm_attendance_days (
             id, tenant_id, branch_id, profile_id, department_id_snapshot, work_date,
             shift_template_id, clock_in, clock_out,
+            clock_in_source, clock_in_metadata, clock_out_source, clock_out_metadata,
             shift_template_id_2, clock_in_2, clock_out_2,
             note, status, source, updated_by, created_at, updated_at
           ) values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'manual', $15, now(), now()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13::jsonb, $14, $15, $16, $17, $18, 'manual', $19, now(), now()
           )
         `, [
           `HRMA-${crypto.randomUUID()}`, scope.tenantId, scope.branchId, profileId, profile.rows[0].department_id, input.workDate,
           input.shiftTemplateId ?? null, input.clockIn ?? null, input.clockOut ?? null,
+          input.clockInSource ?? null, input.clockInMetadata ? JSON.stringify(input.clockInMetadata) : null, input.clockOutSource ?? null, input.clockOutMetadata ? JSON.stringify(input.clockOutMetadata) : null,
           input.shiftTemplateId2 ?? null, input.clockIn2 ?? null, input.clockOut2 ?? null,
           input.note ?? null, input.status ?? 'present', input.actorUserId
         ]);
@@ -1935,6 +1959,8 @@ export class PostgresHrmRepository {
   async clockOut(input: {
     employeeId: string;
     actorUserId: string;
+    source?: string;
+    metadata?: any;
     customTime?: string;
     note?: string;
     shiftTemplateId?: string;
@@ -1972,6 +1998,8 @@ export class PostgresHrmRepository {
         `
           update hrm_attendance_days
           set clock_out = coalesce($3::timestamp, now()),
+              clock_out_source = coalesce($6, clock_out_source),
+              clock_out_metadata = coalesce($7::jsonb, clock_out_metadata),
               worked_minutes = greatest(
                 0,
                 floor(extract(epoch from (coalesce($3::timestamp, now()) - clock_in)) / 60)::integer
@@ -1982,7 +2010,15 @@ export class PostgresHrmRepository {
               updated_at = now()
           where id = $1
         `,
-        [attendance.id, input.actorUserId, input.customTime ?? null, input.note ?? null, input.shiftTemplateId ?? null],
+        [
+          attendance.id, 
+          input.actorUserId, 
+          input.customTime ?? null, 
+          input.note ?? null, 
+          input.shiftTemplateId ?? null,
+          input.source ?? null,
+          input.metadata ? JSON.stringify(input.metadata) : null
+        ],
       );
     });
   }

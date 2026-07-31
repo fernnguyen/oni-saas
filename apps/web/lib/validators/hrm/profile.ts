@@ -73,6 +73,8 @@ export const attendanceActionSchema = z.object({
   custom_time: z.string().optional(),
   note: z.string().optional(),
   shift_template_id: z.string().optional(),
+  source: z.string().optional(),
+  metadata: z.any().optional(),
 });
 
 export const updateHrmCustomFieldSchema = z
