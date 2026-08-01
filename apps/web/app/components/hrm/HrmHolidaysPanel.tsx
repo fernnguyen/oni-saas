@@ -49,6 +49,7 @@ export function HrmHolidaysPanel({ shopId }: { shopId: string }) {
 
   const { data: holidays = [], isLoading } = useQuery({
     queryKey: ['hrm-holidays', shopId, year],
+    staleTime: 10 * 60_000,
     queryFn: async () => {
       const res = await fetch(`/api/shops/${encodeURIComponent(shopId)}/hrm/holidays?year=${year}`);
       const payload = await res.json();
@@ -68,6 +69,7 @@ export function HrmHolidaysPanel({ shopId }: { shopId: string }) {
 
   const { data: rules } = useQuery({
     queryKey: ['hrm-settings', shopId],
+    staleTime: 10 * 60_000,
     queryFn: async () => {
       const res = await fetch(`/api/shops/${encodeURIComponent(shopId)}/hrm/settings`);
       const payload = await res.json();

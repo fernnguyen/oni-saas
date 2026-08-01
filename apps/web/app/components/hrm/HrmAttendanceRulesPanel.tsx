@@ -11,6 +11,8 @@ interface AttendanceRules {
   min_hours_half_day: number;
   min_hours_full_day: number;
   allow_time_compensation: boolean;
+  /** Số ngày tối thiểu cần xin nghỉ trước. 0 = không giới hạn. */
+  min_leave_advance_days: number;
 }
 
 const defaultRules: AttendanceRules = {
@@ -20,6 +22,7 @@ const defaultRules: AttendanceRules = {
   min_hours_half_day: 4,
   min_hours_full_day: 8,
   allow_time_compensation: true,
+  min_leave_advance_days: 2,
 };
 
 const DAYS_OF_WEEK = [
@@ -58,7 +61,7 @@ export function HrmAttendanceRulesPanel({ shopId }: { shopId: string }) {
       }
       return payload.data;
     },
-    staleTime: 0,
+    staleTime: 5 * 60_000,
     refetchOnMount: 'always',
   });
 
@@ -218,6 +221,27 @@ export function HrmAttendanceRulesPanel({ shopId }: { shopId: string }) {
             />
             <span className="text-sm text-slate-600">giờ</span>
           </div>
+        </div>
+      </div>
+
+      <hr className="border-slate-100" />
+
+      {/* Ngày xin nghỉ trước tối thiểu */}
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900">Xin nghỉ trước tối thiểu</h3>
+        <p className="text-sm text-slate-500 mt-1 mb-3">
+          Nhân viên phải xin nghỉ trước ít nhất bao nhiêu ngày làm việc. Đặt 0 để không giới hạn.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            min="0"
+            max="30"
+            value={rules.min_leave_advance_days ?? 2}
+            onChange={(e) => updateNumberField('min_leave_advance_days', e.target.value)}
+            className="w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          />
+          <span className="text-sm text-slate-600">ngày (0 = không giới hạn)</span>
         </div>
       </div>
 

@@ -88,6 +88,8 @@ interface SalaryForm {
   overtime_multiplier: string;
   effective_from: string;
   recurring_allowances: AllowanceForm[];
+  shift_template_id: string;
+  annual_leave_days: string;
 }
 
 const TYPE_LABELS: Record<SalaryType, string> = {
@@ -187,6 +189,8 @@ const EMPTY_FORM: SalaryForm = {
   overtime_multiplier: '1.5',
   effective_from: todayInVietnam(),
   recurring_allowances: [],
+  shift_template_id: '',
+  annual_leave_days: '12',
 };
 
 export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
@@ -207,8 +211,7 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
 
   const query = useQuery({
     queryKey: ['hrm-salary-configs', shopId],
-    staleTime: 0,
-    gcTime: 0,
+    staleTime: 60_000,
     refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(
@@ -229,6 +232,18 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
       };
     },
   });
+
+  const shiftsQuery = useQuery({
+    queryKey: ['hrm-shifts', shopId],
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const res = await fetch(`/api/shops/${encodeURIComponent(shopId)}/hrm/shifts`);
+      const payload = await res.json();
+      // Return the full object to match HrmShiftsPanel's cache shape for this key
+      return payload as { data: { id: string; name: string; active: boolean }[]; canManage: boolean };
+    },
+  });
+  const activeShifts = (shiftsQuery.data?.data ?? []).filter((s) => s.active);
 
   const configuredCount = useMemo(
     () =>
@@ -299,6 +314,8 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
                 prorate: allowance.prorate,
               }),
             ),
+            shift_template_id: form.shift_template_id || null,
+            annual_leave_days: Number(form.annual_leave_days) || 12,
           }),
         },
       );
@@ -398,6 +415,8 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
           amount: String(allowance.amount),
           prorate: allowance.prorate !== false, // default true
         })) ?? [],
+      shift_template_id: (current as any)?.shiftTemplateId ?? '',
+      annual_leave_days: String((current as any)?.annualLeaveDays ?? 12),
     });
   }
 
@@ -807,6 +826,38 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
                 value={form.effective_from}
                 onChange={(event) =>
                   setForm({ ...form, effective_from: event.target.value })
+                }
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+              />
+            </label>
+
+            <label className="block text-sm font-medium text-slate-700">
+              Ca áp dụng
+              <select
+                value={form.shift_template_id}
+                onChange={(event) =>
+                  setForm({ ...form, shift_template_id: event.target.value })
+                }
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+              >
+                <option value="">-- Chưa xác định --</option>
+                {activeShifts.map((shift) => (
+                  <option key={shift.id} value={shift.id}>
+                    {shift.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block text-sm font-medium text-slate-700">
+              Ngày phép năm (ngày)
+              <input
+                type="number"
+                min="0"
+                max="365"
+                value={form.annual_leave_days}
+                onChange={(event) =>
+                  setForm({ ...form, annual_leave_days: event.target.value })
                 }
                 className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
               />

@@ -17,7 +17,7 @@ export function HrmGeneralSettingsPanel({ shopId }: { shopId: string }) {
       setMaxUploadSizeMb(payload.data?.maxUploadSizeMb ?? 10);
       return payload.data;
     },
-    staleTime: 0,
+    staleTime: 5 * 60_000,
     refetchOnMount: 'always',
   });
 

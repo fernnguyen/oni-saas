@@ -49,6 +49,7 @@ import {
   AlertTriangle,
   UserRoundCog,
   CalendarClock,
+  CalendarDays,
   UsersRound,
   CircleDollarSign,
   Settings2,
@@ -276,9 +277,10 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
       label: 'Nhân sự',
       items: options.hrmEnabled === true
         ? [
-            { href: joinPath(base, '/hrm/attendance'), label: 'Chấm công', icon: Clock },
-            { href: joinPath(base, '/hrm/monthly-attendance'), label: 'Bảng công tháng', icon: CalendarClock },
-            { href: joinPath(base, '/hrm/employees'), label: 'Nhân viên', icon: UsersRound },
+            { href: joinPath(base, '/hrm/attendance'), label: 'Chấm công', icon: Clock, permission: 'hrm.view' },
+            { href: joinPath(base, '/hrm/monthly-attendance'), label: 'Bảng công tháng', icon: CalendarClock, permission: 'hrm.view' },
+            { href: joinPath(base, '/hrm/leaves'), label: 'Nghỉ phép', icon: CalendarDays, permission: 'hrm.view' },
+            { href: joinPath(base, '/hrm/employees'), label: 'Nhân viên', icon: UsersRound, permission: 'hrm.view' },
             { href: joinPath(base, '/hrm/payroll'), label: 'Tiền lương', icon: CircleDollarSign, permission: 'hrm.payroll.view' },
             { href: joinPath(base, '/hrm/settings'), label: 'Cài đặt HRM', icon: Settings2, permission: 'hrm.settings.manage' },
           ]

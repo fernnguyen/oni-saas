@@ -215,54 +215,85 @@ export async function requireHrmAccess(
   requiredPermission: string | string[] = 'hrm.view',
   dependencies: HrmAccessDependencies = defaultDependencies,
 ): Promise<HrmAccessContext> {
-  const controlPlane = await authorizeHrmControlPlane(
-    shopId,
-    requiredPermission,
-    dependencies,
-  );
+  const normalizedShopId = shopId.trim();
+  if (!normalizedShopId) {
+    throw new TypeError('shopId is required');
+  }
 
+  const userId = await dependencies.getAuthenticatedUserId();
+  if (!userId) {
+    throw new HrmAccessError(401, 'HRM_UNAUTHORIZED', 'Unauthorized');
+  }
+
+  const shop = await dependencies.getShop(normalizedShopId);
+  if (!shop) {
+    throw new HrmAccessError(404, 'HRM_SHOP_NOT_FOUND', 'Không tìm thấy chi nhánh.');
+  }
+
+  const hasAccess = await dependencies.hasShopAccess(userId, normalizedShopId, shop);
+  if (!hasAccess) {
+    throw new HrmAccessError(403, 'HRM_PERMISSION_DENIED', 'Bạn không có quyền truy cập chi nhánh này.');
+  }
+
+  const enabled = await dependencies.isHrmEnabled(shop.tenant_id);
+  if (!enabled) {
+    throw new HrmAccessError(402, 'HRM_MODULE_NOT_ENABLED', 'Module HRM chưa được bật cho tenant này.');
+  }
+
+  // Build the repository first so we can check for a linked employee profile.
+  let repository: PostgresHrmRepository;
   try {
-    const connector = await dependencies.getConnectorMetadata(
-      controlPlane.tenantId,
-    );
+    const connector = await dependencies.getConnectorMetadata(shop.tenant_id);
     if (!connector || !isPostgresConnectorType(connector.type)) {
       throw new HrmPostgresRequiredError();
     }
-
     const connectionUri = resolveConnectionUri(connector);
-    if (!connectionUri) {
-      throw new HrmPostgresRequiredError();
-    }
+    if (!connectionUri) throw new HrmPostgresRequiredError();
 
-    const repository = await dependencies.createRepository({
+    repository = await dependencies.createRepository({
       connectorType: connector.type,
       connectionUri,
-      tenantId: controlPlane.tenantId,
-      branchId: controlPlane.shopId,
+      tenantId: shop.tenant_id,
+      branchId: normalizedShopId,
     });
-
-    return { ...controlPlane, repository };
   } catch (error) {
     if (error instanceof HrmPostgresRequiredError) {
-      throw new HrmAccessError(
-        409,
-        'HRM_POSTGRES_REQUIRED',
-        'HRM cần PostgreSQL connector đang hoạt động.',
-      );
+      throw new HrmAccessError(409, 'HRM_POSTGRES_REQUIRED', 'HRM cần PostgreSQL connector đang hoạt động.');
     }
     if (error instanceof HrmSchemaNotReadyError) {
-      throw new HrmAccessError(
-        503,
-        'HRM_SCHEMA_NOT_READY',
-        'Schema HRM trên PostgreSQL chưa sẵn sàng.',
-      );
+      throw new HrmAccessError(503, 'HRM_SCHEMA_NOT_READY', 'Schema HRM trên PostgreSQL chưa sẵn sàng.');
     }
     if (error instanceof HrmAccessError) throw error;
-
-    throw new HrmAccessError(
-      503,
-      'HRM_DATA_PLANE_UNAVAILABLE',
-      'Không thể kết nối kho dữ liệu HRM.',
-    );
+    throw new HrmAccessError(503, 'HRM_DATA_PLANE_UNAVAILABLE', 'Không thể kết nối kho dữ liệu HRM.');
   }
+
+  // Fetch system permissions from the control plane.
+  const systemPermissions = await dependencies.getPermissions(userId, shop.tenant_id, normalizedShopId);
+
+  // Auto-grant hrm.view to any user who has a linked HRM employee profile.
+  // This lets employees view their own attendance/leaves without a manual role assignment.
+  // Elevated permissions (manage, payroll, settings) still require an explicit role grant.
+  let effectivePermissions = systemPermissions;
+  if (!systemPermissions.includes('hrm.view')) {
+    const linkedProfileId = await repository.getProfileIdForAuthUser(userId);
+    if (linkedProfileId) {
+      effectivePermissions = [...systemPermissions, 'hrm.view'];
+    }
+  }
+
+  // Check that the caller has every required permission in their effective set.
+  const required = requiredPermissionsOf(requiredPermission);
+  const hasRequiredPermissions = required.every((p) => effectivePermissions.includes(p));
+  if (!hasRequiredPermissions) {
+    throw new HrmAccessError(403, 'HRM_PERMISSION_DENIED', 'Bạn không có quyền xem dữ liệu HRM.');
+  }
+
+  return {
+    userId,
+    tenantId: shop.tenant_id,
+    shopId: normalizedShopId,
+    permissions: effectivePermissions,
+    repository,
+  };
 }
+

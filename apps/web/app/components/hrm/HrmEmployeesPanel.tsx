@@ -115,7 +115,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
 
   const customFieldsQuery = useQuery({
     queryKey: ['hrm-custom-fields', shopId],
-    staleTime: 0,
+    staleTime: 5 * 60_000,
     refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(
@@ -129,7 +129,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
   });
   const departmentsQuery = useQuery({
     queryKey: ['departments', shopId],
-    staleTime: 0,
+    staleTime: 5 * 60_000,
     refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(
@@ -145,7 +145,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
   });
   const shiftsQuery = useQuery({
     queryKey: ['hrm-shifts', shopId],
-    staleTime: 0,
+    staleTime: 5 * 60_000,
     refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(
@@ -161,7 +161,7 @@ export function HrmEmployeesPanel({ shopId }: { shopId: string }) {
   });
   const usersQuery = useQuery({
     queryKey: ['hrm-linkable-users', shopId],
-    staleTime: 0,
+    staleTime: 5 * 60_000,
     refetchOnMount: 'always',
     enabled: Boolean(
       employeesQuery.data?.canManage && editingId && slideOpen,

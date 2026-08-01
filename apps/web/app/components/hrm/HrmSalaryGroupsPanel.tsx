@@ -82,8 +82,7 @@ export function HrmSalaryGroupsPanel({ shopId }: { shopId: string }) {
 
   const query = useQuery({
     queryKey: ['hrm-salary-groups', shopId],
-    staleTime: 0,
-    gcTime: 0,
+    staleTime: 60_000,
     refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(

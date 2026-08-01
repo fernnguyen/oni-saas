@@ -29,7 +29,7 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params;
-    const access = await requireHrmAccess(shopId, 'hrm.settings.manage');
+    const access = await requireHrmAccess(shopId, 'hrm.view');
     
     const url = new URL(request.url);
     const year = Number(url.searchParams.get('year')) || new Date().getFullYear();

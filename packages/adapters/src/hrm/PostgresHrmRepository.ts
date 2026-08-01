@@ -164,6 +164,8 @@ export interface HrmSalaryConfiguration {
   effectiveFrom: string;
   effectiveTo: string | null;
   createdAt: string;
+  shiftTemplateId: string | null;
+  annualLeaveDays: number;
 }
 
 export interface HrmEmployeeSalarySummary {
@@ -192,6 +194,8 @@ export interface CreateHrmSalaryConfigurationInput {
   recurringAllowances: HrmRecurringAllowance[];
   effectiveFrom: string;
   actorUserId: string;
+  shiftTemplateId?: string | null;
+  annualLeaveDays?: number;
 }
 
 
@@ -890,7 +894,9 @@ export class PostgresHrmRepository {
             nullif($13, ''), $14::jsonb, now(), now()
           )
           on conflict (tenant_id, source_employee_id) do update set
-            auth_user_id = excluded.auth_user_id,
+            -- Only overwrite auth_user_id if a new value is explicitly provided;
+            -- otherwise keep the existing linkage to avoid wiping it on routine edits.
+            auth_user_id = coalesce(excluded.auth_user_id, hrm_employee_profiles.auth_user_id),
             department_id = excluded.department_id,
             job_title = excluded.job_title,
             employment_status = excluded.employment_status,
@@ -1154,6 +1160,20 @@ export class PostgresHrmRepository {
       [this.scope.tenantId, this.scope.branchId, authUserId],
     );
     return result.rows[0]?.source_employee_id ?? null;
+  }
+
+  /** Returns the HRM profile UUID (hrm_employee_profiles.id) for the authenticated user. */
+  async getProfileIdForAuthUser(authUserId: string): Promise<string | null> {
+    const result = await this.pool.query<{ id: string }>(
+      `
+        select id
+        from hrm_employee_profiles
+        where tenant_id = $1 and branch_id = $2 and auth_user_id = $3
+        limit 1
+      `,
+      [this.scope.tenantId, this.scope.branchId, authUserId],
+    );
+    return result.rows[0]?.id ?? null;
   }
 
   async listShiftTemplates(
@@ -1785,9 +1805,9 @@ export class PostgresHrmRepository {
         `,
         [input.profileId, scope.tenantId, scope.branchId, input.employeeId],
       );
-      const profile = await client.query<{ id: string; department_id: string | null }>(
+      const profile = await client.query<{ id: string; department_id: string | null; default_shift_template_id: string | null }>(
         `
-          select id, department_id
+          select id, department_id, default_shift_template_id
           from hrm_employee_profiles
           where tenant_id = $1 and source_employee_id = $2
           limit 1
@@ -1796,6 +1816,25 @@ export class PostgresHrmRepository {
       );
       const resolvedProfile = profile.rows[0];
       if (!resolvedProfile) throw new Error('HRM profile not found.');
+
+      // Resolve shift: prefer input override, then active salary config's shift, then employee default
+      const salaryConfigShift = await client.query<{ shift_template_id: string | null }>(
+        `
+          select shift_template_id
+          from hrm_salary_configs
+          where tenant_id = $1 and profile_id = $2
+            and effective_from <= current_date
+            and (effective_to is null or effective_to >= current_date)
+          order by effective_from desc
+          limit 1
+        `,
+        [scope.tenantId, resolvedProfile.id],
+      );
+      const resolvedShiftTemplateId =
+        input.shiftTemplateId ??
+        salaryConfigShift.rows[0]?.shift_template_id ??
+        resolvedProfile.default_shift_template_id ??
+        null;
 
       const inserted = await client.query(
         `
@@ -1826,7 +1865,7 @@ export class PostgresHrmRepository {
           input.actorUserId,
           input.customTime ?? null,
           input.note ?? null,
-          input.shiftTemplateId ?? null,
+          resolvedShiftTemplateId,
           input.metadata ? JSON.stringify(input.metadata) : null
         ],
       );
@@ -2044,6 +2083,8 @@ export class PostgresHrmRepository {
       effective_from: string | null;
       effective_to: string | null;
       config_created_at: Date | string | null;
+      shift_template_id: string | null;
+      annual_leave_days: number | null;
     }>(
       `
         select
@@ -2064,7 +2105,9 @@ export class PostgresHrmRepository {
           c.recurring_allowances,
           c.effective_from::text,
           c.effective_to::text,
-          c.created_at as config_created_at
+          c.created_at as config_created_at,
+          c.shift_template_id,
+          coalesce(c.annual_leave_days, 12) as annual_leave_days
         from employees e
         left join hrm_employee_profiles p
           on p.tenant_id = e.tenant_id and p.source_employee_id = e.id
@@ -2133,6 +2176,8 @@ export class PostgresHrmRepository {
         createdAt: row.config_created_at
           ? new Date(row.config_created_at).toISOString()
           : '',
+        shiftTemplateId: row.shift_template_id ?? null,
+        annualLeaveDays: Number(row.annual_leave_days ?? 12),
       });
     }
     return [...employees.values()];
@@ -2224,6 +2269,7 @@ export class PostgresHrmRepository {
             id, tenant_id, profile_id, salary_type, base_amount,
             standard_work_days, standard_work_hours, overtime_multiplier,
             recurring_allowances, effective_from, effective_to,
+            shift_template_id, annual_leave_days,
             created_by, created_at
           )
           values (
@@ -2231,6 +2277,7 @@ export class PostgresHrmRepository {
             $6, $7, $8, $9::jsonb, $10::date,
             case when $11::date is null then null
               else ($11::date - interval '1 day')::date end,
+            nullif($13, ''), coalesce($14, 12),
             $12, now()
           )
           returning id
@@ -2248,6 +2295,8 @@ export class PostgresHrmRepository {
           input.effectiveFrom,
           nextEffectiveFrom ?? null,
           input.actorUserId,
+          input.shiftTemplateId ?? null,
+          input.annualLeaveDays ?? 12,
         ],
       );
       if (inserted.rowCount !== 1) {
@@ -3657,7 +3706,7 @@ export class PostgresHrmRepository {
   async listHolidays(year: number): Promise<{ id: string; date: string; name: string; note?: string; created_by?: string; created_at?: string }[]> {
     const result = await this.pool.query(
       `
-        select id, date, name, note, created_by, created_at
+        select id, date::text as date, name, note, created_by, created_at
         from hrm_holidays
         where tenant_id = $1 and branch_id = $2
           and extract(year from date) = $3
@@ -3666,10 +3715,8 @@ export class PostgresHrmRepository {
       [this.scope.tenantId, this.scope.branchId, year]
     );
     return result.rows.map((r) => {
-      const d = r.date;
-      const dateStr = typeof d === 'string' 
-        ? d 
-        : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      // With date::text, r.date is always a YYYY-MM-DD string
+      const dateStr = typeof r.date === 'string' ? r.date.split('T')[0] : r.date;
       return {
         id: r.id,
         date: dateStr,
@@ -3698,5 +3745,603 @@ export class PostgresHrmRepository {
       `delete from hrm_holidays where id = $1 and tenant_id = $2 and branch_id = $3`,
       [id, this.scope.tenantId, this.scope.branchId]
     );
+  }
+
+  // ─── Leave Balance ────────────────────────────────────────────────────────────
+
+  async getLeaveBalance(profileId: string, year: number): Promise<{
+    profileId: string;
+    year: number;
+    annualLeaveQuota: number;
+    carriedOver: number;
+    usedPaidDays: number;
+    usedSickDays: number;
+    usedUnpaidDays: number;
+    remainingPaidDays: number;
+  }> {
+    // Auto-init if not exists, pulling quota from active salary config
+    const scope = this.scope;
+    await this.pool.query(
+      `
+        insert into hrm_leave_balances (id, tenant_id, branch_id, profile_id, year, annual_leave_quota, updated_at)
+        select
+          concat('HRMLB-', gen_random_uuid()),
+          $1::text, $2::text, $3::text, $4::int,
+          coalesce(
+            (select annual_leave_days from hrm_salary_configs
+             where tenant_id = $1::text and profile_id = $3::text
+               and effective_from <= current_date
+               and (effective_to is null or effective_to >= current_date)
+             order by effective_from desc limit 1),
+            12
+          ),
+          now()
+        on conflict (tenant_id, profile_id, year) do nothing
+      `,
+      [scope.tenantId, scope.branchId, profileId, year],
+    );
+
+    const result = await this.pool.query<{
+      profile_id: string;
+      year: number;
+      annual_leave_quota: string;
+      carried_over: string;
+      used_paid_days: string;
+      used_sick_days: string;
+      used_unpaid_days: string;
+    }>(
+      `select profile_id, year, annual_leave_quota, carried_over, used_paid_days, used_sick_days, used_unpaid_days
+       from hrm_leave_balances
+       where tenant_id = $1 and profile_id = $2 and year = $3`,
+      [scope.tenantId, profileId, year],
+    );
+
+    const row = result.rows[0]!;
+    const quota = parseFloat(row.annual_leave_quota);
+    const carried = parseFloat(row.carried_over);
+    const usedPaid = parseFloat(row.used_paid_days);
+    const usedSick = parseFloat(row.used_sick_days);
+    const usedUnpaid = parseFloat(row.used_unpaid_days);
+    return {
+      profileId: row.profile_id,
+      year: row.year,
+      annualLeaveQuota: quota,
+      carriedOver: carried,
+      usedPaidDays: usedPaid,
+      usedSickDays: usedSick,
+      usedUnpaidDays: usedUnpaid,
+      remainingPaidDays: Math.max(0, quota + carried - usedPaid - usedSick),
+    };
+  }
+
+  // ─── Leave Requests ───────────────────────────────────────────────────────────
+
+  async listLeaveRequests(input: {
+    profileId?: string;
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+    canManage: boolean;
+    selfProfileId?: string;
+  }): Promise<{
+    id: string;
+    profileId: string;
+    employeeName: string;
+    employeeCode: string | null;
+    leaveType: string;
+    startDate: string;
+    endDate: string;
+    halfDayOption: string;
+    totalDays: number;
+    paidDays: number;
+    unpaidDays: number;
+    reason: string | null;
+    status: string;
+    approvedBy: string | null;
+    approverName: string | null;
+    approvedAt: string | null;
+    rejectionReason: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }[]> {
+    const scope = this.scope;
+    const conditions: string[] = ['r.tenant_id = $1', 'r.branch_id = $2'];
+    const params: any[] = [scope.tenantId, scope.branchId];
+    let idx = 3;
+
+    if (!input.canManage && input.selfProfileId) {
+      conditions.push(`r.profile_id = $${idx++}`);
+      params.push(input.selfProfileId);
+    } else if (input.profileId) {
+      conditions.push(`r.profile_id = $${idx++}`);
+      params.push(input.profileId);
+    }
+
+    if (input.status) {
+      conditions.push(`r.status = $${idx++}`);
+      params.push(input.status);
+    }
+    if (input.startDate) {
+      conditions.push(`r.end_date >= $${idx++}`);
+      params.push(input.startDate);
+    }
+    if (input.endDate) {
+      conditions.push(`r.start_date <= $${idx++}`);
+      params.push(input.endDate);
+    }
+
+    const result = await this.pool.query<{
+      id: string;
+      profile_id: string;
+      employee_name: string;
+      employee_code: string | null;
+      leave_type: string;
+      start_date: string;
+      end_date: string;
+      half_day_option: string;
+      total_days: string;
+      paid_days: string;
+      unpaid_days: string;
+      reason: string | null;
+      status: string;
+      approved_by: string | null;
+      approver_name: string | null;
+      approved_at: string | null;
+      rejection_reason: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `select r.id, r.profile_id,
+        coalesce(e.name, 'Unknown') as employee_name,
+        e.employee_code,
+        r.leave_type, r.start_date::text, r.end_date::text,
+        r.half_day_option, r.total_days, r.paid_days, r.unpaid_days,
+        r.reason, r.status, r.approved_by,
+        r.approved_at at time zone 'Asia/Ho_Chi_Minh' as approved_at,
+        r.rejection_reason,
+        r.created_at at time zone 'Asia/Ho_Chi_Minh' as created_at,
+        r.updated_at at time zone 'Asia/Ho_Chi_Minh' as updated_at,
+        coalesce(ae.name, '') as approver_name
+       from hrm_leave_requests r
+       join hrm_employee_profiles p on p.id = r.profile_id and p.tenant_id = r.tenant_id
+       join employees e on e.id = p.source_employee_id and e.tenant_id = r.tenant_id
+       left join hrm_employee_profiles ap on ap.auth_user_id = r.approved_by and ap.tenant_id = r.tenant_id
+       left join employees ae on ae.id = ap.source_employee_id and ae.tenant_id = r.tenant_id
+       where ${conditions.join(' and ')}
+       order by r.created_at desc`,
+      params,
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      profileId: row.profile_id,
+      employeeName: row.employee_name,
+      employeeCode: row.employee_code,
+      leaveType: row.leave_type,
+      startDate: row.start_date,
+      endDate: row.end_date,
+      halfDayOption: row.half_day_option,
+      totalDays: parseFloat(row.total_days),
+      paidDays: parseFloat(row.paid_days),
+      unpaidDays: parseFloat(row.unpaid_days),
+      reason: row.reason,
+      status: row.status,
+      approvedBy: row.approved_by,
+      approverName: row.approver_name,
+      approvedAt: row.approved_at,
+      rejectionReason: row.rejection_reason,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  async createLeaveRequest(input: {
+    id: string;
+    profileId: string;
+    leaveType: string;
+    startDate: string;
+    endDate: string;
+    halfDayOption: string;
+    totalDays: number;
+    paidDays: number;
+    unpaidDays: number;
+    reason?: string;
+    createdBy: string;
+  }): Promise<void> {
+    const scope = this.scope;
+    await this.pool.query(
+      `insert into hrm_leave_requests (
+        id, tenant_id, branch_id, profile_id,
+        leave_type, start_date, end_date, half_day_option,
+        total_days, paid_days, unpaid_days,
+        reason, status, created_by, created_at, updated_at
+      ) values (
+        $1, $2, $3, $4,
+        $5, $6::date, $7::date, $8,
+        $9, $10, $11,
+        $12, 'pending', $13, now(), now()
+      )`,
+      [
+        input.id, scope.tenantId, scope.branchId, input.profileId,
+        input.leaveType, input.startDate, input.endDate, input.halfDayOption,
+        input.totalDays, input.paidDays, input.unpaidDays,
+        input.reason || null, input.createdBy,
+      ],
+    );
+  }
+
+  async approveLeaveRequest(input: {
+    leaveId: string;
+    actorUserId: string;
+  }): Promise<void> {
+    await this.withTransaction(async (client, scope) => {
+      // 1. Fetch leave request
+      const leaveResult = await client.query<{
+        id: string;
+        profile_id: string;
+        leave_type: string;
+        start_date: string;
+        end_date: string;
+        half_day_option: string;
+        total_days: string;
+        paid_days: string;
+        unpaid_days: string;
+        reason: string | null;
+        status: string;
+      }>(
+        `select id, profile_id, leave_type, start_date::text, end_date::text,
+                half_day_option, total_days, paid_days, unpaid_days, reason, status
+         from hrm_leave_requests
+         where id = $1::text and tenant_id = $2::text and branch_id = $3::text
+         for update`,
+        [input.leaveId, scope.tenantId, scope.branchId],
+      );
+      const leave = leaveResult.rows[0];
+      if (!leave) throw new Error('Không tìm thấy đơn xin nghỉ.');
+      if (leave.status !== 'pending') throw new Error('Đơn xin nghỉ không ở trạng thái chờ duyệt.');
+
+      const paidDays = parseFloat(leave.paid_days);
+      const unpaidDays = parseFloat(leave.unpaid_days);
+      const isHalfDay = leave.half_day_option !== 'full_day';
+      const workdayCount = isHalfDay ? 0.5 : 1;
+
+      // 2. Update leave request status
+      await client.query(
+        `update hrm_leave_requests
+         set status = 'approved', approved_by = $1::uuid, approved_at = now(), updated_at = now()
+         where id = $2::text`,
+        [input.actorUserId, input.leaveId],
+      );
+
+      // 3. Generate attendance days for each calendar day in the range
+      const start = new Date(`${leave.start_date}T00:00:00+07:00`);
+      const end = new Date(`${leave.end_date}T00:00:00+07:00`);
+
+      // Fetch holidays in range
+      const holidaysResult = await client.query<{ date: string }>(
+        `select date::text from hrm_holidays
+         where tenant_id = $1::text and branch_id = $2::text
+           and date >= $3::date and date <= $4::date`,
+        [scope.tenantId, scope.branchId, leave.start_date, leave.end_date],
+      );
+      const holidays = new Set(holidaysResult.rows.map((r) => r.date));
+
+      // Determine leave days distribution - allocate paid first, then unpaid
+      let remainingPaidDays = paidDays;
+      let remainingUnpaidDays = unpaidDays;
+
+      const attendanceDays: Array<{
+        date: string;
+        status: string;
+        wdCount: number;
+      }> = [];
+
+      for (
+        const cursor = new Date(start);
+        cursor <= end;
+        cursor.setDate(cursor.getDate() + 1)
+      ) {
+        const dateStr = cursor.toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
+        const dow = cursor.getDay();
+        if (dow === 0 || dow === 6) continue; // skip weekends
+        if (holidays.has(dateStr)) continue; // skip holidays
+
+        let status: string;
+        let dayCount: number;
+
+        if (remainingPaidDays > 0) {
+          const fraction = Math.min(remainingPaidDays, workdayCount);
+          remainingPaidDays -= fraction;
+          status = 'paid_leave';
+          dayCount = fraction;
+        } else if (remainingUnpaidDays > 0) {
+          const fraction = Math.min(remainingUnpaidDays, workdayCount);
+          remainingUnpaidDays -= fraction;
+          status = 'unpaid_leave';
+          dayCount = fraction;
+        } else {
+          break;
+        }
+
+        attendanceDays.push({ date: dateStr, status, wdCount: dayCount });
+      }
+
+      // 4. Fetch profile details for attendance upsert
+      const profileResult = await client.query<{ id: string; department_id: string | null }>(
+        `select id, department_id from hrm_employee_profiles where id = $1::text and tenant_id = $2::text`,
+        [leave.profile_id, scope.tenantId],
+      );
+      const profile = profileResult.rows[0];
+      if (!profile) throw new Error('Không tìm thấy hồ sơ nhân viên.');
+
+      // 5. Upsert attendance days
+      for (const day of attendanceDays) {
+        await client.query(
+          `insert into hrm_attendance_days (
+            id, tenant_id, branch_id, profile_id, department_id_snapshot,
+            work_date, clock_in, clock_out,
+            worked_minutes, late_minutes, early_leave_minutes, overtime_minutes,
+            workday_count, status, source, note, updated_by, created_at, updated_at
+          ) values (
+            concat('HRMA-', gen_random_uuid()), $1::text, $2::text, $3::text, $4::text,
+            $5::date, null, null,
+            0, 0, 0, 0,
+            $6::numeric, $7::text, 'leave_request', $8::text, $9::uuid, now(), now()
+          )
+          on conflict (tenant_id, profile_id, work_date) do update set
+            status = excluded.status,
+            workday_count = excluded.workday_count,
+            source = excluded.source,
+            note = excluded.note,
+            updated_by = excluded.updated_by,
+            updated_at = now()`,
+          [
+            scope.tenantId, scope.branchId, leave.profile_id, profile.department_id,
+            day.date, day.wdCount, day.status,
+            `Nghỉ phép: ${leave.reason || leave.leave_type}`,
+            input.actorUserId,
+          ],
+        );
+      }
+
+      // 6. Update leave balance
+      const year = new Date(`${leave.start_date}T00:00:00+07:00`).getFullYear();
+      const isPaidType = leave.leave_type === 'paid' || leave.leave_type === 'sick';
+      const isSick = leave.leave_type === 'sick';
+      const balancePaidInc = isPaidType && !isSick ? paidDays : 0;
+      const balanceSickInc = isSick ? paidDays : 0;
+      const balanceUnpaidInc = unpaidDays;
+
+      await client.query(
+        `insert into hrm_leave_balances (id, tenant_id, branch_id, profile_id, year, annual_leave_quota, updated_at)
+         values (concat('HRMLB-', gen_random_uuid()), $1::text, $2::text, $3::text, $4::int, 12, now())
+         on conflict (tenant_id, profile_id, year) do nothing`,
+        [scope.tenantId, scope.branchId, leave.profile_id, year],
+      );
+      await client.query(
+        `update hrm_leave_balances
+         set used_paid_days = used_paid_days + $4::numeric,
+             used_sick_days = used_sick_days + $5::numeric,
+             used_unpaid_days = used_unpaid_days + $6::numeric,
+             updated_at = now()
+         where tenant_id = $1::text and profile_id = $2::text and year = $3::int`,
+        [scope.tenantId, leave.profile_id, year, balancePaidInc, balanceSickInc, balanceUnpaidInc],
+      );
+    });
+  }
+
+  async rejectLeaveRequest(input: {
+    leaveId: string;
+    actorUserId: string;
+    rejectionReason?: string;
+  }): Promise<void> {
+    const scope = this.scope;
+    const result = await this.pool.query(
+      `update hrm_leave_requests
+       set status = 'rejected', approved_by = $1::uuid, approved_at = now(),
+           rejection_reason = $2::text, updated_at = now()
+       where id = $3::text and tenant_id = $4::text and branch_id = $5::text and status = 'pending'`,
+      [input.actorUserId, input.rejectionReason || null, input.leaveId, scope.tenantId, scope.branchId],
+    );
+    if (result.rowCount === 0) throw new Error('Đơn xin nghỉ không thể từ chối.');
+  }
+
+  async cancelLeaveRequest(input: {
+    leaveId: string;
+    actorUserId: string;
+    canManage: boolean;
+  }): Promise<void> {
+    await this.withTransaction(async (client, scope) => {
+      const leaveResult = await client.query<{
+        profile_id: string;
+        status: string;
+        start_date: string;
+        end_date: string;
+        leave_type: string;
+        paid_days: string;
+        unpaid_days: string;
+        created_by: string;
+      }>(
+        `select profile_id, status, start_date::text, end_date::text,
+                leave_type, paid_days, unpaid_days, created_by
+         from hrm_leave_requests
+         where id = $1::text and tenant_id = $2::text and branch_id = $3::text for update`,
+        [input.leaveId, scope.tenantId, scope.branchId],
+      );
+      const leave = leaveResult.rows[0];
+      if (!leave) throw new Error('Không tìm thấy đơn xin nghỉ.');
+      if (!input.canManage && leave.created_by !== input.actorUserId) {
+        throw new Error('Bạn không có quyền huỷ đơn này.');
+      }
+      if (leave.status === 'cancelled') throw new Error('Đơn đã được huỷ.');
+
+      await client.query(
+        `update hrm_leave_requests set status = 'cancelled', updated_at = now() where id = $1::text`,
+        [input.leaveId],
+      );
+
+      // If was approved, revert attendance days and balances
+      if (leave.status === 'approved') {
+        await client.query(
+          `update hrm_attendance_days
+           set status = 'absent', workday_count = 0, source = 'leave_cancelled', updated_at = now()
+           where tenant_id = $1::text and profile_id = $2::text
+             and work_date >= $3::date and work_date <= $4::date
+             and source = 'leave_request'`,
+          [scope.tenantId, leave.profile_id, leave.start_date, leave.end_date],
+        );
+
+        const year = new Date(`${leave.start_date}T00:00:00+07:00`).getFullYear();
+        const paidDays = parseFloat(leave.paid_days);
+        const unpaidDays = parseFloat(leave.unpaid_days);
+        const isSick = leave.leave_type === 'sick';
+        const isPaidType = leave.leave_type === 'paid' || isSick;
+
+        await client.query(
+          `update hrm_leave_balances
+           set used_paid_days = greatest(0, used_paid_days - $4),
+               used_sick_days = greatest(0, used_sick_days - $5),
+               used_unpaid_days = greatest(0, used_unpaid_days - $6),
+               updated_at = now()
+           where tenant_id = $1 and profile_id = $2 and year = $3`,
+          [
+            scope.tenantId, leave.profile_id, year,
+            isPaidType && !isSick ? paidDays : 0,
+            isSick ? paidDays : 0,
+            unpaidDays,
+          ],
+        );
+      }
+    });
+  }
+
+  // ─── Salary Advances ──────────────────────────────────────────────────────────
+
+  async listSalaryAdvances(input: {
+    profileId?: string;
+    status?: string;
+    payPeriod?: string;
+    canManage: boolean;
+    selfProfileId?: string;
+  }): Promise<{
+    id: string;
+    profileId: string;
+    employeeName: string;
+    employeeCode: string | null;
+    amount: number;
+    requestDate: string;
+    payPeriod: string;
+    status: string;
+    reason: string | null;
+    rejectionReason: string | null;
+    approvedAt: string | null;
+    disbursedAt: string | null;
+    isDeducted: boolean;
+    createdAt: string;
+  }[]> {
+    const scope = this.scope;
+    const conditions: string[] = ['a.tenant_id = $1', 'a.branch_id = $2'];
+    const params: any[] = [scope.tenantId, scope.branchId];
+    let idx = 3;
+
+    if (!input.canManage && input.selfProfileId) {
+      conditions.push(`a.profile_id = $${idx++}`);
+      params.push(input.selfProfileId);
+    } else if (input.profileId) {
+      conditions.push(`a.profile_id = $${idx++}`);
+      params.push(input.profileId);
+    }
+    if (input.status) {
+      conditions.push(`a.status = $${idx++}`);
+      params.push(input.status);
+    }
+    if (input.payPeriod) {
+      conditions.push(`a.pay_period = $${idx++}`);
+      params.push(input.payPeriod);
+    }
+
+    const result = await this.pool.query<any>(
+      `select a.id, a.profile_id,
+        coalesce(e.name, 'Unknown') as employee_name, e.employee_code,
+        a.amount, a.request_date::text, a.pay_period, a.status,
+        a.reason, a.rejection_reason,
+        a.approved_at at time zone 'Asia/Ho_Chi_Minh' as approved_at,
+        a.disbursed_at at time zone 'Asia/Ho_Chi_Minh' as disbursed_at,
+        a.is_deducted, a.created_at at time zone 'Asia/Ho_Chi_Minh' as created_at
+       from hrm_salary_advances a
+       join hrm_employee_profiles p on p.id = a.profile_id and p.tenant_id = a.tenant_id
+       join employees e on e.id = p.source_employee_id and e.tenant_id = a.tenant_id
+       where ${conditions.join(' and ')}
+       order by a.created_at desc`,
+      params,
+    );
+
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      profileId: row.profile_id,
+      employeeName: row.employee_name,
+      employeeCode: row.employee_code,
+      amount: Number(row.amount),
+      requestDate: row.request_date,
+      payPeriod: row.pay_period,
+      status: row.status,
+      reason: row.reason,
+      rejectionReason: row.rejection_reason,
+      approvedAt: row.approved_at,
+      disbursedAt: row.disbursed_at,
+      isDeducted: row.is_deducted === 1,
+      createdAt: row.created_at,
+    }));
+  }
+
+  async createSalaryAdvance(input: {
+    id: string;
+    profileId: string;
+    amount: number;
+    requestDate: string;
+    payPeriod: string;
+    reason?: string;
+    createdBy: string;
+  }): Promise<void> {
+    const scope = this.scope;
+    await this.pool.query(
+      `insert into hrm_salary_advances (
+        id, tenant_id, branch_id, profile_id,
+        amount, request_date, pay_period, reason,
+        status, created_by, created_at, updated_at
+      ) values ($1, $2, $3, $4, $5, $6::date, $7, $8, 'pending', $9, now(), now())`,
+      [
+        input.id, scope.tenantId, scope.branchId, input.profileId,
+        input.amount, input.requestDate, input.payPeriod, input.reason || null,
+        input.createdBy,
+      ],
+    );
+  }
+
+  async approveSalaryAdvance(input: { advanceId: string; actorUserId: string }): Promise<void> {
+    const scope = this.scope;
+    const result = await this.pool.query(
+      `update hrm_salary_advances
+       set status = 'approved', approved_by = $1, approved_at = now(), updated_at = now()
+       where id = $2 and tenant_id = $3 and branch_id = $4 and status = 'pending'`,
+      [input.actorUserId, input.advanceId, scope.tenantId, scope.branchId],
+    );
+    if (result.rowCount === 0) throw new Error('Không thể duyệt đơn ứng lương.');
+  }
+
+  async rejectSalaryAdvance(input: {
+    advanceId: string;
+    actorUserId: string;
+    rejectionReason?: string;
+  }): Promise<void> {
+    const scope = this.scope;
+    const result = await this.pool.query(
+      `update hrm_salary_advances
+       set status = 'rejected', approved_by = $1, approved_at = now(),
+           rejection_reason = $2, updated_at = now()
+       where id = $3 and tenant_id = $4 and branch_id = $5 and status = 'pending'`,
+      [input.actorUserId, input.rejectionReason || null, input.advanceId, scope.tenantId, scope.branchId],
+    );
+    if (result.rowCount === 0) throw new Error('Không thể từ chối đơn ứng lương.');
   }
 }

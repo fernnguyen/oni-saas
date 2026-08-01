@@ -28,7 +28,8 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params;
-    const access = await requireHrmAccess(shopId, 'hrm.settings.manage');
+    // hrm.view is sufficient to read public settings (like leave advance rules)
+    const access = await requireHrmAccess(shopId, 'hrm.view');
     const settings = await access.repository.getSettings();
 
     return NextResponse.json({ data: settings });

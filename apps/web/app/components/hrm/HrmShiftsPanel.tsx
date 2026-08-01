@@ -39,7 +39,7 @@ export function HrmShiftsPanel({ shopId }: { shopId: string }) {
   const [deleteShift, setDeleteShift] = useState<HrmShift | null>(null);
   const query = useQuery({
     queryKey: ['hrm-shifts', shopId],
-    staleTime: 0,
+    staleTime: 5 * 60_000,
     refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(

@@ -66,7 +66,7 @@ export function HrmCustomFieldsPanel({ shopId }: { shopId: string }) {
   const [deleteField, setDeleteField] = useState<HrmCustomField | null>(null);
   const query = useQuery({
     queryKey: ['hrm-custom-fields', shopId, 'settings'],
-    staleTime: 0,
+    staleTime: 5 * 60_000,
     refetchOnMount: 'always',
     queryFn: async () => {
       const response = await fetch(

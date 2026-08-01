@@ -297,6 +297,8 @@ export const hrmSalaryConfigs = pgTable(
     recurring_allowances: jsonb('recurring_allowances')
       .default(sql`'[]'::jsonb`)
       .notNull(),
+    shift_template_id: varchar('shift_template_id', { length: 255 }),
+    annual_leave_days: integer('annual_leave_days').default(12).notNull(),
     effective_from: date('effective_from').notNull(),
     effective_to: date('effective_to'),
     created_by: uuid('created_by').notNull(),
@@ -595,5 +597,130 @@ export const hrmAuditLogs = pgTable(
       table.entity_type,
       table.entity_id,
     ),
+  ],
+);
+
+export const hrmLeaveRequests = pgTable(
+  'hrm_leave_requests',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    tenant_id: tenantId(),
+    branch_id: branchId(),
+    profile_id: varchar('profile_id', { length: 255 }).notNull(),
+    leave_type: varchar('leave_type', { length: 30 }).notNull(),
+    start_date: date('start_date').notNull(),
+    end_date: date('end_date').notNull(),
+    half_day_option: varchar('half_day_option', { length: 20 }).default('full_day').notNull(),
+    total_days: numeric('total_days', { precision: 4, scale: 2 }).notNull(),
+    paid_days: numeric('paid_days', { precision: 4, scale: 2 }).default('0').notNull(),
+    unpaid_days: numeric('unpaid_days', { precision: 4, scale: 2 }).default('0').notNull(),
+    reason: text('reason'),
+    attachment_urls: jsonb('attachment_urls').default(sql`'[]'::jsonb`).notNull(),
+    status: varchar('status', { length: 20 }).default('pending').notNull(),
+    approved_by: uuid('approved_by'),
+    approved_at: timestamp('approved_at', { withTimezone: true }),
+    rejection_reason: text('rejection_reason'),
+    created_by: uuid('created_by').notNull(),
+    created_at: auditTimestamp('created_at'),
+    updated_at: auditTimestamp('updated_at'),
+  },
+  (table) => [
+    index('idx_hrm_leave_requests_tenant_branch_status').on(
+      table.tenant_id,
+      table.branch_id,
+      table.status,
+    ),
+    index('idx_hrm_leave_requests_profile_dates').on(
+      table.tenant_id,
+      table.profile_id,
+      table.start_date,
+      table.end_date,
+    ),
+    check(
+      'ck_hrm_leave_type',
+      sql`${table.leave_type} in ('paid', 'unpaid', 'sick', 'maternity', 'compassionate', 'other')`,
+    ),
+    check(
+      'ck_hrm_leave_status',
+      sql`${table.status} in ('pending', 'approved', 'rejected', 'cancelled')`,
+    ),
+    check('ck_hrm_leave_total_days', sql`${table.total_days} > 0`),
+    check('ck_hrm_leave_date_range', sql`${table.end_date} >= ${table.start_date}`),
+    check(
+      'ck_hrm_leave_half_day',
+      sql`${table.half_day_option} in ('full_day', 'morning_only', 'afternoon_only')`,
+    ),
+  ],
+);
+
+export const hrmLeaveBalances = pgTable(
+  'hrm_leave_balances',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    tenant_id: tenantId(),
+    branch_id: branchId(),
+    profile_id: varchar('profile_id', { length: 255 }).notNull(),
+    year: integer('year').notNull(),
+    annual_leave_quota: numeric('annual_leave_quota', { precision: 4, scale: 2 }).default('12.00').notNull(),
+    carried_over: numeric('carried_over', { precision: 4, scale: 2 }).default('0.00').notNull(),
+    used_paid_days: numeric('used_paid_days', { precision: 4, scale: 2 }).default('0.00').notNull(),
+    used_sick_days: numeric('used_sick_days', { precision: 4, scale: 2 }).default('0.00').notNull(),
+    used_unpaid_days: numeric('used_unpaid_days', { precision: 4, scale: 2 }).default('0.00').notNull(),
+    updated_at: auditTimestamp('updated_at'),
+  },
+  (table) => [
+    uniqueIndex('uq_hrm_leave_balances_profile_year').on(
+      table.tenant_id,
+      table.profile_id,
+      table.year,
+    ),
+    index('idx_hrm_leave_balances_tenant_branch').on(
+      table.tenant_id,
+      table.branch_id,
+    ),
+  ],
+);
+
+export const hrmSalaryAdvances = pgTable(
+  'hrm_salary_advances',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    tenant_id: tenantId(),
+    branch_id: branchId(),
+    profile_id: varchar('profile_id', { length: 255 }).notNull(),
+    amount: bigint('amount', { mode: 'bigint' }).notNull(),
+    request_date: date('request_date').notNull(),
+    pay_period: varchar('pay_period', { length: 7 }).notNull(),
+    status: varchar('status', { length: 20 }).default('pending').notNull(),
+    reason: text('reason'),
+    rejection_reason: text('rejection_reason'),
+    approved_by: uuid('approved_by'),
+    approved_at: timestamp('approved_at', { withTimezone: true }),
+    disbursed_at: timestamp('disbursed_at', { withTimezone: true }),
+    cashbook_transaction_id: varchar('cashbook_transaction_id', { length: 255 }),
+    fund_id: varchar('fund_id', { length: 255 }),
+    payroll_run_id: varchar('payroll_run_id', { length: 255 }),
+    is_deducted: integer('is_deducted').default(0).notNull(),
+    created_by: uuid('created_by').notNull(),
+    created_at: auditTimestamp('created_at'),
+    updated_at: auditTimestamp('updated_at'),
+  },
+  (table) => [
+    index('idx_hrm_advances_tenant_branch_status').on(
+      table.tenant_id,
+      table.branch_id,
+      table.status,
+    ),
+    index('idx_hrm_advances_profile_period').on(
+      table.tenant_id,
+      table.profile_id,
+      table.pay_period,
+    ),
+    check('ck_hrm_advances_amount', sql`${table.amount} > 0`),
+    check(
+      'ck_hrm_advances_status',
+      sql`${table.status} in ('pending', 'approved', 'disbursed', 'rejected', 'cancelled')`,
+    ),
+    check('ck_hrm_advances_is_deducted', sql`${table.is_deducted} in (0, 1)`),
   ],
 );
