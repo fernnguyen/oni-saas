@@ -43,22 +43,85 @@ export async function PATCH(
     
     // Normalize raw action/status
     const raw = (parsed.action || parsed.status || '').toLowerCase();
-    let action: 'approve' | 'reject' | 'cancel';
+    let action: 'approve' | 'reject' | 'cancel' | 'request_cancel' | 'reject_cancel';
     if (raw === 'approved' || raw === 'approve') action = 'approve';
     else if (raw === 'rejected' || raw === 'reject') action = 'reject';
+    else if (raw === 'request_cancel') action = 'request_cancel';
+    else if (raw === 'reject_cancel') action = 'reject_cancel';
     else action = 'cancel';
 
     const rejectionReason = parsed.rejection_reason || parsed.reason;
+    let employeeUserId: string | null = null;
+    let title = '';
+    let content = '';
+    let notifyEmployee = false;
+    let notifyManager = false;
+
+    // Fetch the leave request to get profileId for notification
+    const leaveProfile = await access.repository.getLeaveRequestDetails(leaveId);
+
+    if (leaveProfile) {
+      employeeUserId = await access.repository.getAuthUserIdForProfileId(leaveProfile.profileId);
+    }
 
     if (action === 'approve') {
       if (!canManage) return NextResponse.json({ error: { message: 'Không có quyền duyệt đơn.' } }, { status: 403 });
       await access.repository.approveLeaveRequest({ leaveId, actorUserId: access.userId });
+      notifyEmployee = true;
+      title = 'Đơn xin nghỉ phép đã được duyệt';
+      content = `Đơn xin nghỉ phép ${leaveProfile?.totalDays || ''} ngày của bạn đã được duyệt.`;
     } else if (action === 'reject') {
       if (!canManage) return NextResponse.json({ error: { message: 'Không có quyền từ chối đơn.' } }, { status: 403 });
       await access.repository.rejectLeaveRequest({ leaveId, actorUserId: access.userId, rejectionReason });
+      notifyEmployee = true;
+      title = 'Đơn xin nghỉ phép bị từ chối';
+      content = `Đơn xin nghỉ phép của bạn đã bị từ chối. Lý do: ${rejectionReason || 'Không có lý do'}.`;
     } else if (action === 'cancel') {
       await access.repository.cancelLeaveRequest({ leaveId, actorUserId: access.userId, canManage });
+      if (canManage && leaveProfile?.profileId !== (await access.repository.getProfileIdForAuthUser(access.userId))) {
+        notifyEmployee = true;
+        title = 'Đơn nghỉ phép đã bị huỷ';
+        content = `Đơn xin nghỉ phép của bạn đã bị quản lý huỷ.`;
+      }
+    } else if (action === 'request_cancel') {
+      await access.repository.requestCancelLeaveRequest({ leaveId, actorUserId: access.userId, reason: rejectionReason });
+      notifyManager = true;
+      title = 'Yêu cầu huỷ đơn nghỉ phép';
+      content = `Có một yêu cầu huỷ đơn nghỉ phép đã duyệt cần xử lý.`;
+    } else if (action === 'reject_cancel') {
+      if (!canManage) return NextResponse.json({ error: { message: 'Không có quyền từ chối yêu cầu huỷ.' } }, { status: 403 });
+      await access.repository.rejectCancelLeaveRequest({ leaveId, actorUserId: access.userId, rejectionReason });
+      notifyEmployee = true;
+      title = 'Yêu cầu huỷ đơn bị từ chối';
+      content = `Yêu cầu huỷ đơn nghỉ phép của bạn đã bị từ chối. Lý do: ${rejectionReason || 'Không có lý do'}.`;
     }
+
+    // Send notifications
+    import('@/lib/server/realtime').then(({ realtimeEngine }) => {
+      if (notifyEmployee && employeeUserId) {
+        realtimeEngine.sendNotification({
+          tenantId: access.tenantId,
+          branchId: access.shopId,
+          recipientId: employeeUserId,
+          type: 'leave_approval',
+          title,
+          content,
+          metadata: { path: '/hrm/leaves' }
+        }).catch(console.error);
+      }
+      if (notifyManager) {
+        realtimeEngine.sendNotification({
+          tenantId: access.tenantId,
+          branchId: access.shopId,
+          recipientRole: 'admin',
+          type: 'leave_approval',
+          title,
+          content,
+          metadata: { path: '/hrm/leaves' }
+        }).catch(console.error);
+      }
+    });
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     return respondError(err);

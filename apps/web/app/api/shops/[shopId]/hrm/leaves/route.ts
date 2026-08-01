@@ -93,6 +93,20 @@ export async function POST(
       reason: input.reason,
       createdBy: access.userId,
     });
+
+    // Notify managers
+    import('@/lib/server/realtime').then(({ realtimeEngine }) => {
+      realtimeEngine.sendNotification({
+        tenantId: access.tenantId,
+        branchId: access.shopId,
+        recipientRole: 'admin',
+        type: 'leave_approval',
+        title: 'Đơn xin phép mới',
+        content: `Có đơn xin nghỉ phép ${input.total_days} ngày cần được duyệt.`,
+        metadata: { path: '/hrm/leaves' }
+      }).catch(console.error);
+    });
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     return respondError(err);

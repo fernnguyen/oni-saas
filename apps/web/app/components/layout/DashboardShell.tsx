@@ -187,10 +187,10 @@ export function DashboardShell({
             currentBranchSlug={currentBranchSlug}
             currentBranchAddress={currentBranchAddress}
             context={sidebarContext}
+            basePath={effectiveBasePath}
             onMobileMenuClick={() => setMobileNavOpen(true)}
             collapsed={isHorizontal ? false : collapsed}
             onToggleCollapsed={isHorizontal ? undefined : toggleCollapsed}
-            basePath={effectiveBasePath}
             industryType={industryType}
             navMode={mode}
             onToggleNavMode={sidebarContext === 'shop' ? toggleMode : undefined}

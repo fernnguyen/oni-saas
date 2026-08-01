@@ -1,17 +1,20 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
+import { Bell } from 'lucide-react';
 import { useNotificationCenter, AppNotification } from './NotificationContext';
 
 interface Props {
   shopId: string;
+  basePath?: string;
 }
 
-export function NotificationDropdown({ shopId }: Props) {
+export function NotificationDropdown({ shopId, basePath }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'qr' | 'other'>('all');
   const router = useRouter();
+  const params = useParams();
   
   const {
     notifications,
@@ -33,7 +36,6 @@ export function NotificationDropdown({ shopId }: Props) {
     }
     return true;
   });
-
   const handleNotificationClick = (n: AppNotification) => {
     markAsRead(n.id);
     setIsOpen(false);
@@ -45,7 +47,15 @@ export function NotificationDropdown({ shopId }: Props) {
       openQRDrawer('sessions', n.metadata?.sessionId);
     } else if (n.metadata?.path) {
       // Direct navigation path
-      router.push(n.metadata.path);
+      let path = n.metadata.path;
+      if (path.startsWith('/')) {
+        if (basePath) {
+          path = `${basePath}${path}`;
+        } else if (!path.startsWith('/t/') && params?.slug && params?.branch) {
+          path = `/t/${params.slug}/${params.branch}${path}`;
+        }
+      }
+      router.push(path);
     }
   };
 
@@ -95,7 +105,7 @@ export function NotificationDropdown({ shopId }: Props) {
         };
       default:
         return {
-          icon: '🔔',
+          icon: <Bell className="w-4 h-4" />,
           classes: 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
         };
     }
@@ -257,13 +267,13 @@ export function NotificationDropdown({ shopId }: Props) {
                       }`}
                     >
                       {/* Left: Indicator & Icon */}
-                      <div className="flex-shrink-0 mt-0.5 flex items-center gap-1.5">
-                        {isUnread && (
-                          <span className="w-1.5 h-1.5 bg-orange-500 rounded-full shrink-0" />
-                        )}
+                      <div className="flex-shrink-0 mt-0.5 relative">
                         <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs shrink-0 font-bold ${visuals.classes}`}>
                           {visuals.icon}
                         </span>
+                        {isUnread && (
+                          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-orange-500 border-2 border-white dark:border-slate-900 rounded-full shrink-0" />
+                        )}
                       </div>
 
                       {/* Middle: Text Details */}

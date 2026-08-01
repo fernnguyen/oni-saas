@@ -22,7 +22,7 @@ import { LeaveCalendar } from './LeaveCalendar';
 // Types
 // ---------------------------------------------------------------------------
 
-type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'pending_cancellation';
 type LeaveType =
   | 'paid'
   | 'sick'
@@ -143,6 +143,7 @@ function StatusBadge({ status }: { status: LeaveStatus }) {
     approved: { bg: 'bg-emerald-100 text-emerald-700 border-emerald-200', text: 'Đã duyệt', Icon: CheckCircle2 },
     rejected: { bg: 'bg-rose-100 text-rose-700 border-rose-200', text: 'Đã từ chối', Icon: XCircle },
     cancelled: { bg: 'bg-slate-100 text-slate-600 border-slate-200', text: 'Đã huỷ', Icon: Ban },
+    pending_cancellation: { bg: 'bg-orange-100 text-orange-700 border-orange-200', text: 'Xin huỷ', Icon: Ban },
   };
   const { bg, text, Icon } = config[status] ?? config.cancelled;
   return (
@@ -423,9 +424,11 @@ function CancelModal({
 }: {
   request: LeaveRequest;
   isPending: boolean;
-  onConfirm: () => void;
+  onConfirm: (reason: string) => void;
   onCancel: () => void;
 }) {
+  const [reason, setReason] = useState('');
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-4">
@@ -452,6 +455,19 @@ function CancelModal({
           </div>
         </div>
 
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-slate-700">
+            Lý do huỷ <span className="text-slate-400 font-normal">(Tuỳ chọn)</span>
+          </label>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            disabled={isPending}
+            placeholder="Nhập lý do huỷ đơn..."
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 min-h-[80px]"
+          />
+        </div>
+
         <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
@@ -463,7 +479,7 @@ function CancelModal({
           </button>
           <button
             type="button"
-            onClick={onConfirm}
+            onClick={() => onConfirm(reason)}
             disabled={isPending}
             className="rounded-xl bg-slate-800 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-900 transition-colors disabled:opacity-50"
           >
@@ -997,10 +1013,12 @@ export function HrmLeaveRequestsPanel({ shopId, selfProfileId, canManage }: Prop
       leaveId,
       action,
       rejectionReason,
+      reason,
     }: {
       leaveId: string;
-      action: 'approve' | 'reject' | 'cancel';
+      action: 'approve' | 'reject' | 'cancel' | 'request_cancel' | 'reject_cancel';
       rejectionReason?: string;
+      reason?: string;
     }) => {
       const res = await fetch(
         `/api/shops/${encodeURIComponent(shopId)}/hrm/leaves/${encodeURIComponent(leaveId)}`,
@@ -1192,6 +1210,49 @@ export function HrmLeaveRequestsPanel({ shopId, selfProfileId, canManage }: Prop
           );
         }
 
+        const today = todayString();
+        if (row.status === 'approved' && isOwnRequest && !canManage && row.startDate >= today) {
+          actions.push(
+            <button
+              key="request-cancel"
+              onClick={() => setCancellingRequest(row)}
+              disabled={actionMutation.isPending}
+              title="Xin huỷ đơn này"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-100 transition-colors disabled:opacity-50"
+            >
+              <Ban className="h-3.5 w-3.5" />
+              Xin huỷ
+            </button>,
+          );
+        }
+
+        if (row.status === 'pending_cancellation' && canManage) {
+          actions.push(
+            <button
+              key="approve-cancel"
+              onClick={() => setCancellingRequest(row)}
+              disabled={actionMutation.isPending}
+              title="Duyệt yêu cầu huỷ"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-900 transition-colors disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Duyệt huỷ
+            </button>,
+          );
+          actions.push(
+            <button
+              key="reject-cancel"
+              onClick={() => setRejectingRequest(row)}
+              disabled={actionMutation.isPending}
+              title="Từ chối yêu cầu huỷ"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              Từ chối huỷ
+            </button>,
+          );
+        }
+
         if (row.status === 'approved' && canManage) {
           actions.push(
             <button
@@ -1361,10 +1422,11 @@ export function HrmLeaveRequestsPanel({ shopId, selfProfileId, canManage }: Prop
         <CancelModal
           request={cancellingRequest}
           isPending={actionMutation.isPending}
-          onConfirm={() =>
+          onConfirm={(reason) =>
             actionMutation.mutate({
               leaveId: cancellingRequest.id,
-              action: 'cancel',
+              action: cancellingRequest.status === 'pending' || canManage && cancellingRequest.status !== 'pending_cancellation' ? 'cancel' : 'request_cancel',
+              reason,
             })
           }
           onCancel={() => setCancellingRequest(null)}

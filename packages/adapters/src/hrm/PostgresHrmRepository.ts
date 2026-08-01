@@ -1176,6 +1176,20 @@ export class PostgresHrmRepository {
     return result.rows[0]?.id ?? null;
   }
 
+  /** Returns the auth.users UUID for the given HRM profile UUID. */
+  async getAuthUserIdForProfileId(profileId: string): Promise<string | null> {
+    const result = await this.pool.query<{ auth_user_id: string }>(
+      `
+        select auth_user_id
+        from hrm_employee_profiles
+        where tenant_id = $1 and branch_id = $2 and id = $3
+        limit 1
+      `,
+      [this.scope.tenantId, this.scope.branchId, profileId],
+    );
+    return result.rows[0]?.auth_user_id ?? null;
+  }
+
   async listShiftTemplates(
     options: { includeInactive?: boolean } = {},
   ): Promise<HrmShiftTemplate[]> {
@@ -4130,6 +4144,16 @@ export class PostgresHrmRepository {
     });
   }
 
+  async getLeaveRequestDetails(leaveId: string): Promise<{ profileId: string; totalDays: string; leaveType: string } | null> {
+    const result = await this.pool.query(
+      `select profile_id, total_days, leave_type from hrm_leave_requests where id = $1::text and tenant_id = $2::text and branch_id = $3::text`,
+      [leaveId, this.scope.tenantId, this.scope.branchId]
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return { profileId: row.profile_id, totalDays: row.total_days, leaveType: row.leave_type };
+  }
+
   async rejectLeaveRequest(input: {
     leaveId: string;
     actorUserId: string;
@@ -4170,9 +4194,14 @@ export class PostgresHrmRepository {
       );
       const leave = leaveResult.rows[0];
       if (!leave) throw new Error('Không tìm thấy đơn xin nghỉ.');
-      if (!input.canManage && leave.created_by !== input.actorUserId) {
-        throw new Error('Bạn không có quyền huỷ đơn này.');
+      
+      // employee directly cancelling a pending request is allowed
+      if (!input.canManage && leave.status === 'pending') {
+        if (leave.created_by !== input.actorUserId) throw new Error('Bạn không có quyền huỷ đơn này.');
+      } else if (!input.canManage) {
+        throw new Error('Bạn không thể trực tiếp huỷ đơn đã duyệt. Hãy sử dụng chức năng "Xin huỷ".');
       }
+
       if (leave.status === 'cancelled') throw new Error('Đơn đã được huỷ.');
 
       await client.query(
@@ -4180,8 +4209,8 @@ export class PostgresHrmRepository {
         [input.leaveId],
       );
 
-      // If was approved, revert attendance days and balances
-      if (leave.status === 'approved') {
+      // If was approved or pending cancellation, revert attendance days and balances
+      if (leave.status === 'approved' || leave.status === 'pending_cancellation') {
         await client.query(
           `update hrm_attendance_days
            set status = 'absent', workday_count = 0, source = 'leave_cancelled', updated_at = now()
@@ -4213,6 +4242,40 @@ export class PostgresHrmRepository {
         );
       }
     });
+  }
+
+  async requestCancelLeaveRequest(input: {
+    leaveId: string;
+    actorUserId: string;
+    reason?: string;
+  }): Promise<void> {
+    const scope = this.scope;
+    const result = await this.pool.query(
+      `update hrm_leave_requests
+       set status = 'pending_cancellation', updated_at = now(), reason =
+         case 
+           when $1::text is not null then concat(coalesce(reason, ''), coalesce(E'\\nLý do xin huỷ: ', ''), $1::text)
+           else reason
+         end
+       where id = $2::text and tenant_id = $3::text and branch_id = $4::text and status = 'approved'`,
+      [input.reason || null, input.leaveId, scope.tenantId, scope.branchId],
+    );
+    if (result.rowCount === 0) throw new Error('Đơn xin nghỉ không thể xin huỷ (chưa được duyệt hoặc không tồn tại).');
+  }
+
+  async rejectCancelLeaveRequest(input: {
+    leaveId: string;
+    actorUserId: string;
+    rejectionReason?: string;
+  }): Promise<void> {
+    const scope = this.scope;
+    const result = await this.pool.query(
+      `update hrm_leave_requests
+       set status = 'approved', updated_at = now(), rejection_reason = $1::text
+       where id = $2::text and tenant_id = $3::text and branch_id = $4::text and status = 'pending_cancellation'`,
+      [input.rejectionReason || null, input.leaveId, scope.tenantId, scope.branchId],
+    );
+    if (result.rowCount === 0) throw new Error('Yêu cầu huỷ không tồn tại hoặc đã được xử lý.');
   }
 
   // ─── Salary Advances ──────────────────────────────────────────────────────────

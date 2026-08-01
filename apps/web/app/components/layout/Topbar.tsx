@@ -242,7 +242,7 @@ export function Topbar({
           )}
 
           {context === 'shop' && tenantId && (
-            <NotificationDropdown shopId={tenantId} />
+            <NotificationDropdown shopId={tenantId} basePath={basePath} />
           )}
 
           <div className="h-6 w-px bg-slate-200 mx-1" />

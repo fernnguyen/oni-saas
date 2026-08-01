@@ -642,7 +642,7 @@ export const hrmLeaveRequests = pgTable(
     ),
     check(
       'ck_hrm_leave_status',
-      sql`${table.status} in ('pending', 'approved', 'rejected', 'cancelled')`,
+      sql`${table.status} in ('pending', 'approved', 'rejected', 'cancelled', 'pending_cancellation')`,
     ),
     check('ck_hrm_leave_total_days', sql`${table.total_days} > 0`),
     check('ck_hrm_leave_date_range', sql`${table.end_date} >= ${table.start_date}`),
