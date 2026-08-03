@@ -160,7 +160,7 @@ export default async function LandingPage() {
           <div className="flex-1 text-center lg:text-left z-10">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-sm font-medium text-primary shadow-sm md:bg-blue-50/80 md:backdrop-blur-md">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              Sở hữu cơ sở dữ liệu riêng biệt (BYOD)
+              Sở hữu cơ sở dữ liệu riêng biệt
             </div>
             <h1 className="text-4xl md:text-6xl lg:text-[3.5rem] font-extrabold leading-[1.1] tracking-tight text-slate-900 mb-6 drop-shadow-sm">
               Bán hàng dễ dàng <br/>
@@ -169,7 +169,7 @@ export default async function LandingPage() {
               </span>
             </h1>
             <p className="mt-6 max-w-2xl mx-auto lg:mx-0 text-lg md:text-xl text-slate-650 leading-relaxed font-medium">
-              Hệ thống bán hàng và Mini ERP thông minh, tin cậy. Bảo mật tuyệt đối dữ liệu kinh doanh với kiến trúc CSDL ổn định cao, hỗ trợ kết nối DB riêng tư (BYOD) giúp doanh nghiệp làm chủ 100% tài sản số của mình.
+              ONI.vn là phần mềm bán hàng POS và quản trị doanh nghiệp thông minh. Bảo mật dữ liệu kinh doanh tuyệt đối với kiến trúc CSDL ổn định cao, cho phép kết nối CSDL riêng của từng đơn vị, giúp doanh nghiệp làm chủ 100% tài sản số của mình.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
               <Link href="/register" id="hero-cta-register" className="group flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
