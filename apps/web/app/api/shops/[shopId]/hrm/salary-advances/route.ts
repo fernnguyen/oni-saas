@@ -4,11 +4,11 @@ import { HrmAccessError, requireHrmAccess } from '@/lib/server/hrm/access';
 
 import { handleApiError } from '../../../_helpers';
 import { z } from 'zod';
-import { realtimeEngine } from '@/lib/server/realtime';
 import { requireShopAccess } from '@/lib/server/shopAccess';
 import { RollbackContext } from '@oni/adapters';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getHrmSchemaError } from '@/lib/server/hrm/schemaError';
+import { notifySalaryAdvanceManagers } from '@/lib/server/hrm/salaryAdvanceManagerNotification';
 
 const createSchema = z.object({
   profile_id: z.string().min(1, "Vui lòng chọn nhân sự"),
@@ -243,13 +243,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
     });
 
     if (!autoApprove) {
-      await realtimeEngine.sendNotification({
+      await notifySalaryAdvanceManagers({
         tenantId,
         branchId: shopId,
-        type: 'system',
-        title: 'Yêu cầu ứng lương mới',
-        content: `Có một yêu cầu ứng lương mới ${payload.amount.toLocaleString('vi-VN')}đ cho kỳ lương ${payload.pay_period}.`,
-        metadata: { path: '/hrm/salary-advances', advanceId: id },
+        requesterUserId: userId,
+        advanceId: id,
+        amount: payload.amount,
+        payPeriod: payload.pay_period,
       });
     }
 
