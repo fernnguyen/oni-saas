@@ -625,6 +625,7 @@ export class PostgresHrmRepository {
   async listEmployees(input: {
     search?: string;
     limit?: number;
+    employeeId?: string | null;
   } = {}): Promise<HrmEmployeeList> {
     const search = input.search?.trim() ?? '';
     const limit = Math.min(100, Math.max(1, input.limit ?? 50));
@@ -693,10 +694,17 @@ export class PostgresHrmRepository {
             or e.employee_code ilike '%' || $3 || '%'
             or e.phone ilike '%' || $3 || '%'
           )
+          and ($5::varchar is null or e.id = $5)
         order by e.created_at desc nulls last, e.name asc
         limit $4
       `,
-      [this.scope.tenantId, this.scope.branchId, search, limit],
+      [
+        this.scope.tenantId,
+        this.scope.branchId,
+        search,
+        limit,
+        input.employeeId ?? null,
+      ],
     );
 
     return {
@@ -1340,7 +1348,9 @@ export class PostgresHrmRepository {
     });
   }
 
-  async listTodayAttendance(): Promise<HrmAttendanceRow[]> {
+  async listTodayAttendance(input: {
+    employeeId?: string | null;
+  } = {}): Promise<HrmAttendanceRow[]> {
     const result = await this.pool.query<{
       attendance_id: string | null;
       employee_id: string;
@@ -1369,9 +1379,10 @@ export class PostgresHrmRepository {
           and a.work_date = (now() at time zone 'Asia/Ho_Chi_Minh')::date
         where e.tenant_id = $1 and e.branch_id = $2
           and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
+          and ($3::varchar is null or e.id = $3)
         order by e.name asc
       `,
-      [this.scope.tenantId, this.scope.branchId],
+      [this.scope.tenantId, this.scope.branchId, input.employeeId ?? null],
     );
     return result.rows.map((row) => ({
       id: row.attendance_id,
@@ -1394,6 +1405,7 @@ export class PostgresHrmRepository {
     periodStart: string;
     periodEnd: string;
     departmentId?: string | null;
+    employeeId?: string | null;
   }): Promise<HrmMonthlyAttendanceRow[]> {
     const result = await this.pool.query<{
       attendance_id: string | null;
@@ -1481,6 +1493,7 @@ export class PostgresHrmRepository {
         where e.tenant_id = $1 and e.branch_id = $2
           and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
           and ($5::varchar is null or coalesce(a.department_id_snapshot, p.department_id) = $5)
+          and ($6::varchar is null or e.id = $6)
           and c.work_date >= coalesce(p.joined_at, '1900-01-01'::date)
         order by e.name asc, c.work_date asc
       `,
@@ -1490,6 +1503,7 @@ export class PostgresHrmRepository {
         input.periodStart,
         input.periodEnd,
         input.departmentId ?? null,
+        input.employeeId ?? null,
       ],
     );
 
@@ -4299,6 +4313,40 @@ export class PostgresHrmRepository {
 
   // ─── Salary Advances ──────────────────────────────────────────────────────────
 
+  async listSalaryAdvanceEmployees(): Promise<Array<{
+    profileId: string;
+    employeeId: string;
+    employeeName: string;
+    employeeCode: string | null;
+  }>> {
+    const result = await this.pool.query<{
+      profile_id: string;
+      employee_id: string;
+      employee_name: string;
+      employee_code: string | null;
+    }>(
+      `select p.id as profile_id, e.id as employee_id,
+        coalesce(e.name, '') as employee_name, e.employee_code
+       from hrm_employee_profiles p
+       join employees e
+         on e.id = p.source_employee_id
+         and e.tenant_id = p.tenant_id
+         and e.branch_id = p.branch_id
+       where p.tenant_id = $1 and p.branch_id = $2
+         and coalesce(e.active, 'TRUE') not in ('FALSE', 'false', '0')
+         and coalesce(p.employment_status, 'active') <> 'inactive'
+       order by e.name asc`,
+      [this.scope.tenantId, this.scope.branchId],
+    );
+
+    return result.rows.map((row) => ({
+      profileId: row.profile_id,
+      employeeId: row.employee_id,
+      employeeName: row.employee_name,
+      employeeCode: row.employee_code,
+    }));
+  }
+
   async listSalaryAdvances(input: {
     profileId?: string;
     status?: string;
@@ -4316,7 +4364,9 @@ export class PostgresHrmRepository {
     status: string;
     reason: string | null;
     rejectionReason: string | null;
+    approvedBy: string | null;
     approvedAt: string | null;
+    disbursedBy: string | null;
     disbursedAt: string | null;
     isDeducted: boolean;
     createdAt: string;
@@ -4326,9 +4376,13 @@ export class PostgresHrmRepository {
     const params: any[] = [scope.tenantId, scope.branchId];
     let idx = 3;
 
-    if (!input.canManage && input.selfProfileId) {
-      conditions.push(`a.profile_id = $${idx++}`);
-      params.push(input.selfProfileId);
+    if (!input.canManage) {
+      if (input.selfProfileId) {
+        conditions.push(`a.profile_id = $${idx++}`);
+        params.push(input.selfProfileId);
+      } else {
+        conditions.push('1 = 0');
+      }
     } else if (input.profileId) {
       conditions.push(`a.profile_id = $${idx++}`);
       params.push(input.profileId);
@@ -4347,9 +4401,9 @@ export class PostgresHrmRepository {
         coalesce(e.name, 'Unknown') as employee_name, e.employee_code,
         a.amount, a.request_date::text, a.pay_period, a.status,
         a.reason, a.rejection_reason,
-        a.approved_at at time zone 'Asia/Ho_Chi_Minh' as approved_at,
-        a.disbursed_at at time zone 'Asia/Ho_Chi_Minh' as disbursed_at,
-        a.is_deducted, a.created_at at time zone 'Asia/Ho_Chi_Minh' as created_at
+        a.approved_by, a.approved_at,
+        to_jsonb(a) ->> 'disbursed_by' as disbursed_by, a.disbursed_at,
+        a.is_deducted, a.created_at
        from hrm_salary_advances a
        join hrm_employee_profiles p on p.id = a.profile_id and p.tenant_id = a.tenant_id
        join employees e on e.id = p.source_employee_id and e.tenant_id = a.tenant_id
@@ -4358,22 +4412,30 @@ export class PostgresHrmRepository {
       params,
     );
 
-    return result.rows.map((row: any) => ({
-      id: row.id,
-      profileId: row.profile_id,
-      employeeName: row.employee_name,
-      employeeCode: row.employee_code,
-      amount: Number(row.amount),
-      requestDate: row.request_date,
-      payPeriod: row.pay_period,
-      status: row.status,
-      reason: row.reason,
-      rejectionReason: row.rejection_reason,
-      approvedAt: row.approved_at,
-      disbursedAt: row.disbursed_at,
-      isDeducted: row.is_deducted === 1,
-      createdAt: row.created_at,
-    }));
+    return result.rows.map((row: any) => {
+      const wasRejected = row.status === 'rejected';
+
+      return {
+        id: row.id,
+        profileId: row.profile_id,
+        employeeName: row.employee_name,
+        employeeCode: row.employee_code,
+        amount: Number(row.amount),
+        requestDate: row.request_date,
+        payPeriod: row.pay_period,
+        status: row.status,
+        reason: row.reason,
+        rejectionReason: row.rejection_reason,
+        approvedBy: wasRejected ? null : row.approved_by,
+        approvedAt: wasRejected ? null : row.approved_at,
+        disbursedBy:
+          row.disbursed_by ??
+          (row.status === 'disbursed' ? row.approved_by : null),
+        disbursedAt: row.disbursed_at,
+        isDeducted: row.is_deducted === 1,
+        createdAt: row.created_at,
+      };
+    });
   }
 
   async getSalaryAdvance(advanceId: string) {
@@ -4401,17 +4463,72 @@ export class PostgresHrmRepository {
     payPeriod: string;
     reason?: string;
     createdBy: string;
+    autoApprove?: boolean;
+    disbursement?: {
+      fundId: string;
+      cashbookTransactionId: string;
+    };
   }): Promise<void> {
     const scope = this.scope;
+    const status = input.disbursement
+      ? 'disbursed'
+      : input.autoApprove
+        ? 'approved'
+        : 'pending';
+    const isApproved = Boolean(input.autoApprove || input.disbursement);
+    const approvedAt = isApproved ? new Date() : null;
+
+    if (!input.disbursement) {
+      await this.pool.query(
+        `insert into hrm_salary_advances (
+          id, tenant_id, branch_id, profile_id,
+          amount, request_date, pay_period, reason,
+          status, approved_by, approved_at,
+          fund_id, cashbook_transaction_id,
+          created_by, created_at, updated_at
+        ) values (
+          $1, $2, $3, $4, $5, $6::date, $7, $8,
+          $9, $10, $11,
+          $12, $13,
+          $14, now(), now()
+        )`,
+        [
+          input.id, scope.tenantId, scope.branchId, input.profileId,
+          input.amount, input.requestDate, input.payPeriod, input.reason || null,
+          status,
+          isApproved ? input.createdBy : null,
+          approvedAt,
+          null,
+          null,
+          input.createdBy,
+        ],
+      );
+      return;
+    }
+
     await this.pool.query(
       `insert into hrm_salary_advances (
         id, tenant_id, branch_id, profile_id,
         amount, request_date, pay_period, reason,
-        status, created_by, created_at, updated_at
-      ) values ($1, $2, $3, $4, $5, $6::date, $7, $8, 'pending', $9, now(), now())`,
+        status, approved_by, approved_at, disbursed_by, disbursed_at,
+        fund_id, cashbook_transaction_id,
+        created_by, created_at, updated_at
+      ) values (
+        $1, $2, $3, $4, $5, $6::date, $7, $8,
+        $9, $10, $11, $12, $13,
+        $14, $15,
+        $16, now(), now()
+      )`,
       [
         input.id, scope.tenantId, scope.branchId, input.profileId,
         input.amount, input.requestDate, input.payPeriod, input.reason || null,
+        status,
+        isApproved ? input.createdBy : null,
+        approvedAt,
+        input.createdBy,
+        approvedAt,
+        input.disbursement.fundId,
+        input.disbursement.cashbookTransactionId,
         input.createdBy,
       ],
     );
@@ -4426,13 +4543,16 @@ export class PostgresHrmRepository {
     const scope = this.scope;
     const result = await this.pool.query(
       `update hrm_salary_advances
-       set status = 'approved',
-           approved_by = $1,
-           approved_at = now(),
+       set status = 'disbursed',
+           approved_by = coalesce(approved_by, $1),
+           approved_at = coalesce(approved_at, now()),
+           disbursed_by = $1,
+           disbursed_at = now(),
            fund_id = $2,
            cashbook_transaction_id = $3,
            updated_at = now()
-       where id = $4 and tenant_id = $5 and branch_id = $6 and status = 'pending'`,
+       where id = $4 and tenant_id = $5 and branch_id = $6
+         and status in ('pending', 'approved')`,
       [
         input.actorUserId,
         input.fundId || null,
@@ -4443,6 +4563,31 @@ export class PostgresHrmRepository {
       ],
     );
     if (result.rowCount === 0) throw new Error('Không thể duyệt đơn ứng lương.');
+  }
+
+  async markSalaryAdvanceApproved(input: {
+    advanceId: string;
+    actorUserId: string;
+  }): Promise<void> {
+    const scope = this.scope;
+    const result = await this.pool.query(
+      `update hrm_salary_advances
+       set status = 'approved',
+           approved_by = $1,
+           approved_at = now(),
+           updated_at = now()
+       where id = $2 and tenant_id = $3 and branch_id = $4
+         and status = 'pending'`,
+      [
+        input.actorUserId,
+        input.advanceId,
+        scope.tenantId,
+        scope.branchId,
+      ],
+    );
+    if (result.rowCount === 0) {
+      throw new Error('Không thể duyệt đơn ứng lương.');
+    }
   }
 
   async rejectSalaryAdvance(input: {

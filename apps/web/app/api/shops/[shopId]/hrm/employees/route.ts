@@ -55,14 +55,21 @@ export async function GET(
     const { shopId } = await params;
     const access = await requireHrmAccess(shopId, 'hrm.view');
     const url = new URL(request.url);
+    const canManage = access.permissions.includes('hrm.employee.manage');
+    const selfEmployeeId = canManage
+      ? null
+      : await access.repository.getEmployeeIdForAuthUser(access.userId);
     const data = await access.repository.listEmployees({
       search: url.searchParams.get('search') ?? '',
       limit: 50,
+      employeeId: canManage
+        ? null
+        : (selfEmployeeId ?? '__HRM_UNLINKED_EMPLOYEE__'),
     });
 
     return NextResponse.json({
       ...data,
-      canManage: access.permissions.includes('hrm.employee.manage'),
+      canManage,
     });
   } catch (error) {
     return errorResponse(error);

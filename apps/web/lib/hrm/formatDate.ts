@@ -38,3 +38,28 @@ export function formatHrmDate(
 
   return `${dayText}/${monthText}/${yearText}`;
 }
+
+export function formatHrmDateTime(
+  value: string | Date | null | undefined,
+  fallback = '—',
+): string {
+  if (!value) return fallback;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return typeof value === 'string' ? value : fallback;
+  }
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).formatToParts(date);
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+
+  return `${values.get('hour')}:${values.get('minute')}:${values.get('second')} ${values.get('day')}/${values.get('month')}/${values.get('year')}`;
+}

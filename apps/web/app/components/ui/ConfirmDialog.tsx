@@ -10,7 +10,7 @@ export interface ConfirmDialogProps {
   description?: string
   confirmLabel?: string
   cancelLabel?: string
-  variant?: 'danger' | 'default'
+  variant?: 'danger' | 'default' | 'success'
   loading?: boolean
   children?: React.ReactNode
   disableOutsideClick?: boolean
@@ -73,7 +73,9 @@ export function ConfirmDialog({
               'disabled:cursor-not-allowed disabled:opacity-70',
               variant === 'danger'
                 ? 'bg-red-500 hover:bg-red-600'
-                : 'bg-primary hover:bg-blue-600',
+                : variant === 'success'
+                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : 'bg-primary hover:bg-primary-dark',
             ].join(' ')}
           >
             {loading && (

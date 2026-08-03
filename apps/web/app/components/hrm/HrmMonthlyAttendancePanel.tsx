@@ -114,6 +114,7 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
         holidays: Holiday[];
         attendanceRules: AttendanceRules;
         canManage: boolean;
+        selfEmployeeId: string | null;
       };
     },
   });
@@ -264,21 +265,23 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
               Tháng này
             </button>
           </label>
-          <label className="text-sm font-medium text-slate-700">
-            Phòng ban
-            <select
-              value={departmentId}
-              onChange={(e) => setDepartmentId(e.target.value)}
-              className="mt-1 block w-48 rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="">Tất cả phòng ban</option>
-              {departments.map(([id, name]) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {query.data?.canManage && (
+            <label className="text-sm font-medium text-slate-700">
+              Phòng ban
+              <select
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value)}
+                className="mt-1 block w-48 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              >
+                <option value="">Tất cả phòng ban</option>
+                {departments.map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-500 bg-slate-50 px-4 py-2.5 rounded-xl border border-slate-200">
@@ -394,7 +397,7 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
                     else if (content === 'L') textClass = "text-purple-500 font-bold";
                     
                     return (
-                      <td key={day} className={`relative px-1 py-1 text-center border-r border-slate-200 ${bgClass} cursor-pointer hover:bg-slate-100 transition-colors`} onClick={() => {
+                      <td key={day} className={`relative px-1 py-1 text-center border-r border-slate-200 ${bgClass} ${query.data?.canManage ? 'cursor-pointer hover:bg-slate-100' : ''} transition-colors`} onClick={() => {
                         if (query.data?.canManage) {
                           setSelectedCell({
                             employeeId: emp.id,
@@ -439,20 +442,22 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
                 <p className="text-sm text-rose-700 mt-1">{err.reason}</p>
                 <p className="text-xs text-rose-600/80 mt-1">Giờ vào: {timeFromIso(err.row.clockIn) || '--:--'} | Giờ ra: {timeFromIso(err.row.clockOut) || '--:--'}</p>
               </div>
-              <button 
-                onClick={() => {
-                  setViewingErrorsForEmployee(null);
-                  setSelectedCell({
-                    employeeId: viewingErrorsForEmployee?.id,
-                    employeeName: viewingErrorsForEmployee?.name,
-                    workDate: err.date,
-                    currentData: err.row,
-                  });
-                }}
-                className="text-sm font-semibold text-rose-600 hover:text-rose-800"
-              >
-                Sửa
-              </button>
+              {query.data?.canManage && (
+                <button
+                  onClick={() => {
+                    setViewingErrorsForEmployee(null);
+                    setSelectedCell({
+                      employeeId: viewingErrorsForEmployee?.id,
+                      employeeName: viewingErrorsForEmployee?.name,
+                      workDate: err.date,
+                      currentData: err.row,
+                    });
+                  }}
+                  className="text-sm font-semibold text-rose-600 hover:text-rose-800"
+                >
+                  Sửa
+                </button>
+              )}
             </div>
           ))}
         </div>

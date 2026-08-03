@@ -72,6 +72,10 @@ export async function GET(
     const access = await requireHrmAccess(shopId, 'hrm.view');
     const selfEmployeeId =
       await access.repository.getEmployeeIdForAuthUser(access.userId);
+    const canManage = access.permissions.includes('hrm.attendance.manage');
+    const scopedEmployeeId = canManage
+      ? null
+      : (selfEmployeeId ?? '__HRM_UNLINKED_EMPLOYEE__');
     const searchParams = new URL(request.url).searchParams;
     const month = searchParams.get('month');
 
@@ -113,6 +117,7 @@ export async function GET(
           periodStart,
           periodEnd,
           departmentId: departmentId || null,
+          employeeId: scopedEmployeeId,
         }),
         access.repository.listShiftTemplates({ includeInactive: true }),
         access.repository.listHolidays(year),
@@ -124,13 +129,15 @@ export async function GET(
         shifts,
         holidays,
         attendanceRules: settings.attendanceRules,
-        canManage: access.permissions.includes('hrm.attendance.manage'),
+        canManage,
         selfEmployeeId,
       });
     }
 
     const [data, shifts] = await Promise.all([
-      access.repository.listTodayAttendance(),
+      access.repository.listTodayAttendance({
+        employeeId: scopedEmployeeId,
+      }),
       access.repository.listShiftTemplates({ includeInactive: true }),
     ]);
 
@@ -138,7 +145,7 @@ export async function GET(
       mode: 'today',
       data,
       shifts,
-      canManage: access.permissions.includes('hrm.attendance.manage'),
+      canManage,
       selfEmployeeId,
     });
   } catch (error) {

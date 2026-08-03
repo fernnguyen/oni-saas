@@ -262,6 +262,7 @@ test('repository employee list reads only the current tenant and branch', async 
     'shop-1',
     'Nguyễn',
     50,
+    null,
   ]);
   assert.match(queries[0]?.text ?? '', /left join hrm_employee_profiles/);
 });

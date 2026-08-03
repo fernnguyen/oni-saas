@@ -595,7 +595,7 @@ export function HrmPayrollCalculatorPanel({
 
     const accepted = await confirm({
       title: 'Chốt kỳ lương?',
-      description: `${run.items.length} nhân viên · tổng thực nhận ${currency(run.totalNet)}. Sau khi chốt, kỳ lương trở thành snapshot và không thể tính lại hoặc sửa khoản cộng/trừ.${earlyNote}`,
+      description: `${run.items.length} nhân viên · tổng thực nhận ${currency(run.totalNet)}. Sau khi chốt, kỳ lương trở thành snapshot và không thể tính lại hoặc sửa khoản cộng/trừ. Bước này chưa chi tiền; hệ thống sẽ yêu cầu chọn quỹ ở bước Thanh toán lương.${earlyNote}`,
       confirmLabel: 'Chốt kỳ lương',
       variant: 'danger',
     });
@@ -861,7 +861,7 @@ export function HrmPayrollCalculatorPanel({
               className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 disabled:opacity-50"
             >
               <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-              Chốt kỳ lương
+              Chốt kỳ lương (chưa chi)
             </button>
           )}
           {(!currentRunSummary || currentRunSummary.status === 'draft') &&

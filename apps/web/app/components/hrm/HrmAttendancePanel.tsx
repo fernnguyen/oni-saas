@@ -187,6 +187,10 @@ export function HrmAttendancePanel({ shopId }: { shopId: string }) {
       align: 'right',
       render: (row) => {
         const isManager = query.data?.canManage;
+
+        if (!canAct(row)) {
+          return <span className="text-sm text-slate-400">Không có quyền</span>;
+        }
         
         let action: 'check_in' | 'check_out' | 'manage' = 'check_in';
         let btnText = 'Check-in';

@@ -1,24 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Banknote,
-  CheckCircle2,
   XCircle,
   Clock,
   Plus,
-  Info,
   AlertCircle,
+  Send,
+  BadgeCheck,
+  Loader2,
+  CalendarDays,
+  RotateCcw,
+  CircleDollarSign,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
-import { Ban, Loader2, Send, HandCoins } from 'lucide-react';
+import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
+import { SearchBar } from '@/app/components/ui/SearchBar';
+import { formatHrmDateTime } from '@/lib/hrm/formatDate';
 
 type AdvanceStatus = 'pending' | 'approved' | 'rejected' | 'disbursed' | 'cancelled';
+type CreateAdvanceAction = 'submit' | 'approve' | 'disburse';
 
 interface SalaryAdvance {
   id: string;
@@ -31,10 +38,26 @@ interface SalaryAdvance {
   status: AdvanceStatus;
   reason: string | null;
   rejectionReason: string | null;
+  approvedByName: string | null;
   approvedAt: string | null;
+  disbursedByName: string | null;
   disbursedAt: string | null;
   isDeducted: boolean;
   createdAt: string;
+}
+
+interface SalaryAdvanceEmployee {
+  profileId: string;
+  employeeId: string;
+  employeeName: string;
+  employeeCode: string | null;
+}
+
+interface PaymentFund {
+  id: string;
+  name: string;
+  current_balance?: string | number;
+  is_default?: string | boolean;
 }
 
 interface Props {
@@ -43,12 +66,39 @@ interface Props {
   canManage: boolean;
 }
 
+function currentPayPeriod(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date());
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+  return `${values.get('year')}-${values.get('month')}`;
+}
+
+function formatPayPeriod(payPeriod: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(payPeriod);
+  if (!match) return payPeriod;
+  return `Tháng ${Number(match[2])}/${match[1]}`;
+}
+
+function recentPayPeriods(count = 24): string[] {
+  const [currentYear, currentMonth] = currentPayPeriod()
+    .split('-')
+    .map(Number);
+
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(Date.UTC(currentYear, currentMonth - 1 - index, 1));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+  });
+}
+
 function StatusBadge({ status }: { status: AdvanceStatus }) {
   type BadgeConfig = { bg: string; Icon: React.ElementType; text: string };
   const config: Record<AdvanceStatus, BadgeConfig> = {
     pending: { bg: 'bg-amber-100 text-amber-700 border-amber-200', text: 'Chờ duyệt', Icon: Clock },
-    approved: { bg: 'bg-emerald-100 text-emerald-700 border-emerald-200', text: 'Đã duyệt', Icon: CheckCircle2 },
-    disbursed: { bg: 'bg-emerald-100 text-emerald-700 border-emerald-200', text: 'Đã chi', Icon: CheckCircle2 },
+    approved: { bg: 'bg-primary/10 text-primary border-primary/20', text: 'Đã duyệt', Icon: BadgeCheck },
+    disbursed: { bg: 'bg-emerald-100 text-emerald-700 border-emerald-200', text: 'Đã chi', Icon: CircleDollarSign },
     rejected: { bg: 'bg-rose-100 text-rose-700 border-rose-200', text: 'Từ chối', Icon: XCircle },
     cancelled: { bg: 'bg-slate-100 text-slate-600 border-slate-200', text: 'Đã huỷ', Icon: XCircle },
   };
@@ -63,7 +113,8 @@ function StatusBadge({ status }: { status: AdvanceStatus }) {
 
 export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Props) {
   const queryClient = useQueryClient();
-  const [filterPeriod, setFilterPeriod] = useState<string>('');
+  const [filterPeriod, setFilterPeriod] = useState<string>(currentPayPeriod);
+  const [employeeSearch, setEmployeeSearch] = useState('');
   
   // UI States
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -71,22 +122,54 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
   const [isProcessOpen, setIsProcessOpen] = useState(false);
 
   // Queries
-  const { data: advances = [], isLoading } = useQuery({
+  const {
+    data: salaryAdvanceData,
+    error: salaryAdvanceError,
+    isError,
+    isFetching,
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ['hrm', shopId, 'salary-advances', filterPeriod],
     queryFn: async () => {
       const p = new URLSearchParams();
       if (filterPeriod) p.set('pay_period', filterPeriod);
       if (!canManage && selfProfileId) p.set('profile_id', selfProfileId);
-      const res = await fetch(`/api/shops/${shopId}/hrm/salary-advances?${p.toString()}`);
-      if (!res.ok) throw new Error('Lỗi tải danh sách ứng lương');
-      const json = await res.json();
-      return json.data as SalaryAdvance[];
+      const query = p.toString();
+      const res = await fetch(
+        `/api/shops/${shopId}/hrm/salary-advances${query ? `?${query}` : ''}`,
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          json.error?.message ?? json.error ?? 'Lỗi tải danh sách ứng lương',
+        );
+      }
+      return {
+        advances: json.data as SalaryAdvance[],
+        employees: (json.employees ?? []) as SalaryAdvanceEmployee[],
+      };
     }
   });
+  const advances = salaryAdvanceData?.advances ?? [];
+  const employees = salaryAdvanceData?.employees ?? [];
+  const normalizedEmployeeSearch = employeeSearch
+    .trim()
+    .toLocaleLowerCase('vi-VN');
+  const visibleAdvances = normalizedEmployeeSearch
+    ? advances.filter((advance) =>
+        advance.employeeName
+          .toLocaleLowerCase('vi-VN')
+          .includes(normalizedEmployeeSearch),
+      )
+    : advances;
+  const payPeriodOptions = Array.from(
+    new Set([...recentPayPeriods(), ...advances.map((advance) => advance.payPeriod)]),
+  ).sort((left, right) => right.localeCompare(left));
 
   // Mutations
   const processMutation = useMutation({
-    mutationFn: async (vars: { advanceId: string; status: 'approved' | 'rejected'; fundId?: string; reason?: string }) => {
+    mutationFn: async (vars: { advanceId: string; status: 'approved' | 'disbursed' | 'rejected'; fundId?: string; reason?: string }) => {
       const res = await fetch(`/api/shops/${shopId}/hrm/salary-advances/${vars.advanceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -98,12 +181,20 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Lỗi xử lý yêu cầu');
+        throw new Error(
+          data.error?.message ?? data.error ?? 'Lỗi xử lý yêu cầu',
+        );
       }
       return res.json();
     },
-    onSuccess: () => {
-      toast.success('Xử lý thành công');
+    onSuccess: (_data, vars) => {
+      toast.success(
+        vars.status === 'approved'
+          ? 'Đã duyệt yêu cầu ứng lương'
+          : vars.status === 'disbursed'
+            ? 'Đã chi tiền ứng lương và ghi Sổ quỹ'
+            : 'Đã từ chối yêu cầu ứng lương',
+      );
       queryClient.invalidateQueries({ queryKey: ['hrm', shopId, 'salary-advances'] });
       setIsProcessOpen(false);
       setSelectedRequest(null);
@@ -132,18 +223,55 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
       ),
     },
     {
-      key: 'date',
-      header: 'Ngày / Kỳ lương',
+      key: 'createdAt',
+      header: 'Ngày tạo / Kỳ lương',
+      sortable: true,
       render: (r: SalaryAdvance) => (
         <div>
-          <div className="text-sm font-medium text-slate-900">
-            Kỳ {r.payPeriod.split('-').reverse().join('/')}
+          <div className="font-medium text-slate-700">
+            {formatHrmDateTime(r.createdAt)}
           </div>
-          <div className="text-xs text-slate-500">
-            Xin ứng: {new Date(r.requestDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+          <div className="mt-0.5 text-xs text-slate-500">
+            {formatPayPeriod(r.payPeriod)}
           </div>
         </div>
       ),
+    },
+    {
+      key: 'approvedAt',
+      header: 'Duyệt / Người duyệt',
+      sortable: true,
+      render: (r: SalaryAdvance) =>
+        r.approvedAt || r.approvedByName ? (
+          <div>
+            <div className="font-medium text-slate-700">
+              {formatHrmDateTime(r.approvedAt)}
+            </div>
+            <div className="mt-0.5 text-xs text-slate-500">
+              {r.approvedByName || '—'}
+            </div>
+          </div>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      key: 'disbursedAt',
+      header: 'Chi / Người chi',
+      sortable: true,
+      render: (r: SalaryAdvance) =>
+        r.disbursedAt || r.disbursedByName ? (
+          <div>
+            <div className="font-medium text-slate-700">
+              {formatHrmDateTime(r.disbursedAt)}
+            </div>
+            <div className="mt-0.5 text-xs text-slate-500">
+              {r.disbursedByName || '—'}
+            </div>
+          </div>
+        ) : (
+          '—'
+        ),
     },
     {
       key: 'reason',
@@ -160,12 +288,12 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
       header: 'Thao tác',
       render: (r: SalaryAdvance) => (
         <div className="flex justify-end gap-2">
-          {canManage && r.status === 'pending' && (
+          {canManage && (r.status === 'pending' || r.status === 'approved') && (
             <button
               onClick={() => { setSelectedRequest(r); setIsProcessOpen(true); }}
               className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
             >
-              Duyệt / Từ chối
+              {r.status === 'approved' ? 'Chi tiền' : 'Duyệt / Từ chối'}
             </button>
           )}
         </div>
@@ -174,16 +302,23 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
   ];
 
   return (
-    <div className="flex flex-col gap-6 mx-auto">
+    <div className="flex flex-col gap-4 mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Banknote className="w-5 h-5 text-emerald-600" />
+            <CircleDollarSign className="w-5 h-5 text-emerald-600" />
             Tạm ứng lương
           </h2>
-          <p className="text-sm text-slate-500">Quản lý các khoản ứng lương và tự động khấu trừ.</p>
+          <p className="text-sm text-slate-500">
+            {isLoading ? 'Đang tải dữ liệu...' : `${advances.length} phiếu`}
+            {isFetching && !isLoading && (
+              <span className="ml-2 text-xs text-slate-400">
+                Đang cập nhật...
+              </span>
+            )}
+          </p>
         </div>
-        {selfProfileId && (
+        {(selfProfileId || canManage) && (
           <button
             onClick={() => setIsCreateOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-200"
@@ -194,7 +329,7 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
         )}
       </div>
 
-      {!selfProfileId && (
+      {!selfProfileId && !canManage && (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
           <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
           <div>
@@ -206,23 +341,132 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
         </div>
       )}
 
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <SearchBar
+            value={employeeSearch}
+            onChange={setEmployeeSearch}
+            placeholder="Tìm theo tên nhân viên..."
+            hideFilter
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label htmlFor="salary-advance-period-filter" className="sr-only">
+            Lọc theo kỳ lương
+          </label>
+          <div className="relative">
+            <CalendarDays
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+              aria-hidden="true"
+            />
+            <select
+              id="salary-advance-period-filter"
+              value={filterPeriod}
+              onChange={(event) => setFilterPeriod(event.target.value)}
+              className="max-w-[190px] rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-8 text-sm font-medium text-slate-600 shadow-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary sm:min-w-[180px]"
+            >
+              <option value="">Tất cả kỳ lương</option>
+              {payPeriodOptions.map((period) => (
+                <option key={period} value={period}>
+                  {formatPayPeriod(period)}
+                  {period === currentPayPeriod() ? ' · Kỳ này' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-all hover:border-primary/30 hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+            title="Tải lại dữ liệu"
+          >
+            <RotateCcw
+              className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`}
+              aria-hidden="true"
+            />
+            <span className="hidden sm:inline">
+              {isFetching ? 'Đang tải...' : 'Làm mới'}
+            </span>
+          </button>
+        </div>
+      </div>
+
       <div className="bg-white border border-slate-200 rounded-2xl flex-1 flex flex-col min-h-0 shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="p-8 text-center text-slate-500">Đang tải dữ liệu...</div>
+        ) : isError ? (
+          <EmptyState
+            icon={<AlertCircle className="mx-auto h-12 w-12 text-rose-300" />}
+            title="Chưa tải được dữ liệu ứng lương"
+            description={
+              salaryAdvanceError instanceof Error
+                ? salaryAdvanceError.message
+                : 'Vui lòng thử tải lại dữ liệu.'
+            }
+            action={
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+              >
+                Thử lại
+              </button>
+            }
+          />
         ) : advances.length === 0 ? (
           <EmptyState
             icon={<Banknote className="w-12 h-12 text-slate-300 mx-auto" />}
-            title="Chưa có khoản ứng lương nào"
-            description="Tạo yêu cầu ứng lương mới để ghi nhận vào hệ thống."
+            title={
+              filterPeriod
+                ? `Chưa có phiếu trong ${formatPayPeriod(filterPeriod)}`
+                : 'Chưa có khoản ứng lương nào'
+            }
+            description={
+              filterPeriod
+                ? 'Kỳ đang chọn chưa có dữ liệu. Bạn có thể xem tất cả kỳ lương.'
+                : 'Tạo yêu cầu ứng lương mới để ghi nhận vào hệ thống.'
+            }
+            action={
+              filterPeriod ? (
+                <button
+                  type="button"
+                  onClick={() => setFilterPeriod('')}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Xem tất cả kỳ lương
+                </button>
+              ) : undefined
+            }
           />
         ) : (
-          <DataTable data={advances} columns={columns} />
+          <DataTable
+            data={visibleAdvances}
+            columns={columns}
+            emptyState={
+              <EmptyState
+                title="Không tìm thấy nhân viên"
+                description={`Không có phiếu ứng lương khớp với “${employeeSearch.trim()}”.`}
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setEmployeeSearch('')}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Xóa tìm kiếm
+                  </button>
+                }
+              />
+            }
+          />
         )}
       </div>
 
       <CreateAdvanceForm
         shopId={shopId}
-        selfProfileId={selfProfileId!}
+        selfProfileId={selfProfileId}
+        canManage={canManage}
+        employees={employees}
         open={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onSuccess={() => {
@@ -231,61 +475,280 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
         }}
       />
 
-      {/* Process Modal */}
-      <SlideOver
-        open={isProcessOpen}
-        onClose={() => { setIsProcessOpen(false); setSelectedRequest(null); }}
-        title="Duyệt ứng lương"
-      >
-        {selectedRequest && (
-          <ProcessAdvanceForm
-            shopId={shopId}
-            request={selectedRequest}
-            onProcess={(status, fundId, reason) => processMutation.mutate({ advanceId: selectedRequest.id, status, fundId, reason })}
-            isProcessing={processMutation.isPending}
-          />
-        )}
-      </SlideOver>
+      {selectedRequest && (
+        <ProcessAdvanceDialog
+          shopId={shopId}
+          request={selectedRequest}
+          open={isProcessOpen}
+          onClose={() => {
+            setIsProcessOpen(false);
+            setSelectedRequest(null);
+          }}
+          onProcess={(status, fundId, reason) =>
+            processMutation.mutate({
+              advanceId: selectedRequest.id,
+              status,
+              fundId,
+              reason,
+            })
+          }
+          isProcessing={processMutation.isPending}
+        />
+      )}
     </div>
   );
 }
 
-function CreateAdvanceForm({ shopId, selfProfileId, open, onClose, onSuccess }: { shopId: string; selfProfileId: string; open: boolean; onClose: () => void; onSuccess: () => void }) {
+function CreateAdvanceForm({
+  shopId,
+  selfProfileId,
+  canManage,
+  employees,
+  open,
+  onClose,
+  onSuccess,
+}: {
+  shopId: string;
+  selfProfileId: string | null;
+  canManage: boolean;
+  employees: SalaryAdvanceEmployee[];
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const confirm = useConfirm();
   const [amount, setAmount] = useState('');
+  const [selectedProfileId, setSelectedProfileId] = useState(
+    canManage ? '' : (selfProfileId ?? ''),
+  );
   const [payPeriod] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   const [reason, setReason] = useState('');
-  const [confirmingModal, setConfirmingModal] = useState(false);
+  const [fundId, setFundId] = useState('');
+  const selectedEmployee = employees.find(
+    (employee) => employee.profileId === selectedProfileId,
+  );
+
+  const {
+    data: funds = [],
+    isLoading: fundsLoading,
+    isError: fundsError,
+    error: fundsQueryError,
+  } = useQuery<PaymentFund[]>({
+    queryKey: ['payment-funds', shopId],
+    enabled: open && canManage,
+    queryFn: async () => {
+      const response = await fetch(`/api/shops/${shopId}/payment-funds`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          payload.error?.message ??
+            payload.error ??
+            'Không tải được danh sách quỹ',
+        );
+      }
+      return (payload.data ?? []) as PaymentFund[];
+    },
+  });
+
+  useEffect(() => {
+    if (!canManage || fundId || funds.length === 0) return;
+    const defaultFund = funds.find(
+      (fund) => fund.is_default === true || fund.is_default === 'TRUE',
+    );
+    setFundId(defaultFund?.id ?? funds[0].id);
+  }, [canManage, fundId, funds]);
 
   const submitMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (action: CreateAdvanceAction) => {
       const res = await fetch(`/api/shops/${shopId}/hrm/salary-advances`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          profile_id: selfProfileId,
+          profile_id: selectedProfileId,
           amount: parseFloat(amount.replace(/\D/g, '')),
           pay_period: payPeriod,
           request_date: new Date().toISOString().split('T')[0],
           reason,
+          action: canManage && action !== 'submit' ? action : undefined,
+          fund_id: canManage && action === 'disburse' ? fundId : undefined,
         }),
       });
-      if (!res.ok) throw new Error('Không thể tạo yêu cầu');
-      return res.json();
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload.error?.message ?? 'Không thể tạo phiếu ứng lương');
+      }
+      return payload as {
+        data: { status: 'pending' | 'approved' | 'disbursed' };
+      };
     },
-    onSuccess: () => {
-      toast.success('Gửi yêu cầu thành công');
+    onSuccess: (payload) => {
+      toast.success(
+        payload.data.status === 'disbursed'
+          ? 'Đã tạo phiếu ứng lương, chi tiền và ghi Sổ quỹ'
+          : payload.data.status === 'approved'
+            ? 'Đã tạo và duyệt phiếu ứng lương'
+            : 'Gửi yêu cầu thành công',
+      );
+      setAmount('');
+      setReason('');
+      if (canManage) setSelectedProfileId('');
       onSuccess();
     },
     onError: (err) => toast.error(err.message),
   });
 
+  async function confirmCreate(action: CreateAdvanceAction) {
+    if (submitMutation.isPending) return;
+    if (!selectedProfileId) {
+      toast.error('Vui lòng chọn nhân viên');
+      return;
+    }
+    if (!amount) {
+      toast.error('Vui lòng nhập số tiền');
+      return;
+    }
+    if (action === 'disburse' && !fundId) {
+      toast.error('Vui lòng chọn quỹ chi tiền');
+      return;
+    }
+
+    const employeeLabel = selectedEmployee?.employeeName
+      ? `${selectedEmployee.employeeName} · `
+      : '';
+    const selectedFund = funds.find((fund) => fund.id === fundId);
+    const isDisbursement = action === 'disburse';
+    const isApproval = action === 'approve';
+    await confirm({
+      title: isDisbursement
+        ? 'Tạo và chi tiền ứng lương?'
+        : isApproval
+          ? 'Tạo và duyệt phiếu ứng lương?'
+          : 'Gửi yêu cầu ứng lương?',
+      description: `${employeeLabel}${amount} đ · ${formatPayPeriod(payPeriod)}.${isDisbursement ? ` Xác nhận sẽ trừ tiền từ quỹ “${selectedFund?.name ?? fundId}” và tự động tạo Phiếu chi trong Sổ quỹ.` : isApproval ? ' Phiếu sẽ chuyển sang trạng thái Đã duyệt và chưa phát sinh Phiếu chi.' : ' Yêu cầu sẽ được gửi đến quản lý để duyệt và chi tiền.'}`,
+      confirmLabel: isDisbursement
+        ? 'Tạo và chi tiền'
+        : isApproval
+          ? 'Tạo và duyệt'
+          : 'Gửi yêu cầu',
+      variant: isDisbursement ? 'success' : 'default',
+      onConfirm: async () => {
+        await submitMutation.mutateAsync(action);
+      },
+    });
+  }
+
+  const formIncomplete = !amount || !selectedProfileId;
+  const pendingAction = submitMutation.isPending
+    ? submitMutation.variables
+    : null;
+
   return (
-    <SlideOver open={open} onClose={onClose} title="Tạo yêu cầu ứng lương">
-      <div className="flex flex-col h-full">
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+    <SlideOver
+      open={open}
+      onClose={() => {
+        if (!submitMutation.isPending) onClose();
+      }}
+      title={canManage ? 'Tạo phiếu ứng lương' : 'Tạo yêu cầu ứng lương'}
+      footer={
+        <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitMutation.isPending}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Hủy
+          </button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            {canManage ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void confirmCreate('approve')}
+                  disabled={submitMutation.isPending || formIncomplete}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {pendingAction === 'approve' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <BadgeCheck className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  {pendingAction === 'approve'
+                    ? 'Đang tạo và duyệt...'
+                    : 'Tạo và duyệt'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmCreate('disburse')}
+                  disabled={
+                    submitMutation.isPending ||
+                    formIncomplete ||
+                    !fundId ||
+                    fundsLoading ||
+                    fundsError
+                  }
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {pendingAction === 'disburse' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  {pendingAction === 'disburse'
+                    ? 'Đang tạo và chi tiền...'
+                    : 'Tạo và chi tiền'}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void confirmCreate('submit')}
+                disabled={submitMutation.isPending || formIncomplete}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {pendingAction === 'submit' ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Send className="h-4 w-4" aria-hidden="true" />
+                )}
+                {pendingAction === 'submit'
+                  ? 'Đang gửi yêu cầu...'
+                  : 'Gửi yêu cầu'}
+              </button>
+            )}
+          </div>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+          {canManage && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-semibold text-slate-700">
+                Nhân viên
+              </label>
+              <select
+                value={selectedProfileId}
+                onChange={(event) => setSelectedProfileId(event.target.value)}
+                disabled={submitMutation.isPending}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="">Chọn nhân viên cần ứng lương</option>
+                {employees.map((employee) => (
+                  <option key={employee.profileId} value={employee.profileId}>
+                    {employee.employeeName}
+                    {employee.employeeCode ? ` · ${employee.employeeCode}` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500">
+                Owner có thể tạo phiếu ở trạng thái Đã duyệt hoặc chi tiền ngay
+                từ quỹ được chọn.
+              </p>
+            </div>
+          )}
           <div className="space-y-1.5">
             <label className="text-sm font-semibold text-slate-700">Kỳ lương (Cố định)</label>
             <div className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-slate-50 text-slate-500 font-medium">
@@ -299,6 +762,7 @@ function CreateAdvanceForm({ shopId, selfProfileId, open, onClose, onSuccess }: 
               type="text"
               placeholder="Ví dụ: 10,000,000"
               value={amount}
+              disabled={submitMutation.isPending}
               onChange={e => {
                 const val = e.target.value.replace(/\D/g, '');
                 setAmount(val ? parseInt(val).toLocaleString('vi-VN') : '');
@@ -306,333 +770,302 @@ function CreateAdvanceForm({ shopId, selfProfileId, open, onClose, onSuccess }: 
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary font-bold text-slate-900"
             />
           </div>
+          {canManage && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-semibold text-slate-700">
+                Quỹ xuất tiền
+              </label>
+              {fundsLoading ? (
+                <div className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-500">
+                  Đang tải danh sách quỹ...
+                </div>
+              ) : fundsError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {fundsQueryError.message}
+                </div>
+              ) : (
+                <select
+                  value={fundId}
+                  onChange={(event) => setFundId(event.target.value)}
+                  disabled={submitMutation.isPending}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">Chọn quỹ xuất tiền</option>
+                  {funds.map((fund) => (
+                    <option key={fund.id} value={fund.id}>
+                      {fund.name} · Dư{' '}
+                      {Number(fund.current_balance ?? 0).toLocaleString('vi-VN')} đ
+                    </option>
+                  ))}
+                </select>
+              )}
+              <div className="flex gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs leading-5 text-emerald-800">
+                <CircleDollarSign className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <p>
+                  Quỹ chỉ bắt buộc khi chọn <strong>Tạo và chi tiền</strong>.
+                  Hệ thống sẽ trừ quỹ và tự động tạo Phiếu chi trong Sổ quỹ.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="space-y-1.5">
             <label className="text-sm font-semibold text-slate-700">Lý do (tuỳ chọn)</label>
             <textarea
               value={reason}
+              disabled={submitMutation.isPending}
               onChange={e => setReason(e.target.value)}
               rows={4}
               placeholder="Ghi chú thêm (tuỳ chọn)"
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-none"
             />
           </div>
-        </div>
-        <div className="border-t border-slate-100 p-5 bg-slate-50 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-200 transition-colors"
-          >
-            Hủy bỏ
-          </button>
-          <button
-            onClick={() => {
-              if (!amount) return toast.error('Vui lòng nhập số tiền');
-              setConfirmingModal(true);
-            }}
-            disabled={!amount}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-dark transition-all disabled:opacity-50"
-          >
-            <Send className="h-4 w-4" />
-            Gửi yêu cầu
-          </button>
-        </div>
       </div>
-
-      {confirmingModal && (
-        <ConfirmCreateModal
-          amount={amount}
-          payPeriod={payPeriod}
-          isPending={submitMutation.isPending}
-          onConfirm={() => submitMutation.mutate()}
-          onCancel={() => setConfirmingModal(false)}
-        />
-      )}
     </SlideOver>
   );
 }
 
-function ProcessAdvanceForm({ shopId, request, onProcess, isProcessing }: { shopId: string; request: SalaryAdvance; onProcess: (s: 'approved' | 'rejected', f?: string, r?: string) => void, isProcessing: boolean }) {
-  const [action, setAction] = useState<'approve' | 'reject'>('approve');
+function ProcessAdvanceDialog({
+  shopId,
+  request,
+  open,
+  onClose,
+  onProcess,
+  isProcessing,
+}: {
+  shopId: string;
+  request: SalaryAdvance;
+  open: boolean;
+  onClose: () => void;
+  onProcess: (
+    status: 'approved' | 'disbursed' | 'rejected',
+    fundId?: string,
+    reason?: string,
+  ) => void;
+  isProcessing: boolean;
+}) {
+  const [action, setAction] = useState<'approve' | 'disburse' | 'reject'>(
+    'disburse',
+  );
   const [fundId, setFundId] = useState('');
   const [reason, setReason] = useState('');
-  const [confirmingAction, setConfirmingAction] = useState<'approve' | 'reject' | null>(null);
+  const canReject = request.status === 'pending';
+  const needsFund = action === 'disburse';
 
-  // Lấy danh sách quỹ thanh toán
-  const { data: funds = [], isLoading } = useQuery({
+  const {
+    data: funds = [],
+    isLoading,
+    isError,
+    error,
+  } = useQuery<PaymentFund[]>({
     queryKey: ['payment-funds', shopId],
+    enabled: open && needsFund,
     queryFn: async () => {
       const res = await fetch(`/api/shops/${shopId}/payment-funds`);
-      if (!res.ok) return [];
       const json = await res.json();
-      return json.data || [];
-    }
+      if (!res.ok) {
+        throw new Error(
+          json.error?.message ?? json.error ?? 'Không tải được danh sách quỹ',
+        );
+      }
+      return (json.data ?? []) as PaymentFund[];
+    },
   });
 
+  useEffect(() => {
+    if (fundId || funds.length === 0) return;
+    const defaultFund = funds.find(
+      (fund) => fund.is_default === true || fund.is_default === 'TRUE',
+    );
+    setFundId(defaultFund?.id ?? funds[0].id);
+  }, [fundId, funds]);
+
+  function handleConfirm() {
+    if (isProcessing) return;
+    if (action === 'approve') {
+      onProcess('approved');
+      return;
+    }
+    if (action === 'disburse') {
+      if (!fundId) {
+        toast.error('Vui lòng chọn quỹ chi tiền');
+        return;
+      }
+      onProcess('disbursed', fundId);
+      return;
+    }
+    onProcess('rejected', undefined, reason);
+  }
+
   return (
-    <div className="p-5 flex flex-col h-full">
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6">
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-slate-500 mb-1">Nhân viên</p>
-            <p className="font-semibold text-slate-900">{request.employeeName}</p>
-          </div>
-          <div>
-            <p className="text-slate-500 mb-1">Số tiền ứng</p>
-            <p className="font-bold text-orange-600">{Number(request.amount).toLocaleString('vi-VN')} đ</p>
-          </div>
-          <div>
-            <p className="text-slate-500 mb-1">Kỳ lương</p>
-            <p className="font-medium text-slate-800">Kỳ {request.payPeriod.split('-').reverse().join('/')}</p>
-          </div>
-          <div>
-            <p className="text-slate-500 mb-1">Lý do ứng</p>
-            <p className="font-medium text-slate-800">{request.reason || '—'}</p>
+    <ConfirmDialog
+      open={open}
+      onClose={onClose}
+      onConfirm={handleConfirm}
+      title={
+        action === 'reject'
+          ? 'Từ chối yêu cầu ứng lương'
+          : action === 'approve'
+            ? 'Duyệt yêu cầu ứng lương'
+            : request.status === 'approved'
+            ? 'Xác nhận chi tiền ứng lương'
+            : 'Duyệt và chi tiền ứng lương'
+      }
+      description={
+        action === 'disburse'
+          ? 'Chọn quỹ chi trong Sổ quỹ. Khi xác nhận, hệ thống sẽ duyệt yêu cầu, trừ quỹ và tự động tạo Phiếu chi.'
+          : action === 'approve'
+            ? 'Yêu cầu sẽ chuyển sang trạng thái Đã duyệt nhưng chưa xuất quỹ và chưa tạo Phiếu chi.'
+            : 'Xác nhận từ chối yêu cầu ứng lương này.'
+      }
+      confirmLabel={
+        isProcessing
+          ? action === 'reject'
+            ? 'Đang từ chối...'
+            : action === 'approve'
+              ? 'Đang duyệt...'
+              : 'Đang duyệt và chi...'
+          : action === 'reject'
+            ? 'Xác nhận từ chối'
+            : action === 'approve'
+              ? 'Duyệt'
+              : request.status === 'approved'
+                ? 'Xác nhận chi tiền'
+                : 'Duyệt & Chi tiền'
+      }
+      variant={
+        action === 'reject'
+          ? 'danger'
+          : action === 'disburse'
+            ? 'success'
+            : 'default'
+      }
+      loading={isProcessing}
+      disableOutsideClick={isProcessing}
+    >
+      <div className="space-y-4">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-slate-500">Nhân viên</p>
+              <p className="font-semibold text-slate-900">
+                {request.employeeName}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Số tiền ứng</p>
+              <p className="font-bold text-orange-600">
+                {Number(request.amount).toLocaleString('vi-VN')} đ
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Kỳ lương</p>
+              <p className="font-medium text-slate-800">
+                Kỳ {request.payPeriod.split('-').reverse().join('/')}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Lý do ứng</p>
+              <p className="font-medium text-slate-800">
+                {request.reason || '—'}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex gap-2 p-1 bg-slate-100 rounded-xl mb-6">
-        <button
-          onClick={() => setAction('approve')}
-          className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${action === 'approve' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          Duyệt & Giải ngân
-        </button>
-        <button
-          onClick={() => setAction('reject')}
-          className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${action === 'reject' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          Từ chối
-        </button>
-      </div>
-
-      {action === 'approve' ? (
-        <div className="space-y-4">
-          <div className="bg-blue-50 text-blue-800 p-3 rounded-lg flex gap-3 text-sm border border-blue-100">
-            <Info className="w-5 h-5 shrink-0" />
-            <p>Hệ thống sẽ <strong>tự động tạo Phiếu chi</strong> trong Sổ quỹ và trừ tiền ngay lập tức khi bạn bấm Duyệt.</p>
+        {canReject ? (
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setAction('approve')}
+              disabled={isProcessing}
+              className={`rounded-lg px-2 py-2 text-sm font-semibold transition-all ${action === 'approve' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <BadgeCheck className="h-4 w-4" aria-hidden="true" />
+                Duyệt
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAction('disburse')}
+              disabled={isProcessing}
+              className={`rounded-lg px-2 py-2 text-sm font-semibold transition-all ${action === 'disburse' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
+                Duyệt & Chi
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAction('reject')}
+              disabled={isProcessing}
+              className={`rounded-lg px-2 py-2 text-sm font-semibold transition-all ${action === 'reject' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Từ chối
+            </button>
           </div>
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Chọn quỹ thanh toán <span className="text-red-500">*</span></label>
+        ) : null}
+
+        {action === 'disburse' ? (
+          <div className="space-y-1.5">
+            <label className="block text-sm font-semibold text-slate-700">
+              Quỹ chi trong Sổ quỹ <span className="text-rose-500">*</span>
+            </label>
             {isLoading ? (
-              <div className="text-sm text-slate-500">Đang tải danh sách quỹ...</div>
+              <div className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-500">
+                Đang tải danh sách quỹ...
+              </div>
+            ) : isError ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {error.message}
+              </div>
             ) : (
-              <select value={fundId} onChange={e => setFundId(e.target.value)} className="w-full h-10 px-3 border border-slate-200 rounded-lg focus:border-emerald-500 outline-none">
-                <option value="">-- Chọn quỹ --</option>
-                {funds.map((f: any) => (
-                  <option key={f.id} value={f.id}>{f.name} {f.current_balance ? `(Dư: ${parseFloat(f.current_balance).toLocaleString('vi-VN')}đ)` : ''}</option>
+              <select
+                value={fundId}
+                onChange={(event) => setFundId(event.target.value)}
+                disabled={isProcessing}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="">Chọn quỹ chi tiền</option>
+                {funds.map((fund) => (
+                  <option key={fund.id} value={fund.id}>
+                    {fund.name} · Dư{' '}
+                    {Number(fund.current_balance ?? 0).toLocaleString('vi-VN')}{' '}
+                    đ
+                  </option>
                 ))}
               </select>
             )}
+            <div className="flex gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+              <CircleDollarSign className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <p>Xác nhận sẽ tạo Phiếu chi ứng lương từ quỹ đã chọn.</p>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div>
-          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Lý do từ chối</label>
-          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} className="w-full p-3 border border-slate-200 rounded-lg outline-none resize-none" placeholder="Nhập lý do từ chối..." />
-        </div>
-      )}
-
-      <div className="mt-auto pt-6 flex gap-3">
-        {action === 'approve' ? (
-          <button
-            onClick={() => setConfirmingAction('approve')}
-            disabled={isProcessing || !fundId}
-            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl disabled:opacity-50 transition-colors flex items-center justify-center gap-2 shadow-sm"
-          >
-            {isProcessing ? 'Đang xử lý...' : <><CheckCircle2 className="w-5 h-5" /> Duyệt và Chi tiền</>}
-          </button>
-        ) : (
-          <button
-            onClick={() => setConfirmingAction('reject')}
-            disabled={isProcessing}
-            className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl disabled:opacity-50 transition-colors flex items-center justify-center gap-2 shadow-sm"
-          >
-            {isProcessing ? 'Đang xử lý...' : <><XCircle className="w-5 h-5" /> Từ chối yêu cầu</>}
-          </button>
-        )}
-      </div>
-
-      {confirmingAction === 'approve' && (
-        <ConfirmProcessModal
-          action="approve"
-          request={request}
-          fundName={funds.find((f: any) => f.id === fundId)?.name}
-          isPending={isProcessing}
-          onConfirm={() => {
-            setConfirmingAction(null);
-            onProcess('approved', fundId, undefined);
-          }}
-          onCancel={() => setConfirmingAction(null)}
-        />
-      )}
-
-      {confirmingAction === 'reject' && (
-        <ConfirmProcessModal
-          action="reject"
-          request={request}
-          reason={reason}
-          isPending={isProcessing}
-          onConfirm={() => {
-            setConfirmingAction(null);
-            onProcess('rejected', undefined, reason);
-          }}
-          onCancel={() => setConfirmingAction(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-function ConfirmCreateModal({
-  amount,
-  payPeriod,
-  isPending,
-  onConfirm,
-  onCancel,
-}: {
-  amount: string;
-  payPeriod: string;
-  isPending: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-slate-100 p-2.5 text-slate-600">
-            <HandCoins className="h-6 w-6" />
-          </div>
-          <div>
-            <h3 className="text-base font-semibold text-slate-900">Xác nhận xin ứng lương</h3>
-            <p className="text-xs text-slate-500">Xác nhận gửi yêu cầu ứng lương cho kỳ này.</p>
-          </div>
-        </div>
-
-        <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 space-y-1 text-xs">
-          <div className="flex justify-between">
-            <span className="text-slate-500">Kỳ lương:</span>
-            <span className="font-semibold text-slate-800">Kỳ {payPeriod.split('-').reverse().join('/')}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">Số tiền ứng:</span>
-            <span className="font-semibold text-emerald-600">{amount} đ</span>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isPending}
-            className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
-          >
-            Huỷ bỏ
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={isPending}
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors disabled:opacity-50"
-          >
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Xác nhận gửi
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConfirmProcessModal({
-  action,
-  request,
-  fundName,
-  reason,
-  isPending,
-  onConfirm,
-  onCancel,
-}: {
-  action: 'approve' | 'reject';
-  request: SalaryAdvance;
-  fundName?: string;
-  reason?: string;
-  isPending: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const isApprove = action === 'approve';
-  
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-4">
-        <div className="flex items-center gap-3">
-          <div className={`rounded-xl p-2.5 ${isApprove ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-            {isApprove ? <CheckCircle2 className="h-6 w-6" /> : <XCircle className="h-6 w-6" />}
-          </div>
-          <div>
-            <h3 className="text-base font-semibold text-slate-900">
-              {isApprove ? 'Xác nhận duyệt và chi tiền' : 'Xác nhận từ chối'}
-            </h3>
-            <p className="text-xs text-slate-500">
-              {isApprove 
-                ? 'Hệ thống sẽ tạo phiếu chi trong Sổ quỹ và trừ tiền ứng lương.' 
-                : 'Yêu cầu ứng lương này sẽ bị từ chối và thông báo đến nhân viên.'}
+        ) : action === 'approve' ? (
+          <div className="flex gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm leading-5 text-slate-700">
+            <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <p>
+              Chỉ duyệt yêu cầu. Bạn có thể chọn <strong>Chi tiền</strong> sau;
+              khi đó hệ thống mới yêu cầu chọn quỹ và tạo Phiếu chi.
             </p>
           </div>
-        </div>
-
-        <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 space-y-1 text-xs">
-          <div className="flex justify-between">
-            <span className="text-slate-500">Nhân viên:</span>
-            <span className="font-semibold text-slate-800">{request.employeeName}</span>
+        ) : (
+          <div className="space-y-1.5">
+            <label className="block text-sm font-semibold text-slate-700">
+              Lý do từ chối
+            </label>
+            <textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              disabled={isProcessing}
+              rows={3}
+              className="w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+              placeholder="Nhập lý do từ chối..."
+            />
           </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">Kỳ lương:</span>
-            <span className="font-semibold text-slate-800">Kỳ {request.payPeriod.split('-').reverse().join('/')}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">Số tiền:</span>
-            <span className="font-semibold text-orange-600">{Number(request.amount).toLocaleString('vi-VN')} đ</span>
-          </div>
-          {isApprove && fundName && (
-            <div className="flex justify-between mt-2 pt-2 border-t border-slate-200">
-              <span className="text-slate-500">Quỹ chi tiền:</span>
-              <span className="font-semibold text-emerald-600">{fundName}</span>
-            </div>
-          )}
-          {!isApprove && reason && (
-            <div className="flex justify-between mt-2 pt-2 border-t border-slate-200">
-              <span className="text-slate-500">Lý do từ chối:</span>
-              <span className="font-medium text-slate-700">{reason}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isPending}
-            className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
-          >
-            Huỷ bỏ
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={isPending}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors disabled:opacity-50 ${
-              isApprove ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
-            }`}
-          >
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isApprove ? 'Duyệt & Chi' : 'Từ chối'}
-          </button>
-        </div>
+        )}
       </div>
-    </div>
+    </ConfirmDialog>
   );
 }

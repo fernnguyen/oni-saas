@@ -8,7 +8,7 @@ interface ConfirmOptions {
   description?: string
   confirmLabel?: string
   cancelLabel?: string
-  variant?: 'danger' | 'default'
+  variant?: 'danger' | 'default' | 'success'
   onConfirm?: () => Promise<any>
   children?: React.ReactNode
 }

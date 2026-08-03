@@ -696,6 +696,7 @@ export const hrmSalaryAdvances = pgTable(
     rejection_reason: text('rejection_reason'),
     approved_by: uuid('approved_by'),
     approved_at: timestamp('approved_at', { withTimezone: true }),
+    disbursed_by: uuid('disbursed_by'),
     disbursed_at: timestamp('disbursed_at', { withTimezone: true }),
     cashbook_transaction_id: varchar('cashbook_transaction_id', { length: 255 }),
     fund_id: varchar('fund_id', { length: 255 }),
