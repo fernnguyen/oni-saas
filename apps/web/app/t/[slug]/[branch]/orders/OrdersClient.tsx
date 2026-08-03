@@ -677,6 +677,17 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
       render: (row) => <span>{row.customer_name || 'Khách lẻ'}</span>,
     },
     {
+      key: 'resource_name',
+      label: 'Phòng / Bàn',
+      render: (row) => {
+        let meta: any = {};
+        try {
+          meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata || '{}') : (row.metadata || {});
+        } catch(e) {}
+        return <span className={meta.resource_name ? "font-medium text-violet-700" : "text-slate-400"}>{meta.resource_name || '—'}</span>;
+      }
+    },
+    {
       key: 'channel',
       label: 'Kênh',
       render: (row) => (
@@ -942,6 +953,11 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
         {selectedOrder && (() => {
           const realPaidAmount = Number(selectedOrder.paid_amount || 0);
           const calculatedDebt = Number(selectedOrder.debt_amount || 0);
+          
+          let meta: any = {};
+          try {
+            meta = typeof selectedOrder.metadata === 'string' ? JSON.parse(selectedOrder.metadata || '{}') : (selectedOrder.metadata || {});
+          } catch (e) {}
 
           return (
           <div className="space-y-6">
@@ -1023,6 +1039,34 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
                     )}
                   </dd>
                 </div>
+                {meta.resource_name && (
+                  <div>
+                    <dt className="text-slate-500">Phòng / Bàn</dt>
+                    <dd className="font-medium text-violet-700">{meta.resource_name}</dd>
+                  </div>
+                )}
+                {meta.check_in && (
+                  <div>
+                    <dt className="text-slate-500">Giờ vào</dt>
+                    <dd className="text-slate-900">
+                      {fmtDate(meta.check_in)}
+                      {meta.original_start_time && meta.original_start_time !== meta.check_in && (
+                        <div className="text-[10px] text-slate-400 line-through">Gốc: {fmtDate(meta.original_start_time)}</div>
+                      )}
+                    </dd>
+                  </div>
+                )}
+                {meta.check_out && (
+                  <div>
+                    <dt className="text-slate-500">Giờ ra</dt>
+                    <dd className="text-slate-900">
+                      {fmtDate(meta.check_out)}
+                      {meta.original_check_out && meta.original_check_out !== meta.check_out && (
+                        <div className="text-[10px] text-slate-400 line-through">Gốc: {fmtDate(meta.original_check_out)}</div>
+                      )}
+                    </dd>
+                  </div>
+                )}
                 {selectedOrder.note && (
                   <div className="col-span-2">
                     <dt className="text-slate-500">Ghi chú</dt>

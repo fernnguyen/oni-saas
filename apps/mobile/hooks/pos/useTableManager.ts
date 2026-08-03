@@ -987,8 +987,8 @@ export function useTableManager(props: UseTableManagerProps) {
         updatedMetaObj.check_in = newDateIso;
         updatePayload.startTime = newDateIso;
       } else if (type === 'checkout') {
-        if (!updatedMetaObj.original_temp_checkout_time && currentMeta.temp_checkout_time) {
-          updatedMetaObj.original_temp_checkout_time = currentMeta.temp_checkout_time;
+        if (!updatedMetaObj.original_temp_checkout_time) {
+          updatedMetaObj.original_temp_checkout_time = currentMeta.temp_checkout_time || new Date().toISOString();
         }
         updatedMetaObj.temp_checkout_time = newDateIso;
       }
@@ -1523,12 +1523,15 @@ export function useTableManager(props: UseTableManagerProps) {
       }
       const selectedTableForPay = cartOwnerTable;
       let rentalType = selectedRentalType || 'hourly';
-      if (!selectedRentalType && selectedTableForPay.metadata) {
+      let parsedTableMeta: any = {};
+      if (selectedTableForPay.metadata) {
         try {
-          const parsed = typeof selectedTableForPay.metadata === 'string'
+          parsedTableMeta = typeof selectedTableForPay.metadata === 'string'
             ? JSON.parse(selectedTableForPay.metadata)
             : selectedTableForPay.metadata;
-          rentalType = parsed?.rental_type || 'hourly';
+          if (!selectedRentalType) {
+            rentalType = parsedTableMeta?.rental_type || 'hourly';
+          }
         } catch (e) {
           console.warn('Error parsing metadata in handlePayTableConfirmUnified:', e);
         }
@@ -1718,8 +1721,10 @@ export function useTableManager(props: UseTableManagerProps) {
             billing_cost: billing.cost,
             billing_duration: billing.label,
             check_in: selectedTableForPay.startTime,
+            original_start_time: parsedTableMeta?.original_start_time,
             duration_minutes: (billing.hours || 0) * 60 + (billing.minutes || 0),
             check_out: checkoutTimeStr,
+            original_check_out: parsedTableMeta?.original_temp_checkout_time,
             rental_type: rentalType,
             server_order_id: selectedTableForPay.current_order_id || ''
           }),
@@ -1845,9 +1850,12 @@ export function useTableManager(props: UseTableManagerProps) {
                 billing_cost: billing.cost,
                 billing_duration: billing.label,
                 check_in: selectedTableForPay.startTime,
+                original_start_time: parsedTableMeta?.original_start_time,
                 duration_minutes: (billing.hours || 0) * 60 + (billing.minutes || 0),
                 check_out: checkoutTimeStr,
-                rental_type: rentalType
+                original_check_out: parsedTableMeta?.original_temp_checkout_time,
+                rental_type: rentalType,
+                server_order_id: selectedTableForPay.current_order_id || ''
               }),
               shift_id: shiftId,
             },

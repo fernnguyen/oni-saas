@@ -1537,10 +1537,39 @@ export default function OrdersScreen() {
                           ? 'Bàn'
                           : 'Phòng/Bàn';
 
+                      let meta: any = {};
+                      try {
+                        meta = typeof selectedOrder.metadata === 'string' ? JSON.parse(selectedOrder.metadata || '{}') : (selectedOrder.metadata || {});
+                      } catch (e) {}
+
                       return (
-                        <View className="flex-row justify-between py-1">
-                          <Text className="text-tiny text-slate-500 font-medium">{resourceLabel}:</Text>
-                          <Text className="text-tiny font-semibold text-violet-700">{resource.name}</Text>
+                        <View className="mb-1 border-b border-slate-100 pb-2">
+                          <View className="flex-row justify-between py-1">
+                            <Text className="text-tiny text-slate-500 font-medium">{resourceLabel}:</Text>
+                            <Text className="text-tiny font-semibold text-violet-700">{resource.name}</Text>
+                          </View>
+                          {meta.check_in && (
+                            <View className="flex-row justify-between py-1">
+                              <Text className="text-tiny text-slate-500 font-medium">Giờ vào:</Text>
+                              <View className="items-end">
+                                <Text className="text-tiny font-semibold text-slate-800">{formatDateTime(meta.check_in)}</Text>
+                                {meta.original_start_time && meta.original_start_time !== meta.check_in && (
+                                  <Text className="text-[10px] text-slate-400 mt-0.5 line-through">Gốc: {formatDateTime(meta.original_start_time)}</Text>
+                                )}
+                              </View>
+                            </View>
+                          )}
+                          {meta.check_out && (
+                            <View className="flex-row justify-between py-1">
+                              <Text className="text-tiny text-slate-500 font-medium">Giờ ra:</Text>
+                              <View className="items-end">
+                                <Text className="text-tiny font-semibold text-slate-800">{formatDateTime(meta.check_out)}</Text>
+                                {meta.original_check_out && meta.original_check_out !== meta.check_out && (
+                                  <Text className="text-[10px] text-slate-400 mt-0.5 line-through">Gốc: {formatDateTime(meta.original_check_out)}</Text>
+                                )}
+                              </View>
+                            </View>
+                          )}
                         </View>
                       );
                     })()}

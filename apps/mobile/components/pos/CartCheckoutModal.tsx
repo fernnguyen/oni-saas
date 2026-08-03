@@ -1293,9 +1293,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             <View style={{ borderBottomWidth: 1, borderStyle: 'dashed', borderColor: '#cbd5e1' }}>
                               <Text className="text-xs text-slate-600 font-medium pb-0.5">
                                 {isTimeCharge ? (
-                                  `Đơn giá: ${formatCurrency(itemToRender.price)} x ${itemToRender.quantity} (${localRentalType === 'overnight' ? 'đêm' : (localRentalType === 'daily' ? 'ngày' : itemToRender.variant_label)})`
+                                  `${formatCurrency(itemToRender.price)} x ${itemToRender.quantity} (${localRentalType === 'overnight' ? 'đêm' : (localRentalType === 'daily' ? 'ngày' : itemToRender.variant_label)})`
                                 ) : (
-                                  `Đơn giá: ${formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} x ${itemToRender.quantity}${productsList.find(pr => pr.id === itemToRender.productId)?.unit ? ` (${productsList.find(pr => pr.id === itemToRender.productId)?.unit})` : ''}`
+                                  `${formatCurrency(itemToRender.price + (itemToRender.modifier_total || 0))} ${productsList.find(pr => pr.id === itemToRender.productId)?.unit ? `/ ${productsList.find(pr => pr.id === itemToRender.productId)?.unit}` : ''}`
                                 )}
                               </Text>
                             </View>
