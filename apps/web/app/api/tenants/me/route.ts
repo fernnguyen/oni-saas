@@ -19,7 +19,15 @@ export async function GET() {
       .eq('user_id', auth.user.id)
       .order('is_default', { ascending: false })
       .order('created_at', { ascending: true }),
-    getTenantCreationStatus(auth.user.id, admin),
+    getTenantCreationStatus(auth.user.id, admin).catch((err) => {
+      console.error('[tenants/me] Failed to get tenant creation status:', err.message);
+      return {
+        ownedCount: 0,
+        maxPerAccount: 1,
+        canCreate: true,
+        message: null,
+      };
+    }),
   ]);
 
   const { data, error } = membershipResult;

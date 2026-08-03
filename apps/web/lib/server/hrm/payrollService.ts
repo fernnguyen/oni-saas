@@ -137,12 +137,13 @@ export async function calculatePayrollRun(input: {
   actorUserId: string;
 }): Promise<HrmPayrollRunDetail> {
   const { periodStart, periodEnd } = periodDates(input.period);
-  const [employees, groups, assignments, attendance, runs] = await Promise.all([
+  const [employees, groups, assignments, attendance, runs, advancesList] = await Promise.all([
     input.repository.listEmployeeSalaryConfigurations(),
     input.repository.listSalaryGroups(),
     input.repository.listEmployeeSalaryAssignments(),
     input.repository.listMonthlyAttendance({ periodStart, periodEnd }),
     input.repository.listPayrollRuns(),
+    input.repository.listSalaryAdvances({ payPeriod: input.period, canManage: true }),
   ]);
 
   const existingSummary = runs.find(
@@ -199,6 +200,25 @@ export async function calculatePayrollRun(input: {
       overtimeMinutes: 0,
     };
     const stored = getStoredAdjustments(existingRun, employee.profileId);
+    
+    // Inject Salary Advances (approved ones only)
+    const employeeAdvances = advancesList.filter(
+      a => a.profileId === employee.profileId && a.status === 'approved'
+    );
+    
+    const existingAdvanceDeductions = stored.adjustments.deductions.filter(d => d.label.startsWith('Hoàn ứng: '));
+    const manualDeductions = stored.adjustments.deductions.filter(d => !d.label.startsWith('Hoàn ứng: '));
+    
+    const advanceDeductions = employeeAdvances.map(a => ({
+      amount: a.amount,
+      label: `Hoàn ứng: ${a.reason || 'Kỳ ' + input.period}`,
+    }));
+    
+    const finalAdjustments = {
+      ...stored.adjustments,
+      deductions: [...manualDeductions, ...advanceDeductions],
+    };
+
     const calculationInput = {
       salaryType: policy.salaryType,
       baseAmount: policy.baseAmount,
@@ -217,11 +237,11 @@ export async function calculatePayrollRun(input: {
     };
     const calculation = calculatePayroll({
       ...calculationInput,
-      ...stored.adjustments,
+      ...finalAdjustments,
     });
     const breakdown: HrmPayrollStoredBreakdown = {
       calculationInput,
-      adjustments: stored.adjustments,
+      adjustments: finalAdjustments,
       lines: calculation.breakdown,
     };
 

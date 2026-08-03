@@ -542,10 +542,13 @@ export function HrmPayrollCalculatorPanel({
               adjustmentForm.commissionLabel,
               adjustmentForm.commissionAmount,
             ),
-            deductions: adjustmentItems(
-              adjustmentForm.deductionLabel,
-              adjustmentForm.deductionAmount,
-            ),
+            deductions: [
+              ...selectedItem.breakdown.adjustments.deductions.filter(d => d.label.startsWith('Hoàn ứng: ')),
+              ...adjustmentItems(
+                adjustmentForm.deductionLabel,
+                adjustmentForm.deductionAmount,
+              )
+            ],
             manual_note: adjustmentForm.manualNote,
           }),
         },
@@ -623,8 +626,9 @@ export function HrmPayrollCalculatorPanel({
       item.breakdown.adjustments.commissions,
       'Hoa hồng',
     );
+    const manualDeductions = item.breakdown.adjustments.deductions.filter(d => !d.label.startsWith('Hoàn ứng: '));
     const deduction = firstAdjustment(
-      item.breakdown.adjustments.deductions,
+      manualDeductions,
       'Khấu trừ',
     );
     setAdjustmentForm({
@@ -735,9 +739,24 @@ export function HrmPayrollCalculatorPanel({
       render: (row) => currency(row.bonusTotal + row.commissionTotal),
     },
     {
+      key: 'advancePay',
+      label: 'Tạm ứng',
+      render: (row) => {
+        const advance = row.breakdown.adjustments.deductions
+          .filter(d => d.label.startsWith('Hoàn ứng: '))
+          .reduce((sum, d) => sum + d.amount, 0);
+        return currency(advance);
+      },
+    },
+    {
       key: 'deductionTotal',
-      label: 'Khấu trừ',
-      render: (row) => currency(row.deductionTotal),
+      label: 'Khấu trừ khác',
+      render: (row) => {
+        const advance = row.breakdown.adjustments.deductions
+          .filter(d => d.label.startsWith('Hoàn ứng: '))
+          .reduce((sum, d) => sum + d.amount, 0);
+        return currency(row.deductionTotal - advance);
+      },
     },
     {
       key: 'netPay',

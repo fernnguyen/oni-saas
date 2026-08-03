@@ -179,7 +179,9 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
       
       let workday = 0;
       if (row.status === 'present') {
-        workday = maxWorkday === 0 ? 1 : maxWorkday; // OT on weekend gets 1 day by default for UI, though can be customized
+        const actuallyWorked = !!row.clockIn || row.workedMinutes > 0;
+        const hasExceptions = row.exceptions && Object.keys(row.exceptions).length > 0;
+        workday = maxWorkday === 0 ? (actuallyWorked || row.note || hasExceptions ? 1 : 0) : maxWorkday; // OT on weekend gets 1 day by default for UI, though can be customized
         if (rules.late_half_day_threshold_minutes && (row.lateMinutes + row.earlyLeaveMinutes) > rules.late_half_day_threshold_minutes) {
           if (maxWorkday === 0.5) workday = 0;
           else workday = 0.5;
@@ -253,12 +255,15 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
               ))}
             </select>
           </label>
-          <button
-            onClick={() => setMonth(monthOptions[0].value)}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50 transition-colors"
-          >
-            Tháng này
-          </button>
+          <label className="text-sm font-medium text-slate-700">
+            &nbsp;
+            <button
+              onClick={() => setMonth(monthOptions[0].value)}
+              className="mt-1 block rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold hover:bg-slate-50 transition-colors"
+            >
+              Tháng này
+            </button>
+          </label>
           <label className="text-sm font-medium text-slate-700">
             Phòng ban
             <select

@@ -577,6 +577,7 @@ export function CashbookClient({ shopId, shopName, permissions, planCode }: Prop
     inventory_receipt: 'Thu nhập kho',
     prepaid_deposit: 'Nạp tiền ví trả trước',
     depreciation_expense: 'Chi phí khấu hao',
+    salary_advance: 'Tạm ứng lương',
   }
 
   const METHOD_MAP: Record<string, string> = {
@@ -649,7 +650,7 @@ export function CashbookClient({ shopId, shopName, permissions, planCode }: Prop
         if (row.category === 'sales') color = 'blue'
         else if (row.category === 'debt_collection' || row.category === 'debt_payment') color = 'orange'
         else if (row.category === 'import' || row.category === 'inventory_payment' || row.category === 'inventory_receipt' || row.category === 'inventory') color = 'purple'
-        else if (row.category === 'salary') color = 'yellow'
+        else if (row.category === 'salary' || row.category === 'salary_advance') color = 'yellow'
         else if (row.category === 'utilities') color = 'blue'
         else if (row.category === 'depreciation_expense') color = 'purple'
         

@@ -1506,6 +1506,14 @@ export class PostgresHrmRepository {
       if (isHoliday && (!calculatedStatus || calculatedStatus === 'absent')) {
         calculatedStatus = 'holiday';
       }
+
+      // Pre-generated rows might have status='present' without actual attendance
+      if (calculatedStatus === 'present' && !row.clock_in && Number(row.worked_minutes ?? 0) === 0) {
+         const hasExceptions = row.exceptions && Object.keys(row.exceptions).length > 0;
+         if (!hasExceptions && !row.note) {
+            calculatedStatus = null;
+         }
+      }
       
       const errors: { type: string; minutes?: number; message: string }[] = [];
       const rules = row.attendance_rules || {};
@@ -1513,8 +1521,19 @@ export class PostgresHrmRepository {
       const lateThreshold = rules.late_threshold_for_half_day_minutes ?? 60;
       const earlyThreshold = rules.early_leave_threshold_for_half_day_minutes ?? 60;
 
+      let sw = rules.standard_workdays;
+      if (Array.isArray(sw)) {
+         const temp: Record<string, number> = { '0': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0 };
+         sw.forEach((d: number) => temp[d.toString()] = 1);
+         sw = temp;
+      }
+      sw = sw || { '1': 1, '2': 1, '3': 1, '4': 1, '5': 1, '6': 1, '0': 0 };
+      
+      const dayIndex = new Date(row.work_date).getDay().toString();
+      const isRestDay = (sw[dayIndex] ?? 0) === 0;
+
       // 1. Auto-absent calculation
-      if (!calculatedStatus && row.shift_start_time && !row.clock_in) {
+      if (!calculatedStatus && !isRestDay && row.shift_start_time && !row.clock_in) {
         const shiftStartDateTime = new Date(`${row.work_date}T${row.shift_start_time}+07:00`);
         if (now.getTime() > shiftStartDateTime.getTime() + autoAbsentMinutes * 60000) {
           calculatedStatus = 'absent';
@@ -4357,6 +4376,23 @@ export class PostgresHrmRepository {
     }));
   }
 
+  async getSalaryAdvance(advanceId: string) {
+    const scope = this.scope;
+    const result = await this.pool.query(
+      `select
+         sa.*,
+         e.name as employee_name,
+         e.employee_code
+       from hrm_salary_advances sa
+       join hrm_employee_profiles ep on sa.profile_id = ep.id
+       join employees e on e.id = ep.source_employee_id and e.tenant_id = sa.tenant_id
+       where sa.id = $1 and sa.tenant_id = $2 and sa.branch_id = $3`,
+      [advanceId, scope.tenantId, scope.branchId],
+    );
+    if (result.rows.length === 0) return null;
+    return result.rows[0];
+  }
+
   async createSalaryAdvance(input: {
     id: string;
     profileId: string;
@@ -4381,13 +4417,30 @@ export class PostgresHrmRepository {
     );
   }
 
-  async approveSalaryAdvance(input: { advanceId: string; actorUserId: string }): Promise<void> {
+  async approveSalaryAdvance(input: {
+    advanceId: string;
+    actorUserId: string;
+    fundId?: string;
+    cashbookTransactionId?: string;
+  }): Promise<void> {
     const scope = this.scope;
     const result = await this.pool.query(
       `update hrm_salary_advances
-       set status = 'approved', approved_by = $1, approved_at = now(), updated_at = now()
-       where id = $2 and tenant_id = $3 and branch_id = $4 and status = 'pending'`,
-      [input.actorUserId, input.advanceId, scope.tenantId, scope.branchId],
+       set status = 'approved',
+           approved_by = $1,
+           approved_at = now(),
+           fund_id = $2,
+           cashbook_transaction_id = $3,
+           updated_at = now()
+       where id = $4 and tenant_id = $5 and branch_id = $6 and status = 'pending'`,
+      [
+        input.actorUserId,
+        input.fundId || null,
+        input.cashbookTransactionId || null,
+        input.advanceId,
+        scope.tenantId,
+        scope.branchId
+      ],
     );
     if (result.rowCount === 0) throw new Error('Không thể duyệt đơn ứng lương.');
   }

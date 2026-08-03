@@ -966,6 +966,88 @@ export function useTableManager(props: UseTableManagerProps) {
   };
 
   // Trình mở DatePicker
+  const handleUpdateTableTime = async (tableId: string, type: 'checkin' | 'checkout', newDateIso: string) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
+      const targetTable = tables.find(t => t.id === tableId);
+      if (!targetTable) return;
+
+      let currentMeta: any = {};
+      try {
+        currentMeta = typeof targetTable.metadata === 'string' ? JSON.parse(targetTable.metadata) : (targetTable.metadata || {});
+      } catch (e) { }
+
+      let updatedMetaObj = { ...currentMeta };
+      let updatePayload: any = {};
+
+      if (type === 'checkin') {
+        if (!updatedMetaObj.original_start_time && targetTable.startTime) {
+          updatedMetaObj.original_start_time = targetTable.startTime;
+        }
+        updatedMetaObj.check_in = newDateIso;
+        updatePayload.startTime = newDateIso;
+      } else if (type === 'checkout') {
+        if (!updatedMetaObj.original_temp_checkout_time && currentMeta.temp_checkout_time) {
+          updatedMetaObj.original_temp_checkout_time = currentMeta.temp_checkout_time;
+        }
+        updatedMetaObj.temp_checkout_time = newDateIso;
+      }
+
+      const updatedMeta = JSON.stringify(updatedMetaObj);
+      updatePayload.metadata = updatedMeta;
+
+      if (Platform.OS === 'web') {
+        setTables(prev => prev.map(t => t.id === tableId ? { ...t, ...updatePayload } : t));
+      } else {
+        await db
+          .update(schema.location_resources)
+          .set(updatePayload)
+          .where(eq(schema.location_resources.id, tableId));
+        const updated = await db.select().from(schema.location_resources);
+        setTables(updated);
+      }
+
+      if (activeTable?.id === tableId) {
+        setActiveTable((prev: any) => prev ? { ...prev, ...updatePayload } : null);
+      }
+
+      showToast(`Đã cập nhật ${type === 'checkin' ? 'giờ vào' : 'giờ ra'} thành công.`, "success");
+
+      // Đồng bộ ngầm
+      if (isOnline) {
+        (async () => {
+          try {
+            const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+            const currentUrl = getApiBaseUrl();
+            const headers = await getApiHeaders();
+            
+            await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${tableId}`, {
+              method: 'PATCH',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify(updatePayload),
+            });
+            
+            if (targetTable.current_order_id) {
+              await fetch(`${currentUrl}/api/shops/${shopId}/orders/${targetTable.current_order_id}`, {
+                method: 'PUT',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  metadata: updatedMeta,
+                  ...(type === 'checkin' ? { created_at: newDateIso } : {})
+                })
+              });
+            }
+          } catch (err) {
+            console.warn('[Table Sync] Time update sync failed', err);
+          }
+        })();
+      }
+    } catch (error) {
+      console.error('Update table time error:', error);
+      showToast('Lỗi cập nhật thời gian', 'error');
+    }
+  };
+
   const handleDatePickerOpen = (index: number, field: 'dob' | 'expiry_date') => {
     setPickerTargetIndex(index);
     setPickerTargetField(field);
@@ -2402,6 +2484,7 @@ export function useTableManager(props: UseTableManagerProps) {
     isCleanConfirmModalOpen, setIsCleanConfirmModalOpen,
     tableToClean, setTableToClean,
     cleanConfirmSaving,
-    handleCleanTable
+    handleCleanTable,
+    handleUpdateTableTime
   };
 }

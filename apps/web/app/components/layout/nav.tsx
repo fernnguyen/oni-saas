@@ -54,6 +54,7 @@ import {
   CircleDollarSign,
   Settings2,
   Clock,
+  Banknote,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -281,6 +282,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
             { href: joinPath(base, '/hrm/monthly-attendance'), label: 'Bảng công tháng', icon: CalendarClock, permission: 'hrm.view' },
             { href: joinPath(base, '/hrm/leaves'), label: 'Nghỉ phép', icon: CalendarDays, permission: 'hrm.view' },
             { href: joinPath(base, '/hrm/employees'), label: 'Nhân viên', icon: UsersRound, permission: 'hrm.view' },
+            { href: joinPath(base, '/hrm/salary-advances'), label: 'Ứng lương', icon: Banknote, permission: 'hrm.view' },
             { href: joinPath(base, '/hrm/payroll'), label: 'Tiền lương', icon: CircleDollarSign, permission: 'hrm.payroll.view' },
             { href: joinPath(base, '/hrm/settings'), label: 'Cài đặt HRM', icon: Settings2, permission: 'hrm.settings.manage' },
           ]
