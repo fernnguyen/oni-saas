@@ -14,6 +14,7 @@ export interface ConfirmDialogProps {
   loading?: boolean
   children?: React.ReactNode
   disableOutsideClick?: boolean
+  size?: 'sm' | 'lg'
 }
 
 export function ConfirmDialog({
@@ -28,6 +29,7 @@ export function ConfirmDialog({
   loading = false,
   children,
   disableOutsideClick = false,
+  size = 'sm',
 }: ConfirmDialogProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -47,7 +49,7 @@ export function ConfirmDialog({
       }}
     >
       <div
-        className="mx-4 w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+        className={`mx-4 w-full rounded-2xl bg-white p-6 shadow-xl ${size === 'lg' ? 'max-w-lg' : 'max-w-sm'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-base font-semibold text-slate-900">{title}</h2>

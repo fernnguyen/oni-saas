@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { realtimeEngine } from '@/lib/server/realtime';
 import { RollbackContext } from '@oni/adapters';
 import { getHrmSchemaError } from '@/lib/server/hrm/schemaError';
+import { notifySalaryAdvanceEmployee } from '@/lib/server/hrm/salaryAdvanceNotification';
 
 const patchSchema = z.object({
   status: z.enum(['approved', 'disbursed', 'rejected']),
@@ -43,15 +44,15 @@ export async function PATCH(
         rejectionReason: payload.rejection_reason,
       });
 
-      // Notify employee
-      await realtimeEngine.sendNotification({
+      await notifySalaryAdvanceEmployee({
+        repository: hrmRepo,
+        publisher: realtimeEngine,
         tenantId,
         branchId: shopId,
-        type: 'system',
-        recipientId: advance.profile_id,
+        profileId: advance.profile_id,
+        advanceId,
         title: 'Yêu cầu ứng lương bị từ chối',
         content: `Yêu cầu ứng lương ${parseInt(advance.amount).toLocaleString('vi-VN')}đ đã bị từ chối. Lý do: ${payload.rejection_reason || 'Không có'}`,
-        metadata: { path: '/hrm/salary-advances' },
       });
 
       return NextResponse.json({ success: true });
@@ -67,14 +68,15 @@ export async function PATCH(
         actorUserId: userId,
       });
 
-      await realtimeEngine.sendNotification({
+      await notifySalaryAdvanceEmployee({
+        repository: hrmRepo,
+        publisher: realtimeEngine,
         tenantId,
         branchId: shopId,
-        type: 'system',
-        recipientId: advance.profile_id,
+        profileId: advance.profile_id,
+        advanceId,
         title: 'Yêu cầu ứng lương đã được duyệt',
         content: `Yêu cầu ứng lương ${parseInt(advance.amount).toLocaleString('vi-VN')}đ đã được duyệt và đang chờ chi tiền.`,
-        metadata: { path: '/hrm/salary-advances' },
       });
 
       return NextResponse.json({ success: true, status: 'approved' });
@@ -136,15 +138,15 @@ export async function PATCH(
         cashbookTransactionId: cashbookTxId,
       });
 
-      // Notify employee
-      await realtimeEngine.sendNotification({
+      await notifySalaryAdvanceEmployee({
+        repository: hrmRepo,
+        publisher: realtimeEngine,
         tenantId,
         branchId: shopId,
-        type: 'system',
-        recipientId: advance.profile_id,
+        profileId: advance.profile_id,
+        advanceId,
         title: 'Khoản ứng lương đã được chi',
         content: `Khoản ứng lương ${advanceAmount.toLocaleString('vi-VN')}đ đã được duyệt và chi từ quỹ.`,
-        metadata: { path: '/hrm/salary-advances' },
       });
 
       return NextResponse.json({ success: true, cashbook_transaction_id: cashbookTxId });

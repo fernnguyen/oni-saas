@@ -82,7 +82,7 @@ function formatPayPeriod(payPeriod: string): string {
   return `Tháng ${Number(match[2])}/${match[1]}`;
 }
 
-function recentPayPeriods(count = 24): string[] {
+function recentPayPeriods(count = 12): string[] {
   const [currentYear, currentMonth] = currentPayPeriod()
     .split('-')
     .map(Number);
@@ -941,6 +941,7 @@ function ProcessAdvanceDialog({
       }
       loading={isProcessing}
       disableOutsideClick={isProcessing}
+      size="lg"
     >
       <div className="space-y-4">
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
