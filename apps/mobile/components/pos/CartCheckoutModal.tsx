@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import { calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
 import { PosItemEditModal } from './PosItemEditModal';
 import { getCheckoutSessionLabels } from '../../lib/utils/resource-billing-presentation';
+import { PosDateTimePicker } from './PosDateTimePicker';
 
 interface CartCheckoutModalProps {
   visible: boolean;
@@ -42,6 +43,7 @@ interface CartCheckoutModalProps {
   paymentMethodsList?: any[];
   cartOwnerTable?: any;
   shopVertical?: string;
+  onUpdateTime?: (type: 'checkin' | 'checkout', iso: string) => void;
   onEditItemSave?: (cartItemId: string, finalPrice: number, originalPrice: number, discountAmt: number, discountPct: number) => void;
 }
 
@@ -88,6 +90,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     paymentMethodsList = [],
     cartOwnerTable,
     shopVertical,
+    onUpdateTime,
     onEditItemSave
   } = props;
   const checkoutSessionLabels = getCheckoutSessionLabels(shopVertical);
@@ -194,12 +197,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
   // Thêm các state phục vụ chỉnh sửa giờ ra
   const [customCheckoutTime, setCustomCheckoutTime] = useState<Date | null>(null);
-  const [isEditingCheckoutTime, setIsEditingCheckoutTime] = useState(false);
-  const [editHour, setEditHour] = useState('');
-  const [editMinute, setEditMinute] = useState('');
-  const [editDate, setEditDate] = useState(''); // DD/MM/YYYY
-  const [isConfirmCheckoutTimeVisible, setIsConfirmCheckoutTimeVisible] = useState(false);
-  const [pendingCheckoutTime, setPendingCheckoutTime] = useState<Date | null>(null);
+  const [isTimePickerOpen, setIsTimePickerOpen] = useState(false);
+  const [timePickerType, setTimePickerType] = useState<'checkin' | 'checkout'>('checkin');
 
   const calculateBilling = React.useCallback((table: any, customCheckoutTime?: Date, currentRentalType?: 'hourly' | 'overnight' | 'daily') => {
     if (!table.startTime) return { hours: 0, minutes: 0, cost: 0, label: '0h 0p', details: '' };
@@ -353,64 +352,6 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     });
     return Array.from(ratesSet).sort((a, b) => a - b);
   }, [cart, timeChargeTax]);
-
-  const handleStartEditCheckoutTime = () => {
-    let currentMeta: any = {};
-    if (cartOwnerTable && cartOwnerTable.metadata) {
-      try {
-        currentMeta = typeof cartOwnerTable.metadata === 'string' ? JSON.parse(cartOwnerTable.metadata) : cartOwnerTable.metadata;
-      } catch (e) {}
-    }
-    const currentCheckout = customCheckoutTime || (currentMeta.actual_checkout_requested_at ? new Date(currentMeta.actual_checkout_requested_at) : currentTime);
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    setEditHour(pad(currentCheckout.getHours()));
-    setEditMinute(pad(currentCheckout.getMinutes()));
-    setEditDate(`${pad(currentCheckout.getDate())}/${pad(currentCheckout.getMonth() + 1)}/${currentCheckout.getFullYear()}`);
-    setIsEditingCheckoutTime(true);
-  };
-
-  const handleConfirmEditCheckoutTime = () => {
-    try {
-      const hour = parseInt(editHour, 10);
-      const minute = parseInt(editMinute, 10);
-      if (isNaN(hour) || hour < 0 || hour > 23 || isNaN(minute) || minute < 0 || minute > 59) {
-        Alert.alert('Lỗi', 'Giờ (0-23) hoặc Phút (0-59) không hợp lệ!');
-        return;
-      }
-      
-      const dateParts = editDate.split('/');
-      if (dateParts.length !== 3) {
-        Alert.alert('Lỗi', 'Định dạng ngày phải là DD/MM/YYYY!');
-        return;
-      }
-      const day = parseInt(dateParts[0], 10);
-      const month = parseInt(dateParts[1], 10);
-      const year = parseInt(dateParts[2], 10);
-      if (isNaN(day) || day < 1 || day > 31 || isNaN(month) || month < 1 || month > 12 || isNaN(year) || year < 2000) {
-        Alert.alert('Lỗi', 'Ngày, tháng hoặc năm không hợp lệ!');
-        return;
-      }
-      
-      const newDate = new Date(year, month - 1, day, hour, minute, 0);
-      if (isNaN(newDate.getTime())) {
-        Alert.alert('Lỗi', 'Thời gian đã nhập không hợp lệ!');
-        return;
-      }
-      
-      if (cartOwnerTable && cartOwnerTable.startTime) {
-        const checkInDate = new Date(cartOwnerTable.startTime);
-        if (newDate.getTime() < checkInDate.getTime()) {
-          Alert.alert('Lỗi', 'Giờ ra không được nhỏ hơn giờ vào!');
-          return;
-        }
-      }
-
-      setPendingCheckoutTime(newDate);
-      setIsConfirmCheckoutTimeVisible(true);
-    } catch (e) {
-      Alert.alert('Lỗi', 'Không thể phân tích thời gian đã nhập!');
-    }
-  };
 
   React.useEffect(() => {
     if (!visible || !cartOwnerTable) return;
@@ -1093,15 +1034,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 <View className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
                   <View className="flex-row justify-between items-center mb-2.5">
                     <Text className="text-xxs font-semibold text-slate-400">{checkoutSessionLabels.sectionTitle}</Text>
-                    {!isEditingCheckoutTime && (
-                      <TouchableOpacity 
-                        onPress={handleStartEditCheckoutTime}
-                        className="flex-row items-center bg-orange-50 border border-orange-200 px-2 py-1 rounded-lg"
-                      >
-                        <Ionicons name="create-outline" size={12} color="#fa5908" />
-                        <Text className="text-[10px] font-semibold text-orange-500 ml-1">{checkoutSessionLabels.editTimeLabel}</Text>
-                      </TouchableOpacity>
-                    )}
+
                   </View>
 
                    {shopVertical === 'lodging' && (
@@ -1179,113 +1112,26 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                     </View>
                   )}
                   
-                  {isEditingCheckoutTime ? (
-                    <View className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3">
-                      <Text className="text-xxs font-bold text-slate-500">{checkoutSessionLabels.editFormTitle}</Text>
-                      
-                      {/* Cảnh báo ghi log đảm bảo tính minh bạch */}
-                      <View className="flex-row items-start bg-amber-50 border border-amber-200 rounded-lg p-2 mb-[5px]">
-                        <Ionicons name="warning-outline" size={14} color="#d97706" style={{ marginTop: 1 }} />
-                        <Text className="text-[10px] text-amber-800 flex-1 leading-relaxed ml-1.5 font-medium">
-                          Mọi thao tác thay đổi giờ checkout sẽ được ghi lại trong nhật ký hệ thống để đảm bảo tính minh bạch.
-                        </Text>
-                      </View>
-                      
-                      <View className="flex-row gap-3">
-                        <View className="flex-1">
-                          <Text className="text-[9px] font-semibold text-slate-400 mb-1">GIỜ (0-23)</Text>
-                          <TextInput
-                            value={editHour}
-                            onChangeText={setEditHour}
-                            keyboardType="numeric"
-                            maxLength={2}
-                            placeholder="HH"
-                            className="bg-slate-50 border border-slate-200 rounded-lg h-9 px-2 text-center text-xs font-semibold text-slate-800"
-                            style={{
-                              paddingVertical: 0,
-                              textAlignVertical: 'center',
-                              lineHeight: undefined,
-                              ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
-                            }}
-                          />
-                        </View>
-                        <View className="flex-1">
-                          <Text className="text-[9px] font-semibold text-slate-400 mb-1">PHÚT (0-59)</Text>
-                          <TextInput
-                            value={editMinute}
-                            onChangeText={setEditMinute}
-                            keyboardType="numeric"
-                            maxLength={2}
-                            placeholder="mm"
-                            className="bg-slate-50 border border-slate-200 rounded-lg h-9 px-2 text-center text-xs font-semibold text-slate-800"
-                            style={{
-                              paddingVertical: 0,
-                              textAlignVertical: 'center',
-                              lineHeight: undefined,
-                              ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
-                            }}
-                          />
-                        </View>
-                        <View className="flex-[2]">
-                          <Text className="text-[9px] font-semibold text-slate-400 mb-1">NGÀY (DD/MM/YYYY)</Text>
-                          <TextInput
-                            value={editDate}
-                            onChangeText={setEditDate}
-                            placeholder="DD/MM/YYYY"
-                            className="bg-slate-50 border border-slate-200 rounded-lg h-9 px-2 text-center text-xs font-semibold text-slate-800"
-                            style={{
-                              paddingVertical: 0,
-                              textAlignVertical: 'center',
-                              lineHeight: undefined,
-                              ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as any : {})
-                            }}
-                          />
-                        </View>
-                      </View>
-                      
-                      {/* Nút khôi phục sử dụng giờ hệ thống */}
-                      <TouchableOpacity
-                        onPress={() => {
-                          setCustomCheckoutTime(null);
-                          setIsEditingCheckoutTime(false);
-                        }}
-                        className="py-2.5 mt-[5px] bg-blue-50 border border-dashed border-blue-300 rounded-lg flex-row items-center justify-center active:bg-blue-100"
-                      >
-                        <Ionicons name="refresh-outline" size={12} color="#1d4ed8" style={{ marginRight: 4 }} />
-                        <Text className="text-[10px] font-semibold text-blue-700">Sử dụng giờ hệ thống (Khôi phục)</Text>
+                  <View className="space-y-2 mt-2">
+                    <View className="flex-row justify-between items-center bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <Text className="text-xs font-semibold text-slate-500">Giờ vào:</Text>
+                      <TouchableOpacity onPress={() => { setTimePickerType('checkin'); setIsTimePickerOpen(true); }} className="flex-row items-center gap-2 active:opacity-60 bg-white px-3 py-1.5 rounded-md border border-slate-200">
+                        <Text className="text-xs font-bold text-slate-800">{billingInfo?.checkIn || 'N/A'}</Text>
+                        <Ionicons name="pencil" size={12} color="#94a3b8" />
                       </TouchableOpacity>
-                      
-                      <View className="flex-row gap-2.5 pt-1">
-                        <TouchableOpacity
-                          onPress={() => setIsEditingCheckoutTime(false)}
-                          className="flex-1 py-2 bg-slate-100 border border-slate-200 rounded-lg items-center"
-                        >
-                          <Text className="text-[10px] font-semibold text-slate-600">Hủy</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={handleConfirmEditCheckoutTime}
-                          className="flex-1 py-2 bg-orange-500 rounded-lg items-center"
-                        >
-                          <Text className="text-[10px] font-semibold text-white">Xác nhận</Text>
-                        </TouchableOpacity>
-                      </View>
                     </View>
-                  ) : (
-                    <View className="space-y-2">
-                      <View className="flex-row justify-between items-center">
-                        <Text className="text-xs text-slate-500">Giờ vào:</Text>
-                        <Text className="text-xs font-semibold text-slate-850">{billingInfo.checkIn}</Text>
-                      </View>
-                      <View className="flex-row justify-between items-center">
-                        <Text className="text-xs text-slate-500">Giờ ra:</Text>
-                        <Text className="text-xs font-semibold text-slate-850">{billingInfo.checkOut}</Text>
-                      </View>
-                      <View className="flex-row justify-between items-center border-t border-slate-200 pt-2">
-                        <Text className="text-xs text-slate-500">Tổng thời gian:</Text>
-                        <Text className="text-xs font-bold text-emerald-600">{billingInfo.duration}</Text>
-                      </View>
+                    <View className="flex-row justify-between items-center bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <Text className="text-xs font-semibold text-slate-500">Giờ ra:</Text>
+                      <TouchableOpacity onPress={() => { setTimePickerType('checkout'); setIsTimePickerOpen(true); }} className="flex-row items-center gap-2 active:opacity-60 bg-white px-3 py-1.5 rounded-md border border-slate-200">
+                        <Text className="text-xs font-bold text-slate-800">{billingInfo?.checkOut || 'N/A'}</Text>
+                        <Ionicons name="pencil" size={12} color="#94a3b8" />
+                      </TouchableOpacity>
                     </View>
-                  )}
+                    <View className="flex-row justify-between items-center border-t border-slate-200 pt-2 mt-1">
+                      <Text className="text-xs text-slate-500">Tổng thời gian:</Text>
+                      <Text className="text-xs font-bold text-emerald-600">{billingInfo?.duration || '0'}</Text>
+                    </View>
+                  </View>
                 </View>
               )}
 
@@ -2164,83 +2010,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
             </ScrollView>
           </Dialog>
 
-          {/* Dialog xác nhận thay đổi giờ ra */}
-          <Dialog
-            visible={isConfirmCheckoutTimeVisible}
-            onClose={() => setIsConfirmCheckoutTimeVisible(false)}
-            onConfirm={() => {
-              if (pendingCheckoutTime) {
-                setCustomCheckoutTime(pendingCheckoutTime);
-                setIsEditingCheckoutTime(false);
-                setIsConfirmCheckoutTimeVisible(false);
-                setPendingCheckoutTime(null);
-              }
-            }}
-            title="Xác nhận thay đổi giờ ra"
-            confirmLabel="Xác nhận"
-            cancelLabel="Hủy"
-            variant="default"
-          >
-            {pendingCheckoutTime && (
-              <View className="space-y-3.5 w-full">
-                {/* 1. Các mốc thời gian so sánh */}
-                <View className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
-                  <View className="flex-row justify-between items-center">
-                    <Text className="text-[10px] text-slate-500 font-semibold">GIỜ VÀO:</Text>
-                    <Text className="text-xs font-bold text-slate-800">
-                      {cartOwnerTable?.startTime ? formatDateTime(new Date(cartOwnerTable.startTime)) : 'N/A'}
-                    </Text>
-                  </View>
-                  <View className="flex-row justify-between items-center border-t border-slate-100 pt-2.5">
-                    <Text className="text-[10px] text-slate-500 font-semibold">GIỜ RA (ĐÃ SỬA):</Text>
-                    <Text className="text-xs font-bold text-orange-600">
-                      {formatDateTime(pendingCheckoutTime)}
-                    </Text>
-                  </View>
-                  <View className="flex-row justify-between items-center border-t border-slate-100 pt-2.5">
-                    <Text className="text-[10px] text-slate-500 font-semibold">GIỜ HIỆN TẠI (HỆ THỐNG):</Text>
-                    <Text className="text-xs font-bold text-slate-600">
-                      {formatDateTime(new Date())}
-                    </Text>
-                  </View>
-                </View>
 
-                {/* 2. Phần thông báo nếu lệch quá lớn */}
-                {(() => {
-                  const now = new Date();
-                  const diffMs = Math.abs(pendingCheckoutTime.getTime() - now.getTime());
-                  const totalMinutes = Math.floor(diffMs / (1000 * 60));
-                  
-                  const days = Math.floor(totalMinutes / (24 * 60));
-                  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-                  const mins = totalMinutes % 60;
-                  
-                  const parts = [];
-                  if (days > 0) parts.push(`${days} ngày`);
-                  if (hours > 0) parts.push(`${hours} giờ`);
-                  if (mins > 0) parts.push(`${mins} phút`);
-                  const diffLabel = parts.join(' ');
-
-                  const isDeviationLarge = totalMinutes >= 15;
-                  
-                  return (
-                    <View className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1.5 mt-3">
-                      <View className="flex-row items-center">
-                        <Ionicons name="shield-checkmark-outline" size={14} color="#d97706" />
-                        <Text className="text-[10px] font-bold text-amber-800 ml-1">Cảnh báo</Text>
-                      </View>
-                      <Text className="text-[10px] text-amber-800 leading-relaxed font-medium">
-                        {isDeviationLarge 
-                          ? `Chú ý: Giờ ra lệch ${diffLabel} so với giờ thực tế. Hành động thay đổi giờ giấc này sẽ được ghi nhận chi tiết vào lịch sử hệ thống.`
-                          : 'Hành động thay đổi giờ ra này sẽ được ghi lại trong nhật ký hệ thống để đảm bảo tính minh bạch.'
-                        }
-                      </Text>
-                    </View>
-                  );
-                })()}
-              </View>
-            )}
-          </Dialog>
 
           {/* MODAL FORM THÊM NHANH KHÁCH HÀNG MỚI (Dùng absolute View thay vì lồng Modal để tránh đơ UI trên React Native) */}
           {isQuickAddModalOpen && (
@@ -2544,6 +2314,71 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
             </View>
           )}
         </View>
+        <PosDateTimePicker
+          isOpen={isTimePickerOpen}
+          onClose={() => setIsTimePickerOpen(false)}
+          onConfirm={(dateStr, hourStr, minStr) => {
+            const [d, m, y] = dateStr.split('/');
+            const targetDate = new Date();
+            targetDate.setFullYear(parseInt(y, 10));
+            targetDate.setMonth(parseInt(m, 10) - 1);
+            targetDate.setDate(parseInt(d, 10));
+            targetDate.setHours(parseInt(hourStr, 10));
+            targetDate.setMinutes(parseInt(minStr, 10));
+            targetDate.setSeconds(0);
+            
+            if (timePickerType === 'checkout') {
+              setCustomCheckoutTime(targetDate);
+            }
+            if (onUpdateTime) {
+              onUpdateTime(timePickerType, targetDate.toISOString());
+            }
+            setIsTimePickerOpen(false);
+          }}
+          title={timePickerType === 'checkin' ? 'Cập nhật Giờ vào' : 'Cập nhật Giờ ra'}
+          initialDate={(() => {
+            let dt = new Date();
+            if (timePickerType === 'checkin' && cartOwnerTable?.startTime) {
+              dt = new Date(cartOwnerTable.startTime);
+            } else if (timePickerType === 'checkout' && customCheckoutTime) {
+              dt = customCheckoutTime;
+            } else if (timePickerType === 'checkout') {
+              try {
+                const meta = typeof cartOwnerTable?.metadata === 'string' ? JSON.parse(cartOwnerTable.metadata) : (cartOwnerTable?.metadata || {});
+                if (meta.temp_checkout_time) dt = new Date(meta.temp_checkout_time);
+              } catch(e) {}
+            }
+            return `${dt.getDate().toString().padStart(2, '0')}/${(dt.getMonth()+1).toString().padStart(2, '0')}/${dt.getFullYear()}`;
+          })()}
+          initialHour={(() => {
+            let dt = new Date();
+            if (timePickerType === 'checkin' && cartOwnerTable?.startTime) {
+              dt = new Date(cartOwnerTable.startTime);
+            } else if (timePickerType === 'checkout' && customCheckoutTime) {
+              dt = customCheckoutTime;
+            } else if (timePickerType === 'checkout') {
+              try {
+                const meta = typeof cartOwnerTable?.metadata === 'string' ? JSON.parse(cartOwnerTable.metadata) : (cartOwnerTable?.metadata || {});
+                if (meta.temp_checkout_time) dt = new Date(meta.temp_checkout_time);
+              } catch(e) {}
+            }
+            return dt.getHours().toString();
+          })()}
+          initialMinute={(() => {
+            let dt = new Date();
+            if (timePickerType === 'checkin' && cartOwnerTable?.startTime) {
+              dt = new Date(cartOwnerTable.startTime);
+            } else if (timePickerType === 'checkout' && customCheckoutTime) {
+              dt = customCheckoutTime;
+            } else if (timePickerType === 'checkout') {
+              try {
+                const meta = typeof cartOwnerTable?.metadata === 'string' ? JSON.parse(cartOwnerTable.metadata) : (cartOwnerTable?.metadata || {});
+                if (meta.temp_checkout_time) dt = new Date(meta.temp_checkout_time);
+              } catch(e) {}
+            }
+            return dt.getMinutes().toString();
+          })()}
+        />
       </Modal>
     </>
   );

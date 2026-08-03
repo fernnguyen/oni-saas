@@ -1010,6 +1010,10 @@ export function useTableManager(props: UseTableManagerProps) {
       if (activeTable?.id === tableId) {
         setActiveTable((prev: any) => prev ? { ...prev, ...updatePayload } : null);
       }
+      
+      if (cartOwnerTable?.id === tableId) {
+        setCartOwnerTable((prev: any) => prev ? { ...prev, ...updatePayload } : null);
+      }
 
       showToast(`Đã cập nhật ${type === 'checkin' ? 'giờ vào' : 'giờ ra'} thành công.`, "success");
 

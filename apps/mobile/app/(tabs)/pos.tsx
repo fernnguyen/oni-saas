@@ -34,6 +34,7 @@ import QRTransferModal from '../../components/pos/QRTransferModal';
 
 import { LodgingGuest, LodgingGuestsForm } from '../../components/pos/LodgingGuestsForm';
 import { PosDatePicker } from '../../components/pos/PosDatePicker';
+import { PosDateTimePicker } from '../../components/pos/PosDateTimePicker';
 import { PosToast } from '../../components/pos/PosToast';
 import { useCart } from '../../hooks/pos/useCart';
 import { usePosData } from '../../hooks/pos/usePosData';
@@ -298,6 +299,10 @@ export default function PosScreen() {
   const [selectedTableForPay, setSelectedTableForPay] = useState<any>(null);
   const [tablePayMethod, setTablePayMethod] = useState<'Tiền mặt' | 'Chuyển khoản'>('Tiền mặt');
   const [isPayingCartLoading, setIsPayingCartLoading] = useState(false);
+
+  // Time Picker states for table check-in / check-out
+  const [isTableTimePickerOpen, setIsTableTimePickerOpen] = useState(false);
+  const [tableTimePickerType, setTableTimePickerType] = useState<'checkin' | 'checkout'>('checkin');
   // States quản lý ca làm việc (Shift Management)
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [openingCashInput, setOpeningCashInput] = useState('0');
@@ -439,7 +444,8 @@ export default function PosScreen() {
     isCleanConfirmModalOpen, setIsCleanConfirmModalOpen,
     tableToClean, setTableToClean,
     cleanConfirmSaving,
-    handleCleanTable
+    handleCleanTable,
+    handleUpdateTableTime
   } = useTableManager({
     tables, setTables, shopVertical, activeShopId,
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
@@ -2714,27 +2720,30 @@ export default function PosScreen() {
               />
             </View>
 
-            <PosDatePicker
-              isOpen={isDatePickerOpen}
-              onClose={() => setIsDatePickerOpen(false)}
-              targetField={pickerTargetField || ''}
-              initialDate={(pickerTargetField && pickerTargetIndex !== null ? lodgingGuests[pickerTargetIndex]?.[pickerTargetField as keyof LodgingGuest] : undefined) as string | undefined}
-              onConfirm={(dateStr) => {
-                if (!pickerTargetField || pickerTargetIndex === null) return;
-                const updated = [...lodgingGuests];
-                if (!updated[pickerTargetIndex]) {
-                  updated[pickerTargetIndex] = { name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' };
-                }
-                updated[pickerTargetIndex] = { ...updated[pickerTargetIndex], [pickerTargetField]: dateStr };
-                setLodgingGuests(updated);
-                setIsDatePickerOpen(false);
-              }}
-            />
+
 
             {renderQuickCustomerModal('open_table')}
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <PosDatePicker
+        isOpen={isDatePickerOpen}
+        onClose={() => setIsDatePickerOpen(false)}
+        targetField={pickerTargetField || ''}
+        initialDate={(pickerTargetField && pickerTargetIndex !== null ? lodgingGuests[pickerTargetIndex]?.[pickerTargetField as keyof LodgingGuest] : undefined) as string | undefined}
+        onConfirm={(dateStr) => {
+          if (!pickerTargetField || pickerTargetIndex === null) return;
+          const updated = [...lodgingGuests];
+          if (!updated[pickerTargetIndex]) {
+            updated[pickerTargetIndex] = { name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' };
+          }
+          updated[pickerTargetIndex] = { ...updated[pickerTargetIndex], [pickerTargetField]: dateStr };
+          setLodgingGuests(updated);
+          setIsDatePickerOpen(false);
+        }}
+      />
+
 
       {/* DIALOG: XÁC NHẬN ĐÃ DỌN XONG */}
       <Modal
@@ -3007,18 +3016,56 @@ export default function PosScreen() {
                           </Text>
 
                           <View className="mt-3 pt-3 border-t border-orange-100 gap-2">
-                            <View className="flex-row justify-between items-start gap-3">
+                            <TouchableOpacity 
+                              activeOpacity={0.7} 
+                              onPress={() => {
+                                setTableTimePickerType('checkin');
+                                setIsTableTimePickerOpen(true);
+                              }}
+                              className="flex-row justify-between items-center gap-3 p-1 -mx-1 rounded-lg active:bg-orange-200/50"
+                            >
                               <Text className="text-[9.5px] text-slate-500 font-semibold">Giờ vào</Text>
-                              <Text
-                                selectable
-                                className="text-[9.5px] text-slate-700 font-semibold text-right flex-1"
-                                style={{ fontVariant: ['tabular-nums'] }}
-                              >
-                                {formatResourceStartTime(activeTable.startTime)}
-                              </Text>
-                            </View>
+                              <View className="flex-row items-center flex-1 justify-end">
+                                <Text
+                                  selectable
+                                  className="text-[9.5px] text-slate-700 font-semibold text-right"
+                                  style={{ fontVariant: ['tabular-nums'] }}
+                                >
+                                  {formatResourceStartTime(activeTable.startTime)}
+                                </Text>
+                                <Ionicons name="pencil" size={10} color="#94a3b8" style={{ marginLeft: 4 }} />
+                              </View>
+                            </TouchableOpacity>
+                            
+                            <TouchableOpacity 
+                              activeOpacity={0.7} 
+                              onPress={() => {
+                                setTableTimePickerType('checkout');
+                                setIsTableTimePickerOpen(true);
+                              }}
+                              className="flex-row justify-between items-center gap-3 p-1 -mx-1 rounded-lg active:bg-orange-200/50"
+                            >
+                              <Text className="text-[9.5px] text-slate-500 font-semibold">Giờ ra</Text>
+                              <View className="flex-row items-center flex-1 justify-end">
+                                <Text
+                                  selectable
+                                  className="text-[9.5px] text-slate-700 font-semibold text-right"
+                                  style={{ fontVariant: ['tabular-nums'] }}
+                                >
+                                  {(() => {
+                                    try {
+                                      const m = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : (activeTable.metadata || {});
+                                      if (m.temp_checkout_time) return formatResourceStartTime(m.temp_checkout_time);
+                                    } catch(e) {}
+                                    return '- (Chưa kết thúc)';
+                                  })()}
+                                </Text>
+                                <Ionicons name="pencil" size={10} color="#94a3b8" style={{ marginLeft: 4 }} />
+                              </View>
+                            </TouchableOpacity>
+
                             {billingPresentation.showCost && (
-                              <View className="flex-row justify-between items-start gap-3">
+                              <View className="flex-row justify-between items-start gap-3 p-1 -mx-1">
                                 <Text className="text-[9.5px] text-slate-500 font-semibold">Thời gian tính</Text>
                                 <Text
                                   selectable
@@ -3029,7 +3076,7 @@ export default function PosScreen() {
                                 </Text>
                               </View>
                             )}
-                            <View className="flex-row justify-between items-start gap-3">
+                            <View className="flex-row justify-between items-start gap-3 p-1 -mx-1">
                               <Text className="text-[9.5px] text-slate-500 font-semibold">Hình thức</Text>
                               <Text className="text-[9.5px] text-slate-700 font-semibold text-right flex-1">
                                 {billingPresentation.methodLabel}
@@ -3445,7 +3492,73 @@ export default function PosScreen() {
                   setIsDatePickerOpen(false);
                 }}
               />
-
+              
+              <PosDateTimePicker 
+                isOpen={isTableTimePickerOpen}
+                onClose={() => setIsTableTimePickerOpen(false)}
+                onConfirm={(dateStr, hourStr, minStr) => {
+                  if (activeTable) {
+                    const [d, m, y] = dateStr.split('/');
+                    const targetDate = new Date();
+                    targetDate.setFullYear(parseInt(y, 10));
+                    targetDate.setMonth(parseInt(m, 10) - 1);
+                    targetDate.setDate(parseInt(d, 10));
+                    targetDate.setHours(parseInt(hourStr, 10));
+                    targetDate.setMinutes(parseInt(minStr, 10));
+                    targetDate.setSeconds(0);
+                    
+                    handleUpdateTableTime(activeTable.id, tableTimePickerType, targetDate.toISOString());
+                  }
+                  setIsTableTimePickerOpen(false);
+                }}
+                title={tableTimePickerType === 'checkin' ? 'Cập nhật Giờ vào' : 'Cập nhật Giờ ra'}
+                initialDate={(() => {
+                  if (!activeTable) return undefined;
+                  let iso = tableTimePickerType === 'checkin' ? activeTable.startTime : (() => {
+                    try {
+                      const meta = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : (activeTable.metadata || {});
+                      return meta.temp_checkout_time;
+                    } catch(e) { return null; }
+                  })();
+                  if (!iso) iso = new Date().toISOString();
+                  const dt = new Date(iso);
+                  return `${dt.getDate().toString().padStart(2, '0')}/${(dt.getMonth()+1).toString().padStart(2, '0')}/${dt.getFullYear()}`;
+                })()}
+                initialHour={(() => {
+                  if (!activeTable) return undefined;
+                  let iso = tableTimePickerType === 'checkin' ? activeTable.startTime : (() => {
+                    try {
+                      const meta = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : (activeTable.metadata || {});
+                      return meta.temp_checkout_time;
+                    } catch(e) { return null; }
+                  })();
+                  if (!iso) iso = new Date().toISOString();
+                  return new Date(iso).getHours().toString();
+                })()}
+                initialMinute={(() => {
+                  if (!activeTable) return undefined;
+                  let iso = tableTimePickerType === 'checkin' ? activeTable.startTime : (() => {
+                    try {
+                      const meta = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : (activeTable.metadata || {});
+                      return meta.temp_checkout_time;
+                    } catch(e) { return null; }
+                  })();
+                  if (!iso) iso = new Date().toISOString();
+                  return new Date(iso).getMinutes().toString();
+                })()}
+                originalTimeStr={(() => {
+                  if (!activeTable) return undefined;
+                  try {
+                    const meta = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : (activeTable.metadata || {});
+                    const originalIso = tableTimePickerType === 'checkin' ? meta.original_start_time : meta.original_temp_checkout_time;
+                    if (originalIso) {
+                      const dt = new Date(originalIso);
+                      return `${dt.getDate().toString().padStart(2, '0')}/${(dt.getMonth()+1).toString().padStart(2, '0')}/${dt.getFullYear()} ${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
+                    }
+                  } catch(e) {}
+                  return undefined;
+                })()}
+              />
               {renderQuickCustomerModal('active_table')}
             </View>
           )}
@@ -3820,6 +3933,7 @@ export default function PosScreen() {
         cartOwnerTable={cartOwnerTable}
         shopVertical={shopVertical}
         onCheckout={(opts) => handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows, opts)}
+        onUpdateTime={(type, iso) => cartOwnerTable?.id && handleUpdateTableTime(cartOwnerTable.id, type, iso)}
         onEditItemSave={(cartItemId, finalPrice, originalPriceFromModal, discountAmt, discountPct) => {
           const resolveBasePrice = (item: any) => {
             if (item.original_price != null && item.original_price > 0) return item.original_price;

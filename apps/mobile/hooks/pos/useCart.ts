@@ -42,16 +42,59 @@ export function useCart(isNavReady: boolean, isLoading: boolean) {
       }
     }
 
-    setPreviewProduct({
+    const finalProductPreview = {
       ...product,
       original_price: product.sell_price,
       tax_rate: resolvedTaxRate || '0',
       tax_group: resolvedTaxGroup || '',
       input_tax_rate: resolvedInputTaxRate || '0',
-    });
+    };
+    
+    setPreviewProduct(finalProductPreview);
     setPreviewQuantity(1);
     setSelectedVariant(null);
     setSelectedModifiers([]);
+
+    let hasVariants = false;
+    let hasModifiers = false;
+    try {
+      if (product.variant_options) {
+        const v = typeof product.variant_options === 'string' ? JSON.parse(product.variant_options) : product.variant_options;
+        if (v && Object.keys(v).length > 0) hasVariants = true;
+      }
+      if (product.modifier_groups) {
+        const m = typeof product.modifier_groups === 'string' ? JSON.parse(product.modifier_groups) : product.modifier_groups;
+        if (m && m.length > 0) hasModifiers = true;
+      }
+    } catch(e) {}
+    
+    if (!hasVariants && !hasModifiers) {
+      // Add immediately to cart without showing the modal
+      const cartItemId = `${finalProductPreview.id}_none_none`;
+      setCart((prev: any) => {
+        const existing = prev[cartItemId];
+        return {
+          ...prev,
+          [cartItemId]: {
+            productId: finalProductPreview.id,
+            name: finalProductPreview.name,
+            price: Math.max(0, finalProductPreview.sell_price - (finalProductPreview.discount_amount || 0)),
+            original_price: finalProductPreview.original_price,
+            quantity: existing ? existing.quantity + 1 : 1,
+            variant_label: undefined,
+            modifiers: [],
+            modifier_total: 0,
+            discount_amount: finalProductPreview.discount_amount || 0,
+            discount_pct: finalProductPreview.discount_pct || 0,
+            tax_rate: finalProductPreview.tax_rate || '0',
+            input_tax_rate: finalProductPreview.input_tax_rate || '0',
+            tax_group: finalProductPreview.tax_group || '',
+          }
+        };
+      });
+      return;
+    }
+
     setIsPreviewModalOpen(true);
   };
 
