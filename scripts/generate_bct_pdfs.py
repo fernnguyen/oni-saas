@@ -22,7 +22,7 @@ if not os.path.exists(font_bold_path):
 pdfmetrics.registerFont(TTFont(FONT_REG, font_reg_path))
 pdfmetrics.registerFont(TTFont(FONT_BOLD, font_bold_path))
 
-LOGO_PATH = '/Users/fern/Coding/ERP/oni-saas-starter/apps/mobile/assets/logo.png'
+LOGO_PATH = '/Users/fern/Coding/ERP/oni-saas-starter/apps/web/public/logo.png'
 
 # Output dir
 OUT_DIR = '/Users/fern/Coding/ERP/oni-saas-starter/docs/bct-policies'
