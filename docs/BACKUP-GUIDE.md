@@ -93,6 +93,7 @@ RCLONE_R2_PATH="backup-oni"
 # SUPABASE_RCLONE_PATH="backup_oni/supabase"
 # SUPABASE_RCLONE_R2_PATH="backup-oni/supabase"
 # SUPABASE_PG_DUMP_PATH="/usr/lib/postgresql/17/bin/pg_dump"
+# SUPABASE_PG_RESTORE_PATH="/usr/lib/postgresql/17/bin/pg_restore"
 
 TELEGRAM_BOT_TOKEN="..."
 TELEGRAM_CHAT_ID="..."
@@ -112,16 +113,26 @@ không dùng service-role key thay cho database password.
 
 ```bash
 sudo apt update
-sudo apt install -y postgresql-client rclone zip util-linux
+sudo apt install -y postgresql-common
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+sudo apt update
+sudo apt install -y postgresql-client-17 rclone zip util-linux
 
-pg_dump --version
-pg_restore --version
+/usr/lib/postgresql/17/bin/pg_dump --version
+/usr/lib/postgresql/17/bin/pg_restore --version
 rclone version
 rclone listremotes
 ```
 
-`pg_dump` phải có major version bằng hoặc mới hơn Supabase PostgreSQL server. Script
-sẽ dừng và báo rõ nếu client quá cũ.
+Nếu Ubuntu repository mặc định chưa có `postgresql-client-17`, thêm PostgreSQL Apt
+Repository chính thức trước khi cài (xem lệnh cập nhật tại
+<https://www.postgresql.org/download/linux/ubuntu/>).
+
+`pg_dump` phải có major version bằng hoặc mới hơn Supabase PostgreSQL server;
+`pg_restore` phải cùng bộ hoặc mới hơn `pg_dump`. Trên Ubuntu có thể tồn tại nhiều
+major song song, vì vậy nên đặt rõ hai đường dẫn `SUPABASE_PG_DUMP_PATH` và
+`SUPABASE_PG_RESTORE_PATH` thay vì phụ thuộc `PATH`. Script sẽ dừng và báo rõ nếu
+client quá cũ. Chỉ cần client package, không cần cài PostgreSQL server trên VPS.
 
 Cấu hình remote:
 

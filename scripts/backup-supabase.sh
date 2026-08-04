@@ -151,6 +151,20 @@ require_command() {
   fi
 }
 
+postgres_client_version() {
+  local command_path="$1"
+  local version_output
+
+  version_output=$("$command_path" --version)
+  if [[ "$version_output" =~ \(PostgreSQL\)[[:space:]]+([0-9]+([.][0-9]+)*) ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  echo "ERROR: Không đọc được PostgreSQL client version từ: $version_output" >&2
+  return 1
+}
+
 sha256_file() {
   local file_path="$1"
   if command -v sha256sum > /dev/null 2>&1; then
@@ -218,6 +232,12 @@ case "$DB_HOST_PORT" in
 esac
 
 PG_DUMP_BIN=$(config_value "SUPABASE_PG_DUMP_PATH" "pg_dump")
+if [[ "$PG_DUMP_BIN" == */* ]]; then
+  DEFAULT_PG_RESTORE_BIN="$(dirname "$PG_DUMP_BIN")/pg_restore"
+else
+  DEFAULT_PG_RESTORE_BIN="pg_restore"
+fi
+PG_RESTORE_BIN=$(config_value "SUPABASE_PG_RESTORE_PATH" "$DEFAULT_PG_RESTORE_BIN")
 LOCAL_BACKUP_DIR=$(config_value "SUPABASE_BACKUP_LOCAL_DIR" "$DEPLOY_ROOT/backups/supabase")
 LOCAL_RETENTION_DAYS=$(config_value "SUPABASE_BACKUP_LOCAL_RETENTION_DAYS" "7")
 REMOTE_RETENTION_DAYS=$(config_value "SUPABASE_BACKUP_REMOTE_RETENTION_DAYS" "30")
@@ -236,7 +256,7 @@ R2_ENABLED=$(config_value "SUPABASE_BACKUP_R2_ENABLED" "true")
 CURRENT_STEP="checking dependencies"
 require_command psql
 require_command "$PG_DUMP_BIN"
-require_command pg_restore
+require_command "$PG_RESTORE_BIN"
 require_command rclone
 require_command tar
 require_command awk
@@ -256,10 +276,17 @@ if [ "$DB_NAME" != "postgres" ]; then
 fi
 
 SERVER_MAJOR=$((SERVER_VERSION_NUM / 10000))
-PG_DUMP_VERSION=$($PG_DUMP_BIN --version | awk '{print $NF}')
+PG_DUMP_VERSION=$(postgres_client_version "$PG_DUMP_BIN")
 PG_DUMP_MAJOR="${PG_DUMP_VERSION%%.*}"
 if [ "$PG_DUMP_MAJOR" -lt "$SERVER_MAJOR" ]; then
-  echo "ERROR: pg_dump $PG_DUMP_VERSION cũ hơn PostgreSQL server major $SERVER_MAJOR" >&2
+  echo "ERROR: pg_dump $PG_DUMP_VERSION cũ hơn PostgreSQL server major $SERVER_MAJOR. Cài postgresql-client-$SERVER_MAJOR và đặt SUPABASE_PG_DUMP_PATH." >&2
+  exit 1
+fi
+
+PG_RESTORE_VERSION=$(postgres_client_version "$PG_RESTORE_BIN")
+PG_RESTORE_MAJOR="${PG_RESTORE_VERSION%%.*}"
+if [ "$PG_RESTORE_MAJOR" -lt "$PG_DUMP_MAJOR" ]; then
+  echo "ERROR: pg_restore $PG_RESTORE_VERSION cũ hơn pg_dump major $PG_DUMP_MAJOR. Đặt SUPABASE_PG_RESTORE_PATH cùng bộ client." >&2
   exit 1
 fi
 
@@ -268,7 +295,7 @@ if [ "$CHECK_ONLY" = true ]; then
   echo "   Project: $SUPABASE_PROJECT_REF"
   echo "   Host: $DB_HOST"
   echo "   Database: $DB_NAME"
-  echo "   Server major: $SERVER_MAJOR · pg_dump: $PG_DUMP_VERSION"
+  echo "   Server major: $SERVER_MAJOR · pg_dump: $PG_DUMP_VERSION · pg_restore: $PG_RESTORE_VERSION"
   echo "   Local: $LOCAL_BACKUP_DIR"
   echo "   Drive: ${RCLONE_REMOTE}:${DRIVE_PATH}"
   echo "   R2: ${RCLONE_R2_REMOTE}:${R2_PATH}"
@@ -305,7 +332,7 @@ if [ ! -s "$DUMP_FILE" ]; then
 fi
 
 CURRENT_STEP="validating dump TOC"
-pg_restore --list "$DUMP_FILE" > "$TOC_FILE"
+"$PG_RESTORE_BIN" --list "$DUMP_FILE" > "$TOC_FILE"
 if [ ! -s "$TOC_FILE" ]; then
   echo "ERROR: pg_restore không đọc được TOC" >&2
   exit 1
@@ -326,6 +353,7 @@ cat > "$MANIFEST_FILE" <<EOF
   "database_user": "${DB_USER}",
   "server_version_num": ${SERVER_VERSION_NUM},
   "pg_dump_version": "${PG_DUMP_VERSION}",
+  "pg_restore_version": "${PG_RESTORE_VERSION}",
   "database_size_bytes": ${DB_SIZE_BYTES},
   "dump_size_bytes": $(wc -c < "$DUMP_FILE" | tr -d ' '),
   "dump_sha256": "${DUMP_SHA256}",
