@@ -305,12 +305,11 @@ MIGRATION_LOG="/tmp/oni-migration-${VERSION}.log"
 
 cd "${RELEASE_DIR}/packages/adapters"
 
-# [H3] timeout 120s: chặn hang vô hạn nếu DB đang bị lock
-# echo "y": tự xác nhận thay đổi safe
-# --strict: fail thay vì prompt cho thay đổi nguy hiểm
-if echo "y" | timeout "${MIGRATION_TIMEOUT}" drizzle-kit push \
+# [H3] timeout 120s: chặn hang vô hạn nếu DB đang bị lock.
+# Thay đổi additive/an toàn được Drizzle tự áp dụng. Thay đổi destructive hoặc
+# ambiguous sẽ yêu cầu TTY; deploy non-interactive phải dừng để operator review.
+if timeout "${MIGRATION_TIMEOUT}" drizzle-kit push \
     --config=drizzle.pg.config.ts \
-    --strict \
     > "${MIGRATION_LOG}" 2>&1; then
 
   MIGRATION_RESULT=$(cat "${MIGRATION_LOG}")
@@ -321,43 +320,51 @@ if echo "y" | timeout "${MIGRATION_TIMEOUT}" drizzle-kit push \
     MIGRATION_MSG="ℹ️ DB: No schema changes"
   else
     echo "   ✅ Schema updated successfully"
-    # Truncate log để tránh Telegram message quá dài
-    MIGRATION_SUMMARY=$(cat "${MIGRATION_LOG}" | tail -15)
-    MIGRATION_MSG="✅ DB schema updated"$'\n'"<code>${MIGRATION_SUMMARY}</code>"
+    # Không gửi raw spinner/ANSI hoặc chi tiết DB từ Drizzle lên Telegram.
+    MIGRATION_MSG="✅ DB schema updated successfully"
   fi
 
-elif [ $? -eq 124 ]; then
-  # exit code 124 = timeout
-  echo "❌ Migration TIMEOUT sau ${MIGRATION_TIMEOUT}s!"
-  echo "   DB có thể đang bị lock bởi một transaction dài."
-  echo "   Kiểm tra: SELECT * FROM pg_locks WHERE NOT granted;"
-  send_telegram "⏰ <b>ONI ${VERSION} — Migration TIMEOUT (${MIGRATION_TIMEOUT}s)!</b>"$'\n'"DB có thể bị lock. Kiểm tra pg_locks trên server."
-  exit 1
-
 else
-  # --strict bị thất bại → có thay đổi cần xác nhận thủ công
+  MIGRATION_EXIT=$?
   MIGRATION_ERROR=$(cat "${MIGRATION_LOG}")
-  echo ""
-  echo "════════════════════════════════════════════════"
-  echo "  ⚠️  MIGRATION CẦN XÁC NHẬN THỦ CÔNG"
-  echo "════════════════════════════════════════════════"
-  echo ""
-  echo "${MIGRATION_ERROR}"
-  echo ""
-  echo "  Deploy đã DỪNG lại tại bước migration."
-  echo "  Artifact đã được giải nén tại: ${RELEASE_DIR}"
-  echo ""
-  echo "  Để xử lý thủ công, SSH vào server và chạy:"
-  echo "  ┌─────────────────────────────────────────────────────"
-  echo "  │  cd ${RELEASE_DIR}/packages/adapters"
-  echo "  │  drizzle-kit push --config=drizzle.pg.config.ts"
-  echo "  │"
-  echo "  │  # Sau khi migration xong:"
-  echo "  │  /var/www/oni/scripts/switch.sh ${VERSION}"
-  echo "  └─────────────────────────────────────────────────────"
-  echo ""
 
-  send_telegram "⚠️ <b>ONI ${VERSION} — Migration cần xác nhận thủ công!</b>"$'\n\n'"Deploy đã DỪNG lại. SSH vào server:"$'\n'"<code>cd /var/www/oni/releases/${VERSION}/packages/adapters</code>"$'\n'"<code>drizzle-kit push --config=drizzle.pg.config.ts</code>"$'\n\n'"Sau khi xong: <code>/var/www/oni/scripts/switch.sh ${VERSION}</code>"
+  if [ "${MIGRATION_EXIT}" -eq 124 ]; then
+    echo "❌ Migration TIMEOUT sau ${MIGRATION_TIMEOUT}s!"
+    echo "   DB có thể đang bị lock bởi một transaction dài."
+    echo "   Kiểm tra: SELECT * FROM pg_locks WHERE NOT granted;"
+    send_telegram "⏰ <b>ONI ${VERSION} — Migration TIMEOUT (${MIGRATION_TIMEOUT}s)!</b>"$'\n'"DB có thể đang bị lock. Kiểm tra pg_locks trên server."
+  elif echo "${MIGRATION_ERROR}" | grep -q "Interactive prompts require a TTY terminal"; then
+    echo ""
+    echo "════════════════════════════════════════════════"
+    echo "  ⚠️  MIGRATION CẦN XÁC NHẬN THỦ CÔNG"
+    echo "════════════════════════════════════════════════"
+    echo ""
+    echo "${MIGRATION_ERROR}"
+    echo ""
+    echo "  Deploy đã DỪNG lại tại bước migration."
+    echo "  Artifact đã được giải nén tại: ${RELEASE_DIR}"
+    echo ""
+    echo "  Để xử lý thủ công, SSH vào server và chạy:"
+    echo "  ┌─────────────────────────────────────────────────────"
+    echo "  │  cd ${RELEASE_DIR}/packages/adapters"
+    echo "  │  drizzle-kit push --config=drizzle.pg.config.ts"
+    echo "  │"
+    echo "  │  # Sau khi migration xong:"
+    echo "  │  /var/www/oni/scripts/switch.sh ${VERSION}"
+    echo "  └─────────────────────────────────────────────────────"
+    echo ""
+
+    send_telegram "⚠️ <b>ONI ${VERSION} — Migration cần xác nhận thủ công!</b>"$'\n\n'"Deploy đã DỪNG lại. SSH vào server:"$'\n'"<code>cd /var/www/oni/releases/${VERSION}/packages/adapters</code>"$'\n'"<code>drizzle-kit push --config=drizzle.pg.config.ts</code>"$'\n\n'"Sau khi xong: <code>/var/www/oni/scripts/switch.sh ${VERSION}</code>"
+  else
+    echo ""
+    echo "════════════════════════════════════════════════"
+    echo "  ❌ MIGRATION THẤT BẠI"
+    echo "════════════════════════════════════════════════"
+    echo "${MIGRATION_ERROR}"
+    echo ""
+    echo "  Deploy đã DỪNG lại; database hoặc migration cần được kiểm tra."
+    send_telegram "❌ <b>ONI ${VERSION} — Migration thất bại!</b>"$'\n'"Deploy đã dừng trước khi switch release. Kiểm tra log: <code>${MIGRATION_LOG}</code>"
+  fi
 
   exit 1   # Dừng — KHÔNG switch symlink, KHÔNG reload PM2
 fi
