@@ -912,7 +912,7 @@ function ProcessAdvanceDialog({
       }
       description={
         action === 'disburse'
-          ? 'Chọn quỹ chi trong Sổ quỹ. Khi xác nhận, hệ thống sẽ duyệt yêu cầu, trừ quỹ và tự động tạo Phiếu chi.'
+          ? 'Chọn quỹ chi tiền. Khi xác nhận, hệ thống sẽ duyệt yêu cầu, trừ quỹ và tự động tạo Phiếu chi.'
           : action === 'approve'
             ? 'Yêu cầu sẽ chuyển sang trạng thái Đã duyệt nhưng chưa xuất quỹ và chưa tạo Phiếu chi.'
             : 'Xác nhận từ chối yêu cầu ứng lương này.'
@@ -1011,7 +1011,7 @@ function ProcessAdvanceDialog({
         {action === 'disburse' ? (
           <div className="space-y-1.5">
             <label className="block text-sm font-semibold text-slate-700">
-              Quỹ chi trong Sổ quỹ <span className="text-rose-500">*</span>
+              Chọn quỹ chi <span className="text-rose-500">*</span>
             </label>
             {isLoading ? (
               <div className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-500">
@@ -1031,7 +1031,7 @@ function ProcessAdvanceDialog({
                 <option value="">Chọn quỹ chi tiền</option>
                 {funds.map((fund) => (
                   <option key={fund.id} value={fund.id}>
-                    {fund.name} · Dư{' '}
+                    {fund.name} · Số dư{' '}
                     {Number(fund.current_balance ?? 0).toLocaleString('vi-VN')}{' '}
                     đ
                   </option>
