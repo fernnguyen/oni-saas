@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { HrmGeneralSettingsSkeleton } from './HrmContentSkeletons';
 
 export function HrmGeneralSettingsPanel({ shopId }: { shopId: string }) {
   const queryClient = useQueryClient();
@@ -39,7 +40,7 @@ export function HrmGeneralSettingsPanel({ shopId }: { shopId: string }) {
   });
 
   if (isLoading) {
-    return <div className="animate-pulse text-sm text-slate-500">Đang tải cấu hình...</div>;
+    return <HrmGeneralSettingsSkeleton />;
   }
 
   return (

@@ -22,6 +22,53 @@ function repositoryWithQueryRecorder() {
   };
 }
 
+function salaryAdvanceTransactionRepository() {
+  const queries: Array<{ text: string; values: unknown[] }> = [];
+  const client = {
+    async query(text: string, values: unknown[] = []) {
+      queries.push({ text, values });
+      if (/select a\.amount, a\.status/i.test(text)) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              amount: '1000000',
+              status: 'approved',
+              pay_period: '2026-08',
+              reason: 'Tạm ứng',
+              employee_name: 'Nguyễn Văn A',
+              employee_code: 'NV001',
+            },
+          ],
+        };
+      }
+      if (/select id, current_balance, type/i.test(text)) {
+        return {
+          rowCount: 1,
+          rows: [{ id: 'FUND-1', current_balance: '5000000', type: 'cash' }],
+        };
+      }
+      if (/select count\(\*\)::text as n from cashbook/i.test(text)) {
+        return { rowCount: 1, rows: [{ n: '0' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const pool = {
+    async connect() {
+      return client;
+    },
+  } as unknown as Pool;
+  return {
+    queries,
+    repository: new PostgresHrmRepository(pool, {
+      tenantId: 'tenant-1',
+      branchId: 'shop-1',
+    }),
+  };
+}
+
 test('employee directory can be scoped to the linked employee in SQL', async () => {
   const { queries, repository } = repositoryWithQueryRecorder();
 
@@ -143,9 +190,9 @@ test('salary advance listing exposes approval and disbursement audit data safely
 });
 
 test('manager-created salary advance is disbursed with its fund posting on insert', async () => {
-  const { queries, repository } = repositoryWithQueryRecorder();
+  const { queries, repository } = salaryAdvanceTransactionRepository();
 
-  await repository.createSalaryAdvance({
+  const created = await repository.createSalaryAdvance({
     id: 'ADV-1',
     profileId: 'PROFILE-1',
     amount: 1_000_000,
@@ -156,32 +203,17 @@ test('manager-created salary advance is disbursed with its fund posting on inser
     autoApprove: true,
     disbursement: {
       fundId: 'FUND-1',
-      cashbookTransactionId: 'CB-1',
     },
   });
 
-  assert.equal(queries[0]?.values[8], 'disbursed');
-  assert.equal(
-    queries[0]?.values[9],
-    '00000000-0000-4000-8000-000000000001',
-  );
-  assert.ok(queries[0]?.values[10] instanceof Date);
-  assert.equal(
-    queries[0]?.values[11],
-    '00000000-0000-4000-8000-000000000001',
-  );
-  assert.ok(queries[0]?.values[12] instanceof Date);
-  assert.equal(queries[0]?.values[13], 'FUND-1');
-  assert.equal(queries[0]?.values[14], 'CB-1');
-  assert.equal(
-    queries[0]?.values[15],
-    '00000000-0000-4000-8000-000000000001',
-  );
-  assert.match(
-    queries[0]?.text ?? '',
-    /disbursed_by, disbursed_at,[\s\S]*fund_id, cashbook_transaction_id/,
-  );
-  assert.doesNotMatch(queries[0]?.text ?? '', /case when \$9/);
+  assert.match(queries[0]?.text ?? '', /begin/i);
+  assert.ok(queries.some((query) => /for update of a/i.test(query.text)));
+  assert.ok(queries.some((query) => /from payment_funds[\s\S]*for update/i.test(query.text)));
+  assert.ok(queries.some((query) => /insert into cashbook/i.test(query.text)));
+  assert.ok(queries.some((query) => /update payment_funds/i.test(query.text)));
+  assert.ok(queries.some((query) => /status = 'disbursed'/i.test(query.text)));
+  assert.match(queries.at(-1)?.text ?? '', /commit/i);
+  assert.match(created.cashbookTransactionId ?? '', /^CB-[A-F0-9]{8}-00001$/);
 });
 
 test('employee-created salary advance remains pending', async () => {
@@ -233,19 +265,18 @@ test('manager can create an approved salary advance without a fund posting', asy
 });
 
 test('approved salary advance can be disbursed with a selected fund', async () => {
-  const { queries, repository } = repositoryWithQueryRecorder();
+  const { queries, repository } = salaryAdvanceTransactionRepository();
 
-  await repository.approveSalaryAdvance({
+  const result = await repository.approveSalaryAdvance({
     advanceId: 'ADV-1',
     actorUserId: '00000000-0000-4000-8000-000000000001',
     fundId: 'FUND-1',
-    cashbookTransactionId: 'CB-1',
   });
 
-  assert.match(queries[0]?.text ?? '', /status = 'disbursed'/);
-  assert.match(queries[0]?.text ?? '', /disbursed_by = \$1/);
-  assert.match(queries[0]?.text ?? '', /disbursed_at = now\(\)/);
-  assert.match(queries[0]?.text ?? '', /status in \('pending', 'approved'\)/);
+  assert.ok(queries.some((query) => /status = 'disbursed'/i.test(query.text)));
+  assert.ok(queries.some((query) => /disbursed_by = \$1::uuid/i.test(query.text)));
+  assert.ok(queries.some((query) => /status in \('pending', 'approved'\)/i.test(query.text)));
+  assert.match(result.cashbookTransactionId, /^CB-[A-F0-9]{8}-00001$/);
 });
 
 test('pending salary advance can be approved without creating a fund posting', async () => {

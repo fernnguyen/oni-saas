@@ -3,6 +3,7 @@
 import { useHrmModuleAccess } from './HrmModuleAccess';
 import { HrmLeaveRequestsPanel } from './HrmLeaveRequestsPanel';
 import { useQuery } from '@tanstack/react-query';
+import { HrmLeavesPageSkeleton } from './HrmContentSkeletons';
 
 /**
  * Thin client wrapper so the server page.tsx can import without using context.
@@ -28,12 +29,7 @@ export function HrmLeavesPageClient() {
   });
 
   if (bootstrapQuery.isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-slate-500 gap-3">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
-        <p className="text-sm">Đang tải dữ liệu...</p>
-      </div>
-    );
+    return <HrmLeavesPageSkeleton />;
   }
 
   return (

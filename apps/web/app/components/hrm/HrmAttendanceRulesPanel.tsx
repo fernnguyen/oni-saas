@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { HrmAttendanceRulesSkeleton } from './HrmContentSkeletons';
 
 interface AttendanceRules {
   standard_workdays: Record<string, number>; // "1"=T2: 1 (full), 0.5 (half), 0 (off)
@@ -83,7 +84,7 @@ export function HrmAttendanceRulesPanel({ shopId }: { shopId: string }) {
   });
 
   if (isLoading) {
-    return <div className="animate-pulse text-sm text-slate-500">Đang tải cấu hình...</div>;
+    return <HrmAttendanceRulesSkeleton />;
   }
 
   const cycleDay = (dayStr: string) => {

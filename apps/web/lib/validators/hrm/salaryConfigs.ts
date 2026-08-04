@@ -21,7 +21,6 @@ export const createHrmSalaryConfigSchema = z
     effective_from: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày hiệu lực không hợp lệ'),
-    shift_template_id: z.string().trim().min(1).nullable().optional(),
     annual_leave_days: z.coerce.number().int().min(0).max(365).default(12),
   })
   .superRefine((value, context) => {

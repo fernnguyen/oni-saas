@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Trash2, ChevronLeft, ChevronRight, Info, MoreHorizontal } from 'lucide-react';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { formatHrmDate } from '@/lib/hrm/formatDate';
+import { HrmHolidayCalendarSkeleton } from './HrmContentSkeletons';
 
 interface Holiday {
   id: string;
@@ -203,7 +204,7 @@ export function HrmHolidaysPanel({ shopId }: { shopId: string }) {
       </div>
 
       {isLoading ? (
-        <div className="p-8 text-center text-sm text-slate-500 animate-pulse">Đang tải lịch...</div>
+        <HrmHolidayCalendarSkeleton />
       ) : (
         <div className="flex flex-col lg:flex-row gap-6 items-start">
           <div className="flex-1 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 xl:gap-8 gap-6 w-full">

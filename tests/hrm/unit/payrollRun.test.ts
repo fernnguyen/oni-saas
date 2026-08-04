@@ -112,7 +112,7 @@ test('payroll service calculates an immutable draft snapshot input', async () =>
           departmentId: 'DEP-1',
           departmentName: 'Bán hàng',
           bankName: null,
-          bankAccountMasked: null,
+          bankAccount: null,
           configurations: [
             {
               id: 'CONFIG-1',
@@ -141,8 +141,29 @@ test('payroll service calculates an immutable draft snapshot input', async () =>
         {
           employeeId: 'EMP-1',
           status: 'present',
+          workdayCount: 0.5,
           workedMinutes: 480,
           overtimeMinutes: 0,
+        },
+      ];
+    },
+    async listSalaryAdvances() {
+      return [
+        {
+          id: 'ADV-DISBURSED',
+          profileId: 'PROFILE-1',
+          amount: 200_000,
+          status: 'disbursed',
+          isDeducted: false,
+          reason: 'Tạm ứng tháng 7',
+        },
+        {
+          id: 'ADV-APPROVED-ONLY',
+          profileId: 'PROFILE-1',
+          amount: 300_000,
+          status: 'approved',
+          isDeducted: false,
+          reason: 'Chưa giải ngân',
         },
       ];
     },
@@ -182,9 +203,13 @@ test('payroll service calculates an immutable draft snapshot input', async () =>
 
   const snapshot = captured as SaveHrmPayrollRunDraftInput | null;
   assert.ok(snapshot);
-  assert.equal(snapshot.items[0]?.regularPay, 1_000_000);
-  assert.equal(snapshot.items[0]?.allowanceTotal, 1_000_000);
-  assert.equal(snapshot.items[0]?.netPay, 2_000_000);
+  assert.equal(snapshot.items[0]?.regularPay, 500_000);
+  assert.equal(snapshot.items[0]?.allowanceTotal, 19_231);
+  assert.equal(snapshot.items[0]?.deductionTotal, 200_000);
+  assert.equal(snapshot.items[0]?.netPay, 319_231);
+  assert.deepEqual(snapshot.items[0]?.breakdown.salaryAdvanceIds, [
+    'ADV-DISBURSED',
+  ]);
   assert.equal(snapshot.items[0]?.departmentId, 'DEP-1');
 });
 
@@ -200,7 +225,7 @@ test('payroll service refuses a run when salary policy is missing', async () => 
           departmentId: null,
           departmentName: null,
           bankName: null,
-          bankAccountMasked: null,
+          bankAccount: null,
           configurations: [],
         },
       ];
@@ -212,6 +237,9 @@ test('payroll service refuses a run when salary policy is missing', async () => 
       return [];
     },
     async listMonthlyAttendance() {
+      return [];
+    },
+    async listSalaryAdvances() {
       return [];
     },
     async listPayrollRuns() {

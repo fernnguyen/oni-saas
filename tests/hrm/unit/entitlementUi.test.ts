@@ -15,12 +15,16 @@ function getHrmItem(hrmEnabled: boolean) {
       context: 'shop',
       hrmEnabled,
     },
-    [],
+    hrmEnabled ? ['hrm.view'] : [],
   );
 
   return groups
     .flatMap((group) => group.items)
-    .find((item) => item.href === '/main/hrm');
+    .find((item) =>
+      hrmEnabled
+        ? item.href === '/main/hrm/attendance'
+        : item.href === '/main/hrm',
+    );
 }
 
 test('entitlement-ui: HRM navigation is locked when entitlement is disabled', () => {
@@ -36,7 +40,7 @@ test('entitlement-ui: HRM navigation is unlocked when entitlement is enabled', (
   const item = getHrmItem(true);
 
   assert.ok(item);
-  assert.equal(item.locked, false);
+  assert.notEqual(item.locked, true);
 });
 
 test('entitlement-ui: only real subscription permissions can open upgrade CTA', () => {

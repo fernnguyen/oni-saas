@@ -122,7 +122,9 @@ export async function PATCH(
       insuranceCode: input.insurance_code,
       bankName: input.bank_name,
       bankAccountCiphertext: input.bank_account,
-      bankAccountLast4: input.bank_account ? input.bank_account.slice(-4) : undefined,
+      bankAccountLast4: input.bank_account
+        ? input.bank_account.slice(-4)
+        : undefined,
       departmentId: input.department_id,
       defaultShiftTemplateId: input.default_shift_template_id,
       customData,

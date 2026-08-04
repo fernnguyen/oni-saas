@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, Pencil, Upload, ChevronRight, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { EmptyState } from '@/app/components/ui/EmptyState';
+import { HrmMonthlyAttendanceSkeleton } from './HrmContentSkeletons';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { formatHrmDate } from '@/lib/hrm/formatDate';
@@ -295,7 +296,7 @@ export function HrmMonthlyAttendancePanel({ shopId }: { shopId: string }) {
 
       <div className="overflow-x-auto rounded-xl border border-slate-200">
         {query.isLoading ? (
-          <div className="p-8 text-center text-sm text-slate-500 animate-pulse">Đang tải bảng công...</div>
+          <HrmMonthlyAttendanceSkeleton />
         ) : employees.length === 0 ? (
           <EmptyState title="Không có nhân viên trong bộ lọc này" />
         ) : (

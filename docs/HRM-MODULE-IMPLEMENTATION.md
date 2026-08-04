@@ -1,8 +1,46 @@
 # ONI HRM Module — Implementation Plan
 
-> Trạng thái: Architecture approved — sẵn sàng triển khai theo task list
+> Trạng thái: Stabilization in progress — chưa được phê duyệt production rollout
 > Đối tượng: Hộ kinh doanh nhỏ và SME
 > Nguyên tắc: Module độc lập, plug-and-play, business data nằm tại PostgreSQL connector, không phá vỡ luồng ONI/POS hiện hữu
+
+## 0. Đánh giá hiện trạng (cập nhật 2026-08-04)
+
+Mức hoàn thiện chức năng hiện tại ước tính **75–80%**; module đã có luồng chính nhưng **chưa product ready** cho rollout diện rộng. Task list ở mục 11 là acceptance backlog gốc; trạng thái thực tế được tổng hợp tại đây.
+
+Đã hoạt động:
+
+- Entitlement, permission gate, PostgreSQL capability/schema guard.
+- Hồ sơ nhân viên, liên kết tài khoản, custom field, phòng ban và ca mặc định.
+- Ca làm, chấm công ngày/tháng, ngày lễ, nghỉ phép và công nửa ngày.
+- Cấu hình/nhóm lương, tính–chốt–thanh toán kỳ lương và posting sổ quỹ.
+- Yêu cầu/duyệt/giải ngân ứng lương và đưa khoản đã giải ngân vào kỳ lương.
+
+Đã harden trong đợt stabilization 2026-08-04:
+
+- Ca mặc định chỉ còn một nguồn sự thật tại `hrm_employee_profiles.default_shift_template_id`; cấu hình lương không còn nhận/gán ca.
+- Người có `hrm.employee.manage` được xem và điều chỉnh đầy đủ số tài khoản trên hồ sơ nhân viên. Nhân viên tự phục vụ vẫn chỉ đọc hồ sơ của chính mình nhờ employee scope.
+- `workday_count` (kể cả `0.5`) được truyền từ chấm công sang payroll.
+- Chỉ ứng lương `disbursed` và chưa khấu trừ mới vào payroll; khi trả lương, các advance trong snapshot được đánh dấu khấu trừ trong cùng transaction.
+- Giải ngân ứng lương khóa quỹ bằng `FOR UPDATE`, kiểm tra đủ số dư, ghi cashbook, trừ quỹ và đổi trạng thái advance trong một PostgreSQL transaction; yêu cầu đồng thời `hrm.payroll.pay` và `cashbook.manage`.
+- Physical schema contract đã bao phủ đủ 17 bảng HRM hiện có và các cột mở rộng.
+- Initial loading của HRM dùng skeleton mô phỏng đúng calendar, form, bảng công, danh sách nghỉ phép/ứng lương; spinner hoặc nhãn tiến trình chỉ dùng cho mutation, upload, refresh và tác vụ ngắn.
+
+Quality gate hiện tại:
+
+- `pnpm test:hrm`: 84/84 pass.
+- `pnpm test:hrm:regression`: 3/3 pass.
+- TypeScript web và `pnpm build`: pass (build còn cảnh báo NFT trace sẵn có từ `opengraph-image`).
+- `pnpm test:hrm:integration`: chưa chạy được vì môi trường chưa cung cấp `HRM_TEST_DATABASE_URL` + `HRM_TEST_DATABASE_DISPOSABLE=true`.
+- `pnpm lint`: bị chặn ở hạ tầng repo vì ESLint 9 chưa có `eslint.config.*`.
+- Vẫn phải hoàn tất PostgreSQL integration, lint configuration và pilot UAT trước production rollout.
+
+Khoảng trống còn lại theo ưu tiên:
+
+1. **P0 release gate:** integration test PostgreSQL thật cho concurrency/rollback của giải ngân ứng lương và payment payroll; schema verify trên database giống production; full regression/lint/build.
+2. **P1 nghiệp vụ:** hoàn thiện chuyển nhân viên giữa chi nhánh, import/export nhân viên, dashboard/report/export và audit log cho các mutation nhạy cảm.
+3. **P1 vận hành:** pilot runbook, observability/cảnh báo, backup–restore drill và đối soát payroll–cashbook–fund.
+4. **P2 nếu phạm vi hệ thống thay đổi:** cột `bank_account_ciphertext` đang là tên schema lịch sử nhưng ứng dụng chưa mã hóa ở tầng app. Với hệ thống nội bộ hiện tại, dữ liệu đi theo quyền quản lý hồ sơ; chỉ cần bổ sung KMS/envelope encryption nếu sau này hệ thống public hoặc threat model yêu cầu bảo vệ DB dump/backup.
 
 ## 1. Mục tiêu
 
@@ -50,6 +88,7 @@ Quy tắc:
 - Tạo tài khoản không tự tạo nhân viên.
 - Liên kết nhân viên–tài khoản là tùy chọn.
 - Một tài khoản được liên kết tối đa một nhân viên trong cùng tenant.
+- Người có `hrm.employee.manage` được xem/sửa đầy đủ dữ liệu ngân hàng; employee self-service chỉ thấy hồ sơ của chính mình.
 - Xóa hoặc khóa tài khoản không xóa hồ sơ công/lương.
 - Nhân viên nghỉ việc không tự động xóa tài khoản; owner được nhắc xử lý quyền riêng.
 
@@ -67,6 +106,8 @@ Quy tắc:
 - Owner có toàn quyền trong tenant.
 - Tài khoản khác chỉ được chuyển nhân viên khi có `hrm.employee.transfer`.
 - Lịch sử công/lương giữ nguyên shop/department tại thời điểm phát sinh.
+- Ca mặc định thuộc hồ sơ nhân viên (`default_shift_template_id`) và là nguồn duy nhất cho xếp ca mặc định.
+- Cấu hình lương không được gán ca; cột `hrm_salary_configs.shift_template_id` chỉ giữ tương thích schema cũ và không còn được API/UI ghi mới.
 
 ### 3.4. Payroll dành cho owner
 
@@ -148,18 +189,19 @@ Quy tắc UX:
 
 ```text
 HRM
-├── Tổng quan
+├── Chấm công hôm nay
+├── Bảng công tháng
+├── Nghỉ phép
 ├── Nhân viên       → dùng danh mục hiện tại, bổ sung HRM profile
-├── Phòng ban       → dùng danh mục hiện tại
-├── Chấm công
+├── Ứng lương
 ├── Bảng lương
-├── Báo cáo
 └── Cấu hình HRM
 ```
 
 Chuẩn UI bắt buộc:
 
 - List/table bám theo DataTable, toolbar, filter, skeleton và EmptyState hiện hữu.
+- Initial fetch không hiển thị block chữ “Đang tải dữ liệu”; skeleton phải giữ gần đúng cấu trúc và kích thước content để tránh layout shift.
 - Create/edit hồ sơ, cấu hình lương và custom field dùng `SlideOver`.
 - Action ngắn hoặc cần tập trung dùng modal dialog hiện hữu.
 - Mọi mutation quan trọng dùng `useConfirm()` với async `onConfirm`, khóa đóng dialog khi đang xử lý.
@@ -237,7 +279,7 @@ Ràng buộc:
 - Partial unique `(tenant_id, auth_user_id)` khi `auth_user_id IS NOT NULL`.
 - Không có foreign key/cascade từ `auth_user_id` sang Supabase.
 - `tenant_id`, `branch_id` và `source_employee_id` dùng cùng kiểu ID với connector hiện hữu.
-- Không lưu số tài khoản đầy đủ dạng plaintext; ciphertext chỉ được giải mã server-side cho nghiệp vụ được cấp quyền.
+- API trả đầy đủ dữ liệu ngân hàng trong employee scope cho người có quyền quản lý; self-service vẫn bị giới hạn về chính nhân viên đã liên kết. Mã hóa application-level at rest chỉ là hạng mục P2 nếu phạm vi triển khai thay đổi như mục 0.
 - Dữ liệu lương không nằm trong bảng này.
 
 ### 5.2. `hrm_employee_transfers`
@@ -305,6 +347,7 @@ worked_minutes
 late_minutes
 early_leave_minutes
 overtime_minutes
+workday_count           numeric, hỗ trợ 0.5 ngày
 status
 source
 note
@@ -333,6 +376,8 @@ standard_work_days      integer NULL
 standard_work_hours     numeric NULL
 overtime_multiplier     numeric DEFAULT 1
 recurring_allowances    jsonb DEFAULT []
+shift_template_id       legacy compatibility, API/UI không ghi mới
+annual_leave_days       integer DEFAULT 12
 effective_from          date
 effective_to            date NULL
 created_by
@@ -391,6 +436,8 @@ updated_by
 ```
 
 Unique `(payroll_run_id, profile_id)`.
+
+`breakdown.salaryAdvanceIds` lưu đúng ID ứng lương đã đưa vào snapshot để payment transaction chỉ đánh dấu khấu trừ các khoản thực sự có trong kỳ lương.
 
 ### 5.9. `hrm_cashbook_postings`
 
@@ -825,7 +872,7 @@ Quy ước integration:
 - [ ] Không trả salary config từ employee endpoint.
 - [ ] Mọi query có `tenant_id`; query theo shop có thêm `branch_id`.
 - [ ] Không làm thay đổi request/response của employee API hiện hữu.
-- [ ] Mask field nhạy cảm nếu caller không có quyền tương ứng.
+- [ ] Chặn hoặc scope dữ liệu ở server nếu caller không có quyền tương ứng; không dùng masking để thay thế permission gate.
 
 **Phụ thuộc:** HRM-104.
 
@@ -950,7 +997,7 @@ Quy ước integration:
 - [ ] Effective date và lịch sử cấu hình.
 - [ ] Chỉ API có quyền payroll mới đọc được.
 - [ ] Không ghi dữ liệu lương vào employee API, shared client cache hoặc application log.
-- [ ] Mask số tài khoản ngân hàng ở list view.
+- [x] Hiển thị đầy đủ số tài khoản ngân hàng cho caller có quyền payroll/employee tương ứng trong đúng tenant và branch scope.
 
 **Phụ thuộc:** HRM-102, HRM-201.
 

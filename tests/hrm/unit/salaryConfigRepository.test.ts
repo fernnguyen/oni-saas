@@ -7,7 +7,7 @@ import {
   PostgresHrmRepository,
 } from '../../../packages/adapters/src/hrm';
 
-test('salary configuration list is branch-scoped and masks bank account', async () => {
+test('salary configuration list is branch-scoped and returns full bank account', async () => {
   let queryText = '';
   let queryValues: unknown[] = [];
   const pool = {
@@ -23,7 +23,7 @@ test('salary configuration list is branch-scoped and masks bank account', async 
             employee_name: 'Nguyễn Văn A',
             department_name: 'Bán hàng',
             bank_name: 'VCB',
-            bank_account_last4: '1234',
+            bank_account_ciphertext: '01234567891234',
             config_id: 'HRMSC-1',
             salary_type: 'monthly',
             base_amount: '22000000',
@@ -47,9 +47,9 @@ test('salary configuration list is branch-scoped and masks bank account', async 
   const result = await repository.listEmployeeSalaryConfigurations();
 
   assert.deepEqual(queryValues, ['tenant-1', 'shop-1']);
-  assert.equal(result[0]?.bankAccountMasked, '****1234');
+  assert.equal(result[0]?.bankAccount, '01234567891234');
   assert.equal(result[0]?.configurations[0]?.baseAmount, 22_000_000);
-  assert.doesNotMatch(queryText, /bank_account_ciphertext/i);
+  assert.match(queryText, /bank_account_ciphertext/i);
 });
 
 test('salary configuration rejects a duplicate effective date atomically', async () => {

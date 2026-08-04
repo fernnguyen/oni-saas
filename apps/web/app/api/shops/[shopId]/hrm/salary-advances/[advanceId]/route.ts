@@ -1,12 +1,14 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireHrmAccess } from '@/lib/server/hrm/access';
-import { requireShopAccess } from '@/lib/server/shopAccess';
+import { HrmAccessError, requireHrmAccess } from '@/lib/server/hrm/access';
 
 import { handleApiError } from '../../../../_helpers';
 import { z } from 'zod';
 import { realtimeEngine } from '@/lib/server/realtime';
-import { RollbackContext } from '@oni/adapters';
+import {
+  HrmFundNotFoundError,
+  HrmInsufficientFundBalanceError,
+} from '@oni/adapters';
 import { getHrmSchemaError } from '@/lib/server/hrm/schemaError';
 import { notifySalaryAdvanceEmployee } from '@/lib/server/hrm/salaryAdvanceNotification';
 
@@ -20,10 +22,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ shopId: string; advanceId: string }> }
 ) {
-  const tx = new RollbackContext();
   try {
     const { shopId, advanceId } = await params;
-    const { userId, tenantId, repository: hrmRepo } = await requireHrmAccess(shopId, 'hrm.payroll.manage');
+    const { userId, tenantId, permissions, repository: hrmRepo } = await requireHrmAccess(shopId, 'hrm.payroll.manage');
     const body = await req.json();
     const payload = patchSchema.parse(body);
 
@@ -83,59 +84,24 @@ export async function PATCH(
     }
 
     if (payload.status === 'disbursed') {
+      if (
+        !permissions.includes('hrm.payroll.pay') ||
+        !permissions.includes('cashbook.manage')
+      ) {
+        throw new HrmAccessError(
+          403,
+          'HRM_PERMISSION_DENIED',
+          'Bạn không có quyền chi tiền ứng lương từ quỹ.',
+        );
+      }
       if (!payload.fund_id) {
         throw new Error('Vui lòng chọn quỹ thanh toán để chi tiền ứng lương.');
       }
-
-      const { connector } = await requireShopAccess(
-        shopId,
-        'hrm.payroll.manage',
-      );
-
-      // 1. Lấy thông tin quỹ
-      const fund = await connector.findById('payment-funds', payload.fund_id);
-      if (!fund) throw new Error('Không tìm thấy tài khoản quỹ thanh toán.');
-      
-      const currentFundBalance = parseFloat(fund.current_balance || '0');
       const advanceAmount = parseFloat(advance.amount);
-      const newFundBalance = currentFundBalance - advanceAmount;
-
-      // 2. Cập nhật số dư quỹ
-      await connector.update('payment-funds', payload.fund_id, {
-        current_balance: String(newFundBalance)
-      });
-      tx.add(async () => {
-        await connector.update('payment-funds', payload.fund_id!, {
-          current_balance: String(currentFundBalance)
-        }).catch(() => {});
-      });
-
-      // 3. Tạo phiếu chi Cashbook
-      const createdCb = await connector.create('cashbook', {
-        type: 'payment',
-        amount: String(advanceAmount),
-        method: fund.type === 'cash' ? 'cash' : 'bank_transfer',
-        category: 'salary_advance',
-        reference_id: advanceId,
-        reference_name: `Ứng lương nhân viên ${advance.employee_name} (${advance.employee_code})`,
-        note: advance.reason || `Giải ngân ứng lương kỳ ${advance.pay_period}`,
-        branch_id: shopId,
-        employee_id: userId || '',
-        fund_id: payload.fund_id,
-        balance_after_transaction: String(newFundBalance),
-        is_virtual: 'FALSE',
-      });
-      const cashbookTxId = (createdCb as any).transaction_id || (createdCb as any).id;
-      tx.add(async () => {
-        await connector.delete('cashbook', cashbookTxId).catch(() => {});
-      });
-
-      // 4. Cập nhật HRM repository
-      await hrmRepo.approveSalaryAdvance({
+      const disbursement = await hrmRepo.approveSalaryAdvance({
         advanceId,
         actorUserId: userId,
         fundId: payload.fund_id,
-        cashbookTransactionId: cashbookTxId,
       });
 
       await notifySalaryAdvanceEmployee({
@@ -149,12 +115,32 @@ export async function PATCH(
         content: `Khoản ứng lương ${advanceAmount.toLocaleString('vi-VN')}đ đã được duyệt và chi từ quỹ.`,
       });
 
-      return NextResponse.json({ success: true, cashbook_transaction_id: cashbookTxId });
+      return NextResponse.json({
+        success: true,
+        cashbook_transaction_id: disbursement.cashbookTransactionId,
+      });
     }
 
     return NextResponse.json({ success: false });
   } catch (error) {
-    await tx.rollback();
+    if (error instanceof HrmAccessError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    }
+    if (error instanceof HrmFundNotFoundError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: 404 },
+      );
+    }
+    if (error instanceof HrmInsufficientFundBalanceError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: 409 },
+      );
+    }
     const schemaError = getHrmSchemaError(error);
     if (schemaError) {
       return NextResponse.json({ error: schemaError }, { status: 503 });

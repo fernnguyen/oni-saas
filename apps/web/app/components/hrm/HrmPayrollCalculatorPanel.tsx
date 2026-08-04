@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import { CurrencyInput } from '@/app/components/ui/CurrencyInput';
 import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
+import { HrmSelectSkeleton } from './HrmContentSkeletons';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
@@ -1114,7 +1115,7 @@ export function HrmPayrollCalculatorPanel({
                 Quỹ nguồn
               </label>
               {fundsQuery.isLoading ? (
-                <p className="mt-2 text-sm text-slate-400">Đang tải danh sách quỹ...</p>
+                <HrmSelectSkeleton label="Đang tải danh sách quỹ thanh toán" />
               ) : fundsQuery.isError ? (
                 <p className="mt-2 text-sm text-red-600">Không tải được quỹ. Thử lại sau.</p>
               ) : (fundsQuery.data?.length ?? 0) === 0 ? (

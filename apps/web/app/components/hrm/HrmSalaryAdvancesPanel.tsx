@@ -18,6 +18,10 @@ import {
 import { toast } from 'sonner';
 import { DataTable, type Column } from '@/app/components/ui/DataTable';
 import { EmptyState } from '@/app/components/ui/EmptyState';
+import {
+  HrmSalaryAdvancesSkeleton,
+  HrmSelectSkeleton,
+} from './HrmContentSkeletons';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
@@ -310,7 +314,7 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
             Tạm ứng lương
           </h2>
           <p className="text-sm text-slate-500">
-            {isLoading ? 'Đang tải dữ liệu...' : `${advances.length} phiếu`}
+            {isLoading ? <span className="inline-block h-3 w-16 animate-pulse rounded bg-slate-200 align-middle" /> : `${advances.length} phiếu`}
             {isFetching && !isLoading && (
               <span className="ml-2 text-xs text-slate-400">
                 Đang cập nhật...
@@ -394,7 +398,7 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
 
       <div className="bg-white border border-slate-200 rounded-2xl flex-1 flex flex-col min-h-0 shadow-sm overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-slate-500">Đang tải dữ liệu...</div>
+          <HrmSalaryAdvancesSkeleton />
         ) : isError ? (
           <EmptyState
             icon={<AlertCircle className="mx-auto h-12 w-12 text-rose-300" />}
@@ -776,9 +780,7 @@ function CreateAdvanceForm({
                 Quỹ xuất tiền
               </label>
               {fundsLoading ? (
-                <div className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-500">
-                  Đang tải danh sách quỹ...
-                </div>
+                <HrmSelectSkeleton label="Đang tải danh sách quỹ xuất tiền" />
               ) : fundsError ? (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                   {fundsQueryError.message}
@@ -1014,9 +1016,7 @@ function ProcessAdvanceDialog({
               Chọn quỹ chi <span className="text-rose-500">*</span>
             </label>
             {isLoading ? (
-              <div className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-500">
-                Đang tải danh sách quỹ...
-              </div>
+              <HrmSelectSkeleton label="Đang tải danh sách quỹ chi" />
             ) : isError ? (
               <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                 {error.message}

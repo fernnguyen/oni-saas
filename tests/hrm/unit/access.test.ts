@@ -448,8 +448,14 @@ test('updating an HRM profile keeps employee and dynamic data in one transaction
   );
   assert.equal(statements[2]?.values?.[4], null);
   assert.equal(
-    statements[2]?.values?.[12],
+    statements[2]?.values?.[13],
     JSON.stringify({ uniform_size: 'M' }),
+  );
+  assert.equal(statements[2]?.values?.[18], null);
+  assert.equal(statements[2]?.values?.[19], null);
+  assert.match(
+    statements[2]?.text ?? '',
+    /when \$19::varchar is null then hrm_employee_profiles\.bank_account_ciphertext/,
   );
   assert.match(statements[3]?.text ?? '', /commit/i);
 });

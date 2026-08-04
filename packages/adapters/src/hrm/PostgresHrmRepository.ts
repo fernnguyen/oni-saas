@@ -25,8 +25,14 @@ export interface HrmEmployeeSummary {
   joinedAt: string | null;
   email: string | null;
   address: string | null;
+  ethnicity: string | null;
+  taxCode: string | null;
+  insuranceCode: string | null;
+  bankName: string | null;
+  bankAccount: string | null;
   departmentId: string | null;
   departmentName: string | null;
+  defaultShiftTemplateId: string | null;
   customData: Record<string, unknown>;
 }
 
@@ -116,6 +122,7 @@ export interface HrmMonthlyAttendanceRow {
   lateMinutes: number;
   earlyLeaveMinutes: number;
   overtimeMinutes: number;
+  workdayCount: number;
   status: string | null;
   note: string | null;
   exceptions?: any;
@@ -176,7 +183,7 @@ export interface HrmEmployeeSalarySummary {
   departmentId: string | null;
   departmentName: string | null;
   bankName: string | null;
-  bankAccountMasked: string | null;
+  bankAccount: string | null;
   configurations: HrmSalaryConfiguration[];
 }
 
@@ -272,6 +279,7 @@ export interface HrmPayrollStoredBreakdown {
     commissions: HrmPayrollMoneyItem[];
     deductions: HrmPayrollMoneyItem[];
   };
+  salaryAdvanceIds?: string[];
   lines: Array<{ code: string; label: string; amount: number }>;
 }
 
@@ -916,8 +924,14 @@ export class PostgresHrmRepository {
             tax_code = excluded.tax_code,
             insurance_code = excluded.insurance_code,
             bank_name = excluded.bank_name,
-            bank_account_ciphertext = excluded.bank_account_ciphertext,
-            bank_account_last4 = excluded.bank_account_last4,
+            bank_account_ciphertext = case
+              when $19::varchar is null then hrm_employee_profiles.bank_account_ciphertext
+              else excluded.bank_account_ciphertext
+            end,
+            bank_account_last4 = case
+              when $20::varchar is null then hrm_employee_profiles.bank_account_last4
+              else excluded.bank_account_last4
+            end,
             default_shift_template_id = excluded.default_shift_template_id,
             custom_data = excluded.custom_data,
             updated_at = now()
@@ -941,8 +955,10 @@ export class PostgresHrmRepository {
           input.taxCode ?? '',
           input.insuranceCode ?? '',
           input.bankName ?? '',
-          input.bankAccountCiphertext ?? '',
-          input.bankAccountLast4 ?? '',
+          input.bankAccountCiphertext === undefined
+            ? null
+            : input.bankAccountCiphertext,
+          input.bankAccountLast4 === undefined ? null : input.bankAccountLast4,
         ],
       );
     });
@@ -1431,6 +1447,7 @@ export class PostgresHrmRepository {
       late_minutes: number | string | null;
       early_leave_minutes: number | string | null;
       overtime_minutes: number | string | null;
+      workday_count: number | string | null;
       status: string | null;
       note: string | null;
       exceptions: any;
@@ -1464,6 +1481,7 @@ export class PostgresHrmRepository {
           a.late_minutes,
           a.early_leave_minutes,
           a.overtime_minutes,
+          a.workday_count,
           a.status,
           a.note,
           a.exceptions,
@@ -1619,6 +1637,14 @@ export class PostgresHrmRepository {
         lateMinutes: Number(row.late_minutes ?? 0),
         earlyLeaveMinutes: Number(row.early_leave_minutes ?? 0),
         overtimeMinutes: Number(row.overtime_minutes ?? 0),
+        workdayCount: Number(
+          row.workday_count ??
+            (calculatedStatus === 'present' ||
+            calculatedStatus === 'paid_leave' ||
+            calculatedStatus === 'holiday'
+              ? 1
+              : 0),
+        ),
         status: calculatedStatus,
         note: row.note,
         exceptions: row.exceptions,
@@ -2119,7 +2145,7 @@ export class PostgresHrmRepository {
       department_id: string | null;
       department_name: string | null;
       bank_name: string | null;
-      bank_account_last4: string | null;
+      bank_account_ciphertext: string | null;
       config_id: string | null;
       salary_type: 'monthly' | 'daily' | 'hourly' | null;
       base_amount: string | number | bigint | null;
@@ -2142,7 +2168,7 @@ export class PostgresHrmRepository {
           p.department_id,
           d.name as department_name,
           p.bank_name,
-          p.bank_account_last4,
+          p.bank_account_ciphertext,
           c.id as config_id,
           c.salary_type,
           c.base_amount,
@@ -2183,9 +2209,7 @@ export class PostgresHrmRepository {
           departmentId: row.department_id ?? null,
           departmentName: row.department_name,
           bankName: row.bank_name,
-          bankAccountMasked: row.bank_account_last4
-            ? `****${row.bank_account_last4}`
-            : null,
+          bankAccount: row.bank_account_ciphertext,
           configurations: [],
         };
         employees.set(row.employee_id, employee);
@@ -3676,6 +3700,30 @@ export class PostgresHrmRepository {
         [now, input.runId, tenantId, branchId],
       );
 
+      // Mark exactly the salary advances captured in the immutable payroll
+      // item snapshots. This stays in the same transaction as fund/cashbook
+      // posting so a failed payment cannot leave advances half-deducted.
+      const deductedAdvances = await client.query(
+        `
+          update hrm_salary_advances a
+          set is_deducted = 1,
+              payroll_run_id = $1,
+              updated_at = $2
+          where a.tenant_id = $3
+            and a.branch_id = $4
+            and a.status = 'disbursed'
+            and a.is_deducted = 0
+            and a.id in (
+              select jsonb_array_elements_text(
+                coalesce(i.breakdown -> 'salaryAdvanceIds', '[]'::jsonb)
+              )
+              from hrm_payroll_items i
+              where i.tenant_id = $3 and i.payroll_run_id = $1
+            )
+        `,
+        [input.runId, now, tenantId, branchId],
+      );
+
       // ── 9. Audit log ───────────────────────────────────────────────────────
       await client.query(
         `
@@ -3696,6 +3744,7 @@ export class PostgresHrmRepository {
             cashbookTransactionId,
             fundId: input.fundId,
             amount: totalNet,
+            deductedSalaryAdvances: deductedAdvances.rowCount ?? 0,
           }),
           now,
         ],
@@ -4466,9 +4515,8 @@ export class PostgresHrmRepository {
     autoApprove?: boolean;
     disbursement?: {
       fundId: string;
-      cashbookTransactionId: string;
     };
-  }): Promise<void> {
+  }): Promise<{ cashbookTransactionId: string | null }> {
     const scope = this.scope;
     const status = input.disbursement
       ? 'disbursed'
@@ -4503,66 +4551,188 @@ export class PostgresHrmRepository {
           input.createdBy,
         ],
       );
-      return;
+      return { cashbookTransactionId: null };
     }
 
-    await this.pool.query(
-      `insert into hrm_salary_advances (
-        id, tenant_id, branch_id, profile_id,
-        amount, request_date, pay_period, reason,
-        status, approved_by, approved_at, disbursed_by, disbursed_at,
-        fund_id, cashbook_transaction_id,
-        created_by, created_at, updated_at
-      ) values (
-        $1, $2, $3, $4, $5, $6::date, $7, $8,
-        $9, $10, $11, $12, $13,
-        $14, $15,
-        $16, now(), now()
-      )`,
-      [
-        input.id, scope.tenantId, scope.branchId, input.profileId,
-        input.amount, input.requestDate, input.payPeriod, input.reason || null,
-        status,
-        isApproved ? input.createdBy : null,
-        approvedAt,
-        input.createdBy,
-        approvedAt,
-        input.disbursement.fundId,
-        input.disbursement.cashbookTransactionId,
-        input.createdBy,
-      ],
-    );
+    return this.withTransaction(async (client, transactionScope) => {
+      await client.query(
+        `insert into hrm_salary_advances (
+          id, tenant_id, branch_id, profile_id,
+          amount, request_date, pay_period, reason,
+          status, approved_by, approved_at,
+          created_by, created_at, updated_at
+        ) values (
+          $1, $2, $3, $4, $5, $6::date, $7, $8,
+          'approved', $9::uuid, $10,
+          $9::uuid, now(), now()
+        )`,
+        [
+          input.id,
+          transactionScope.tenantId,
+          transactionScope.branchId,
+          input.profileId,
+          input.amount,
+          input.requestDate,
+          input.payPeriod,
+          input.reason || null,
+          input.createdBy,
+          approvedAt,
+        ],
+      );
+      const cashbookTransactionId =
+        await this.disburseSalaryAdvanceInTransaction(client, transactionScope, {
+          advanceId: input.id,
+          actorUserId: input.createdBy,
+          fundId: input.disbursement!.fundId,
+        });
+      return { cashbookTransactionId };
+    });
   }
 
   async approveSalaryAdvance(input: {
     advanceId: string;
     actorUserId: string;
-    fundId?: string;
-    cashbookTransactionId?: string;
-  }): Promise<void> {
-    const scope = this.scope;
-    const result = await this.pool.query(
-      `update hrm_salary_advances
-       set status = 'disbursed',
-           approved_by = coalesce(approved_by, $1),
-           approved_at = coalesce(approved_at, now()),
-           disbursed_by = $1,
-           disbursed_at = now(),
-           fund_id = $2,
-           cashbook_transaction_id = $3,
-           updated_at = now()
-       where id = $4 and tenant_id = $5 and branch_id = $6
-         and status in ('pending', 'approved')`,
+    fundId: string;
+  }): Promise<{ cashbookTransactionId: string }> {
+    return this.withTransaction(async (client, scope) => ({
+      cashbookTransactionId: await this.disburseSalaryAdvanceInTransaction(
+        client,
+        scope,
+        input,
+      ),
+    }));
+  }
+
+  private async disburseSalaryAdvanceInTransaction(
+    client: PoolClient,
+    scope: Readonly<HrmRepositoryScope>,
+    input: { advanceId: string; actorUserId: string; fundId: string },
+  ): Promise<string> {
+    const advanceResult = await client.query<{
+      amount: string | number;
+      status: string;
+      pay_period: string;
+      reason: string | null;
+      employee_name: string;
+      employee_code: string | null;
+    }>(
+      `
+        select a.amount, a.status, a.pay_period, a.reason,
+               coalesce(e.name, '') as employee_name, e.employee_code
+        from hrm_salary_advances a
+        join hrm_employee_profiles p
+          on p.id = a.profile_id and p.tenant_id = a.tenant_id
+        join employees e
+          on e.id = p.source_employee_id
+          and e.tenant_id = a.tenant_id
+          and e.branch_id = a.branch_id
+        where a.id = $1 and a.tenant_id = $2 and a.branch_id = $3
+        for update of a
+      `,
+      [input.advanceId, scope.tenantId, scope.branchId],
+    );
+    const advance = advanceResult.rows[0];
+    if (!advance || !['pending', 'approved'].includes(advance.status)) {
+      throw new Error('Khoản ứng lương không tồn tại hoặc đã được xử lý.');
+    }
+
+    const fundResult = await client.query<{
+      id: string;
+      current_balance: string | null;
+      type: string | null;
+    }>(
+      `
+        select id, current_balance, type
+        from payment_funds
+        where id = $1 and tenant_id = $2 and branch_id = $3
+          and coalesce(active, 'TRUE') not in ('FALSE', 'false', '0')
+        for update
+      `,
+      [input.fundId, scope.tenantId, scope.branchId],
+    );
+    const fund = fundResult.rows[0];
+    if (!fund) throw new HrmFundNotFoundError();
+
+    const amount = Number(advance.amount);
+    const currentBalance = Number(fund.current_balance ?? 0);
+    if (currentBalance < amount) {
+      throw new HrmInsufficientFundBalanceError(currentBalance, amount);
+    }
+
+    const newBalance = currentBalance - amount;
+    const now = new Date();
+    const cashbookTransactionId = await this.generateCashbookId(client);
+    await client.query(
+      `
+        insert into cashbook (
+          id, tenant_id, branch_id, type, amount, method, category,
+          reference_id, reference_name, employee_id, note, fund_id,
+          balance_after_transaction, is_virtual, created_at, updated_at, active
+        ) values (
+          $1, $2, $3, 'payment', $4, $5, 'salary_advance',
+          $6, $7, $8, $9, $10,
+          $11, 'FALSE', $12, $12, 'TRUE'
+        )
+      `,
       [
-        input.actorUserId,
-        input.fundId || null,
-        input.cashbookTransactionId || null,
-        input.advanceId,
+        cashbookTransactionId,
         scope.tenantId,
-        scope.branchId
+        scope.branchId,
+        String(amount),
+        fund.type === 'cash' ? 'cash' : 'bank_transfer',
+        input.advanceId,
+        `Ứng lương nhân viên ${advance.employee_name}${
+          advance.employee_code ? ` (${advance.employee_code})` : ''
+        }`,
+        input.actorUserId,
+        advance.reason || `Ứng lương kỳ ${advance.pay_period}`,
+        input.fundId,
+        String(newBalance),
+        now,
       ],
     );
-    if (result.rowCount === 0) throw new Error('Không thể duyệt đơn ứng lương.');
+    await client.query(
+      `
+        update payment_funds
+        set current_balance = $1, updated_at = $2
+        where id = $3 and tenant_id = $4 and branch_id = $5
+      `,
+      [
+        String(newBalance),
+        now,
+        input.fundId,
+        scope.tenantId,
+        scope.branchId,
+      ],
+    );
+    const updated = await client.query(
+      `
+        update hrm_salary_advances
+        set status = 'disbursed',
+            approved_by = coalesce(approved_by, $1::uuid),
+            approved_at = coalesce(approved_at, $2),
+            disbursed_by = $1::uuid,
+            disbursed_at = $2,
+            fund_id = $3,
+            cashbook_transaction_id = $4,
+            updated_at = $2
+        where id = $5 and tenant_id = $6 and branch_id = $7
+          and status in ('pending', 'approved')
+      `,
+      [
+        input.actorUserId,
+        now,
+        input.fundId,
+        cashbookTransactionId,
+        input.advanceId,
+        scope.tenantId,
+        scope.branchId,
+      ],
+    );
+    if (updated.rowCount !== 1) {
+      throw new Error('Không thể giải ngân khoản ứng lương.');
+    }
+    return cashbookTransactionId;
   }
 
   async markSalaryAdvanceApproved(input: {

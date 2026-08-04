@@ -97,7 +97,9 @@ export async function POST(
       recurringAllowances: input.recurring_allowances,
       effectiveFrom: input.effective_from,
       actorUserId: access.userId,
-      shiftTemplateId: input.shift_template_id ?? null,
+      // Shift assignment belongs to the employee profile. Salary policies must
+      // not create a second, conflicting source of truth.
+      shiftTemplateId: null,
       annualLeaveDays: input.annual_leave_days,
     });
     return NextResponse.json({ success: true }, { status: 201 });

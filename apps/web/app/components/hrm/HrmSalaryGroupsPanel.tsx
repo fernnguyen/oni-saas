@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner';
 import { CurrencyInput } from '@/app/components/ui/CurrencyInput';
 import { EmptyState } from '@/app/components/ui/EmptyState';
+import { HrmSalaryGroupsSkeleton } from './HrmContentSkeletons';
 import { SlideOver } from '@/app/components/ui/SlideOver';
 import { TagBadge } from '@/app/components/ui/TagBadge';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
@@ -215,14 +216,7 @@ export function HrmSalaryGroupsPanel({ shopId }: { shopId: string }) {
       </div>
 
       {query.isLoading && (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {[0, 1, 2].map((item) => (
-            <div
-              key={item}
-              className="h-44 animate-pulse rounded-2xl bg-slate-100"
-            />
-          ))}
-        </div>
+        <HrmSalaryGroupsSkeleton />
       )}
 
       {!query.isLoading && (query.data?.data.length ?? 0) === 0 && (

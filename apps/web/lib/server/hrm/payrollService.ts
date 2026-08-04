@@ -174,7 +174,7 @@ export async function calculatePayrollRun(input: {
       row.status === 'paid_leave' ||
       row.status === 'holiday'
     ) {
-      aggregate.paidWorkDays += 1;
+      aggregate.paidWorkDays += row.workdayCount ?? 1;
     }
     aggregate.workedMinutes += row.workedMinutes;
     aggregate.overtimeMinutes += row.overtimeMinutes;
@@ -201,9 +201,13 @@ export async function calculatePayrollRun(input: {
     };
     const stored = getStoredAdjustments(existingRun, employee.profileId);
     
-    // Inject Salary Advances (approved ones only)
+    // Only money that was actually disbursed can be recovered from payroll.
+    // Already-deducted advances must never be charged a second time.
     const employeeAdvances = advancesList.filter(
-      a => a.profileId === employee.profileId && a.status === 'approved'
+      a =>
+        a.profileId === employee.profileId &&
+        a.status === 'disbursed' &&
+        !a.isDeducted,
     );
     
     const existingAdvanceDeductions = stored.adjustments.deductions.filter(d => d.label.startsWith('Hoàn ứng: '));
@@ -242,6 +246,7 @@ export async function calculatePayrollRun(input: {
     const breakdown: HrmPayrollStoredBreakdown = {
       calculationInput,
       adjustments: finalAdjustments,
+      salaryAdvanceIds: employeeAdvances.map((advance) => advance.id),
       lines: calculation.breakdown,
     };
 
