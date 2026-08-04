@@ -67,7 +67,12 @@
 ├── scripts/
 │   ├── deploy.sh                       ← Main deploy script
 │   ├── switch.sh                       ← Dùng sau migration thủ công
-│   └── rollback.sh                     ← Rollback về version cũ
+│   ├── rollback.sh                     ← Rollback về version cũ
+│   ├── backup.sh                       ← Backup PostgreSQL local mỗi 2 giờ
+│   ├── backup-supabase.sh              ← Backup Supabase daily
+│   └── install-backup-cron.sh          ← Cài/cập nhật cron idempotent
+├── backups/                            ← Dữ liệu backup, không nằm trong release
+├── logs/                               ← Log cron backup
 └── current → releases/v1.3.0/          ← Symlink, PM2 luôn trỏ vào đây
 ```
 
@@ -123,6 +128,8 @@
 | Biến | Lý do |
 |------|-------|
 | `SUPABASE_SERVICE_ROLE_KEY` | Full DB access — tuyệt đối không public |
+| `SUPABASE_DB_URL` | Database password/connection string cho backup Supabase |
+| `SUPABASE_PROJECT_REF` | Guard chống dump nhầm Supabase project |
 | `LOCAL_PG_URI` | DB connection string localhost |
 | `LOCAL_MYSQL_URI` | Legacy DB connection |
 | `CONNECTOR_ENCRYPTION_KEY` | Encryption key — secret tuyệt đối |
@@ -205,9 +212,19 @@ drizzle-kit --version
 
 ```bash
 # Từ local machine:
-scp scripts/deploy.sh scripts/switch.sh scripts/rollback.sh oni@server:/var/www/oni/scripts/
+scp scripts/*.sh oni@server:/var/www/oni/scripts/
 ssh oni@server "chmod +x /var/www/oni/scripts/*.sh"
 ```
+
+Sau khi bổ sung các biến backup vào `shared/.env`, cài cron một lần:
+
+```bash
+ssh oni@server \
+  "ONI_DEPLOY_ROOT=/var/www/oni /var/www/oni/scripts/install-backup-cron.sh"
+```
+
+Cron luôn gọi `/var/www/oni/scripts/*`; mỗi deploy tiếp theo tự đồng bộ script mới
+mà không phải sửa lại crontab. Xem cấu hình đầy đủ tại [BACKUP-GUIDE.md](BACKUP-GUIDE.md).
 
 ---
 

@@ -1,139 +1,221 @@
-# Hướng Dẫn Cấu Hình Backup Database PostgreSQL
+# ONI Database Backup — Standalone VPS
 
-Tài liệu này hướng dẫn chi tiết cách thiết lập, vận hành, kiểm tra và khôi phục database PostgreSQL cho hệ thống **ONI SaaS Starter**. 
-Hệ thống hỗ trợ backup đa kênh đồng thời: **Google Drive (5TB)**, **Cloudflare R2 (S3-compatible)** và lưu trữ **Local** kết hợp với thông báo qua **Telegram**.
+ONI có hai nguồn PostgreSQL độc lập và hai lịch backup riêng:
 
----
+| Nguồn | Script ổn định trên VPS | Lịch mặc định | Mục tiêu |
+|---|---|---:|---|
+| PostgreSQL local | `/var/www/oni/scripts/backup.sh` | Mỗi 2 giờ | Dữ liệu nghiệp vụ thay đổi thường xuyên |
+| Supabase main | `/var/www/oni/scripts/backup-supabase.sh` | 02:17 mỗi ngày | Khung hệ thống, tenant, Auth và metadata |
 
-## 1. Cơ Chế Hoạt Động
+Các script không chạy bên trong Next.js standalone. Mỗi release chứa thư mục
+`scripts/`; `deploy.sh` tự đồng bộ chúng sang `/var/www/oni/scripts/`, vì vậy cron
+luôn trỏ vào đường dẫn cố định và không phụ thuộc release/current symlink.
 
-Hệ thống sử dụng script tự động hóa đặt tại [scripts/backup.sh](../scripts/backup.sh). Quy trình hoạt động như sau:
-1. **Đọc cấu hình:** Script quét và đọc cấu hình từ `.env.local` hoặc `.env` bao gồm thông tin kết nối database, cấu hình rclone (GDrive, R2), và bot Telegram.
-2. **Dump Database tối ưu:** Sử dụng `pg_dump` với định dạng tùy chỉnh nhị phân (`-F c` - Custom Format) giúp nén tốt, tốc độ dump nhanh và hỗ trợ restore song song.
-3. **Nén ZIP:** File dump nhị phân sẽ được nén thành `.zip` với tên định dạng `giờ-phút-ngày-tháng-năm.sql.zip` (Ví dụ: `14-30-05-07-2026.sql.zip`).
-4. **Đồng bộ hóa đám mây song song:**
-   - **Google Drive:** Đồng bộ lên qua rclone.
-   - **Cloudflare R2:** Đồng bộ lên bucket R2 qua rclone.
-   *Nếu một kênh lỗi (ví dụ GDrive mất token), quá trình vẫn tiếp tục cho kênh còn lại.*
-5. **Lưu trữ cục bộ (Local Retention):**
-   - File zip sẽ được lưu vào thư mục `backups/` trên máy chủ để dự phòng khẩn cấp.
-   - Các file local cũ hơn **3 ngày** sẽ tự động bị xóa để tiết kiệm dung lượng ổ cứng.
-6. **Xóa bản sao lưu đám mây cũ:** Các file backup trên Google Drive và Cloudflare R2 cũ hơn **30 ngày** sẽ tự động bị xóa (`--min-age 30d`).
-7. **Cảnh báo Telegram:** Khi quá trình dump, nén zip, hoặc upload lên từng dịch vụ đám mây thất bại, hệ thống sẽ tự động nhắn tin cảnh báo tới Telegram của bạn.
+## 1. Phạm vi backup Supabase
 
----
+`backup-supabase.sh` sử dụng native `pg_dump` custom format với một snapshot logic
+nhất quán. Dump chứa mọi schema mà database user đọc được, gồm `public`, dữ liệu
+Auth, Storage metadata và `supabase_migrations`. Các cờ `--no-owner --no-acl` giúp
+bundle dễ phục hồi sang project khác hơn.
 
-## 2. Các Bước Cấu Hình Rclone (Cloud Storage)
+Mỗi bundle có:
 
-### 2.1 Cấu hình Google Drive (Khuyên dùng Service Account)
+- `*.dump`: logical dump custom format;
+- `*.toc.txt`: TOC đã được `pg_restore --list` kiểm tra;
+- `*.manifest.json`: project ref, host, PostgreSQL/pg_dump version, dung lượng,
+  SHA-256 và row count kiểm tra cho tenant/Auth/migration;
+- `*.tar.gz.sha256`: checksum của bundle cuối cùng.
 
-1. Tạo **Service Account** trên Google Cloud Console. Tải file JSON Key về máy chủ (ví dụ: `/opt/gdrive-key.json`).
-2. Trên Google Drive cá nhân, tạo thư mục `backup_oni` và Share quyền **Editor** cho email Service Account vừa tạo.
-3. Chạy lệnh `rclone config`:
-   - Chọn `n` -> Tên remote: `gdrive`
-   - Storage: Google Drive (`drive`)
-   - Bỏ trống client_id và client_secret.
-   - Tại mục **Service Account Credentials**, điền đường dẫn: `/opt/gdrive-key.json`
-4. Kiểm tra cấu hình: `rclone lsd gdrive:`
+Lưu ý: PostgreSQL chỉ chứa metadata của Supabase Storage, không chứa nội dung
+object. ONI hiện dùng Cloudflare R2 cho object storage; nếu sau này sử dụng
+Supabase Storage, phải có job backup bucket riêng.
 
-### 2.2 Cấu hình Cloudflare R2 (S3 Compatible)
+## 2. Egress khi dump Supabase
 
-1. Tạo bucket tên là `backup-oni` trên Cloudflare Dashboard.
-2. Tạo API Token trên Cloudflare R2 với quyền **Object Read & Write** cho bucket `backup-oni`. Note lại **Access Key ID**, **Secret Access Key**, và **Endpoint** (`https://<account_id>.r2.cloudflarestorage.com`).
-3. Chạy lệnh `rclone config`:
-   - Chọn `n` -> Tên remote: `r2`
-   - Storage: `s3`
-   - Provider: `Cloudflare`
-   - Env_auth: `false`
-   - Nhập **Access Key ID** và **Secret Access Key**.
-   - Endpoint: Nhập Endpoint bắt đầu bằng `https://`
-4. Kiểm tra cấu hình: `rclone lsd r2:`
+Egress là dữ liệu đi từ hạ tầng Supabase ra VPS/client. `pg_dump` đọc toàn bộ dữ
+liệu logic nên **có tính vào egress**. Nếu dùng Session pooler, Dashboard thường
+ghi nhận dưới `Shared Pooler Egress`; Direct connection được ghi nhận như database
+egress.
 
----
+Free plan có quota uncached egress dùng chung cho Database/Auth/Storage/... Vì
+không có overage tự động trên Free, vượt quota có thể đưa organization vào grace
+period/restriction thay vì chỉ phát sinh một hóa đơn nhỏ.
 
-## 3. Cấu hình Môi Trường (`.env`)
+Backup daily phù hợp hơn backup hàng giờ cho Supabase của ONI:
 
-Cập nhật file `.env` hoặc `.env.local` với các biến sau:
+- 1 lần/ngày ≈ 31 lần dump/tháng;
+- upper-bound thận trọng = `pg_database_size × 31`;
+- script cảnh báo Telegram nếu upper-bound vượt `SUPABASE_BACKUP_EGRESS_WARN_GB`
+  (mặc định 4 GB để chừa quota cho app);
+- đây là upper-bound vì database size có cả index, còn logical dump không tải file
+  index vật lý.
+
+Theo dõi thực tế tại Supabase Dashboard → Organization → Usage → Egress. Nếu RPO
+24 giờ không đủ hoặc dung lượng tăng nhanh, nên nâng Pro để có daily backup managed
+và vẫn giữ bản logical off-site này.
+
+Tài liệu Supabase:
+
+- <https://supabase.com/docs/guides/platform/manage-your-usage/egress>
+- <https://supabase.com/docs/guides/platform/backups>
+- <https://supabase.com/docs/guides/database/connecting-to-postgres>
+
+## 3. Cấu hình env của `apps/web`
+
+Local đọc `apps/web/.env.local`. Trên production, deploy tạo
+`/var/www/oni/current/apps/web/.env` và symlink file này tới
+`/var/www/oni/shared/.env`; script ưu tiên đường dẫn trong `apps/web`, không đọc
+root `.env`.
 
 ```env
-# URI kết nối PostgreSQL
-LOCAL_PG_URI="postgresql://oni_admin:mat_khau_db@localhost:5432/oni_production"
+# Local PostgreSQL
+LOCAL_PG_URI="postgresql://oni_admin:PASSWORD@localhost:5432/oni_production"
+LOCAL_BACKUP_DIR="/var/www/oni/backups/local"
 
-# Cấu hình Rclone (Để trống nếu dùng tên remote mặc định)
+# Supabase: Dashboard > Connect
+# Direct 5432 nếu VPS có IPv6; Session pooler 5432 nếu VPS chỉ có IPv4.
+# Không dùng Transaction pooler 6543. Password phải URL-encode.
+SUPABASE_PROJECT_REF="your-project-ref"
+SUPABASE_DB_URL="postgresql://postgres.your-project-ref:URL_ENCODED_PASSWORD@aws-0-region.pooler.supabase.com:5432/postgres?sslmode=require"
+SUPABASE_BACKUP_LOCAL_DIR="/var/www/oni/backups/supabase"
+SUPABASE_BACKUP_LOCAL_RETENTION_DAYS="7"
+SUPABASE_BACKUP_REMOTE_RETENTION_DAYS="30"
+SUPABASE_BACKUP_RUNS_PER_DAY="1"
+SUPABASE_BACKUP_EGRESS_WARN_GB="4"
+
+# Google Drive và Cloudflare R2 qua rclone
 RCLONE_REMOTE="gdrive"
 RCLONE_BACKUP_PATH="backup_oni"
-
 RCLONE_R2_REMOTE="r2"
-RCLONE_R2_PATH="backup-oni" # Chú ý Cloudflare R2 không cho phép ký tự gạch dưới '_' trong tên bucket
+RCLONE_R2_PATH="backup-oni"
 
-# Thư mục lưu backup ở server (mặc định sẽ lưu vào $PROJECT_ROOT/backups)
-LOCAL_BACKUP_DIR="/path/to/project/backups"
+# Optional: override riêng cho Supabase
+# SUPABASE_RCLONE_PATH="backup_oni/supabase"
+# SUPABASE_RCLONE_R2_PATH="backup-oni/supabase"
+# SUPABASE_PG_DUMP_PATH="/usr/lib/postgresql/17/bin/pg_dump"
 
-# Cảnh báo Telegram (Tuỳ chọn)
-TELEGRAM_BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"
-TELEGRAM_CHAT_ID="12345678"
+TELEGRAM_BOT_TOKEN="..."
+TELEGRAM_CHAT_ID="..."
 ```
 
----
+Trên production, cập nhật file đích của symlink và giữ mode `600`:
 
-## 4. Thiết lập tự động chạy (Cron Job)
+```bash
+nano /var/www/oni/current/apps/web/.env
+chmod 600 /var/www/oni/shared/.env
+```
 
-Thêm cron job chạy vào phút thứ 0 của mỗi 2 tiếng (Sử dụng lệnh `crontab -e`):
+Không đưa `SUPABASE_DB_URL` vào GitHub Actions Secrets dùng cho build và tuyệt đối
+không dùng service-role key thay cho database password.
+
+## 4. Prerequisites trên VPS
+
+```bash
+sudo apt update
+sudo apt install -y postgresql-client rclone zip util-linux
+
+pg_dump --version
+pg_restore --version
+rclone version
+rclone listremotes
+```
+
+`pg_dump` phải có major version bằng hoặc mới hơn Supabase PostgreSQL server. Script
+sẽ dừng và báo rõ nếu client quá cũ.
+
+Cấu hình remote:
+
+- `gdrive`: Google Drive, ưu tiên Service Account có quyền trên folder backup;
+- `r2`: Cloudflare R2 S3 remote có Object Read/Write cho bucket `backup-oni`.
+
+## 5. Cài cron standalone
+
+Sau khi release mới đã đồng bộ scripts:
+
+```bash
+chmod +x /var/www/oni/scripts/*.sh
+
+# Kiểm tra Supabase connection/dependency, không dump
+BACKUP_ENV_FILE=/var/www/oni/current/apps/web/.env \
+  /var/www/oni/scripts/backup-supabase.sh --check
+
+# Xem block cron trước
+ONI_DEPLOY_ROOT=/var/www/oni \
+  /var/www/oni/scripts/install-backup-cron.sh --print
+
+# Cài/cập nhật idempotent
+ONI_DEPLOY_ROOT=/var/www/oni \
+  /var/www/oni/scripts/install-backup-cron.sh
+
+crontab -l
+```
+
+Cron mặc định:
 
 ```cron
-0 */2 * * * /Users/fern/Coding/ERP/oni-saas-starter/scripts/backup.sh >> /home/oni/db_backup.log 2>&1
+0 */2 * * *  # local PostgreSQL
+17 2 * * *   # Supabase daily
 ```
 
-*(Lưu ý sửa đường dẫn tuyệt đối tới script cho chính xác)*
+Các job sử dụng `flock`, nên lần chạy mới sẽ không chồng lên lần cũ. Muốn đổi lịch,
+chỉ truyền biến khi chạy installer rồi chạy lại:
 
----
-
-## 5. Giải Quyết Sự Cố Thường Gặp (Troubleshooting)
-
-### Lỗi 1: Cloudflare R2 báo `401 Unauthorized` và `CreateBucket`
-
-```text
-failed to prepare upload: operation error S3: CreateBucket, https response error StatusCode: 401, ... api error Unauthorized
+```bash
+LOCAL_BACKUP_CRON_SCHEDULE="0 */2 * * *" \
+SUPABASE_BACKUP_CRON_SCHEDULE="17 2 * * *" \
+ONI_DEPLOY_ROOT=/var/www/oni \
+  /var/www/oni/scripts/install-backup-cron.sh
 ```
-* **Nguyên nhân:** rclone đang kiểm tra và cố gắng tạo bucket mới nhưng bị thất bại do xác thực sai hoặc token không có quyền tạo bucket.
-* **Cách khắc phục:**
-  1. Đảm bảo **Access Key** và **Secret Access Key** cấu hình đúng trong `rclone config`. Khách hàng thường nhầm lẫn dùng *Client ID* thay vì *Access Key ID*.
-  2. Đảm bảo **Endpoint** bắt đầu bằng `https://` và chứa đúng Account ID.
-  3. Đảm bảo bucket (ví dụ `backup-oni`) đã được tạo thủ công trước trên giao diện Cloudflare R2.
-  4. Truyền cờ `--s3-no-check-bucket` vào lệnh rclone copy trong script nếu token S3 của bạn bị giới hạn nghiêm ngặt chỉ cấp quyền thao tác file (Object) mà không có quyền list/create bucket.
 
-### Lỗi 2: `pg_dump: error: aborting because of server version mismatch`
-* **Nguyên nhân:** Phiên bản của tool `pg_dump` trên máy cũ hơn PostgreSQL Database Server đang chạy.
-* **Cách khắc phục:** Nâng cấp gói postgresql client, hoặc khai báo biến môi trường `PG_DUMP_PATH` dẫn trực tiếp tới phiên bản đúng trong thư mục cài đặt hệ thống.
+Lịch chạy theo timezone của cron daemon trên VPS. Kiểm tra bằng `timedatectl`.
 
-### Lỗi 3: Google Drive Token hết hạn / Lỗi xác minh
-Nếu tạo token cá nhân, token có thể hết hạn hoặc yêu cầu Google duyệt app. 
-* **Cách khắc phục:** Chuyển sang sử dụng **Service Account** thay vì User Account cá nhân khi setup rclone gdrive (Xem bước 2.1).
+## 6. Chạy thủ công và kiểm tra
 
----
+```bash
+BACKUP_ENV_FILE=/var/www/oni/current/apps/web/.env \
+  /var/www/oni/scripts/backup-supabase.sh
 
-## 6. Hướng Dẫn Khôi Khục (Restore)
+tail -100 /var/www/oni/logs/backup-supabase.log
+ls -lh /var/www/oni/backups/supabase
+rclone lsf gdrive:backup_oni/supabase --max-depth 4
+rclone lsf r2:backup-oni/supabase --max-depth 4
+```
 
-Khi cần khôi phục lại cơ sở dữ liệu:
+Kiểm tra checksum:
 
-1. **Giải nén file `.zip` tải về để lấy file dump nhị phân gốc:**
-   ```bash
-   unzip 14-30-05-07-2026.sql.zip
-   # Lệnh này sẽ giải nén ra file db_dump_xxxx.dump
-   ```
+```bash
+cd /var/www/oni/backups/supabase
+sha256sum -c supabase_*.tar.gz.sha256
+```
 
-2. **Thực hiện Restore bằng lệnh `pg_restore`:**
-   Định dạng Custom `-F c` không thể import bằng `psql` thông thường mà bắt buộc phải dùng `pg_restore`.
+## 7. Restore drill
 
-   *Khôi phục sang database mới (Khuyên dùng để test trước):*
-   ```bash
-   createdb -h localhost -p 5432 -U oni_admin db_test_restore
-   pg_restore -h localhost -p 5432 -U oni_admin -d db_test_restore db_dump_xxxx.dump
-   ```
+Không restore đè thẳng production trước khi test. Giải nén và kiểm tra TOC:
 
-   *Khôi phục đa luồng đè lên database cũ (Nhanh hơn rất nhiều):*
-   ```bash
-   # -c: Xóa DB objects cũ trước khi tạo lại
-   # -j: Số luồng xử lý song song (ví dụ: 4)
-   pg_restore -h localhost -p 5432 -U oni_admin -d oni_production -c -j 4 db_dump_xxxx.dump
-   ```
+```bash
+tar -xzf supabase_PROJECT_TIMESTAMP.tar.gz
+pg_restore --list supabase_PROJECT_TIMESTAMP.dump
+```
+
+Restore vào PostgreSQL/Supabase test trước:
+
+```bash
+pg_restore \
+  --no-owner \
+  --no-acl \
+  --exit-on-error \
+  --dbname="$TEST_DATABASE_URL" \
+  supabase_PROJECT_TIMESTAMP.dump
+```
+
+Supabase quản lý sẵn một số roles/extensions/schema. Khi phục hồi sang project
+Supabase mới, thực hiện theo runbook chính thức, review TOC và có thể restore chọn
+lọc schema/data. Sau restore phải kiểm tra:
+
+- đăng nhập Auth;
+- `auth.users` và quan hệ `public.user_tenants`/`tenant_user_profiles`;
+- tenant/shop và migration history;
+- Realtime publications, Edge Function secrets và object storage riêng.
+
+Thực hiện restore drill ít nhất mỗi tháng. Backup chỉ được coi là hợp lệ khi đã
+phục hồi thử thành công.

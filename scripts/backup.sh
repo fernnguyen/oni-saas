@@ -23,12 +23,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # 1. TÌM VÀ ĐỌC FILE CẤU HÌNH MÔI TRƯỜNG (.env hoặc .env.local)
-# Các đường dẫn có thể chứa file env
-ENV_PATHS=(
+# Các đường dẫn có thể chứa file env. App dùng apps/web/.env.local khi local;
+# production standalone dùng current/apps/web/.env (symlink tới shared/.env).
+ENV_PATHS=()
+if [ -n "${BACKUP_ENV_FILE:-}" ]; then
+  ENV_PATHS+=("$BACKUP_ENV_FILE")
+fi
+ENV_PATHS+=(
+  "$PROJECT_ROOT/current/apps/web/.env"
   "$PROJECT_ROOT/apps/web/.env.local"
   "$PROJECT_ROOT/apps/web/.env"
-  "$PROJECT_ROOT/.env.local"
-  "$PROJECT_ROOT/.env"
+  "$PROJECT_ROOT/shared/.env"
   "./apps/web/.env.local"
   "./apps/web/.env"
 )
@@ -234,4 +239,3 @@ rm -f "$DUMP_FILE"
 rm -f "$ZIP_FILE_PATH"
 
 echo "[$(date)] Hoàn thành toàn bộ quá trình backup!"
-
