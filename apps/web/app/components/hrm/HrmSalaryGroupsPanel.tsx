@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   BadgeDollarSign,
   CheckCircle2,
@@ -73,30 +73,25 @@ const currency = (value: number) =>
     maximumFractionDigits: 0,
   }).format(value);
 
-export function HrmSalaryGroupsPanel({ shopId }: { shopId: string }) {
+interface HrmSalaryGroupsPanelProps {
+  shopId: string;
+  groups: SalaryGroup[];
+  canManage: boolean;
+  loading: boolean;
+}
+
+export function HrmSalaryGroupsPanel({
+  shopId,
+  groups,
+  canManage,
+  loading,
+}: HrmSalaryGroupsPanelProps) {
   const queryClient = useQueryClient();
   const confirm = useConfirm();
   const [editingGroup, setEditingGroup] = useState<SalaryGroup | 'new' | null>(
     null,
   );
   const [form, setForm] = useState<GroupForm>(EMPTY_FORM);
-
-  const query = useQuery({
-    queryKey: ['hrm-salary-groups', shopId],
-    staleTime: 60_000,
-    refetchOnMount: 'always',
-    queryFn: async () => {
-      const response = await fetch(
-        `/api/shops/${encodeURIComponent(shopId)}/hrm/salary-groups`,
-        { cache: 'no-store' },
-      );
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error?.message ?? 'Không tải được nhóm lương.');
-      }
-      return payload as { data: SalaryGroup[]; canManage: boolean };
-    },
-  });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -143,9 +138,6 @@ export function HrmSalaryGroupsPanel({ shopId }: { shopId: string }) {
       );
       setEditingGroup(null);
       setForm(EMPTY_FORM);
-      void queryClient.invalidateQueries({
-        queryKey: ['hrm-salary-groups', shopId],
-      });
       void queryClient.invalidateQueries({
         queryKey: ['hrm-salary-configs', shopId],
       });
@@ -203,7 +195,7 @@ export function HrmSalaryGroupsPanel({ shopId }: { shopId: string }) {
             Tạo chính sách dùng chung và chọn một nhóm mặc định cho chi nhánh.
           </p>
         </div>
-        {query.data?.canManage && (
+        {canManage && (
           <button
             type="button"
             onClick={openCreate}
@@ -215,11 +207,11 @@ export function HrmSalaryGroupsPanel({ shopId }: { shopId: string }) {
         )}
       </div>
 
-      {query.isLoading && (
+      {loading && (
         <HrmSalaryGroupsSkeleton />
       )}
 
-      {!query.isLoading && (query.data?.data.length ?? 0) === 0 && (
+      {!loading && groups.length === 0 && (
         <EmptyState
           title="Chưa có nhóm lương"
           description="Tạo một nhóm mặc định để áp dụng nhanh cho nhân viên chưa có cấu hình riêng."
@@ -227,7 +219,7 @@ export function HrmSalaryGroupsPanel({ shopId }: { shopId: string }) {
       )}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {(query.data?.data ?? []).map((group) => (
+        {groups.map((group) => (
           <article
             key={group.id}
             className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm transition ${
@@ -265,7 +257,7 @@ export function HrmSalaryGroupsPanel({ shopId }: { shopId: string }) {
                 </span>
               )}
             </div>
-            {query.data?.canManage && (
+            {canManage && (
               <button
                 type="button"
                 onClick={() => openEdit(group)}
@@ -278,12 +270,6 @@ export function HrmSalaryGroupsPanel({ shopId }: { shopId: string }) {
           </article>
         ))}
       </div>
-
-      {query.isError && (
-        <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {query.error.message}
-        </p>
-      )}
 
       <SlideOver
         open={Boolean(editingGroup)}

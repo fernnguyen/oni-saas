@@ -318,9 +318,6 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
       void queryClient.invalidateQueries({
         queryKey: ['hrm-salary-configs', shopId],
       });
-      void queryClient.invalidateQueries({
-        queryKey: ['hrm-salary-groups', shopId],
-      });
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -353,9 +350,6 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
       setSelectedGroupId('');
       void queryClient.invalidateQueries({
         queryKey: ['hrm-salary-configs', shopId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ['hrm-salary-groups', shopId],
       });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -593,7 +587,12 @@ export function HrmSalaryConfigsPanel({ shopId }: { shopId: string }) {
             }
           />
         ) : (
-          <HrmSalaryGroupsPanel shopId={shopId} />
+          <HrmSalaryGroupsPanel
+            shopId={shopId}
+            groups={query.data?.groups ?? []}
+            canManage={query.data?.canManage ?? false}
+            loading={query.isLoading}
+          />
         )}
         {activeView !== 'calculate' && query.isError && (
           <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
