@@ -95,7 +95,8 @@ export async function dispatchNotification(
     }
 
     // 5. Send Mobile Push notification if enabled
-    if (isPushEnabled) {
+    // Skip QR events because notificationDispatcher.ts already sends them to realtimeEngine directly
+    if (isPushEnabled && !isQrEvent) {
       const { realtimeEngine } = require('./realtime');
       promises.push(
         realtimeEngine.sendNotification({

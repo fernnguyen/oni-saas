@@ -8,6 +8,82 @@ import { getSupabaseAdminClient } from './supabaseAdmin';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 /**
+ * Gửi push messages lên Expo theo từng chunk 100, tự deactivate token hết hạn.
+ */
+async function sendChunked(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  tokens: { id: string; token: string }[],
+  msg: RealtimeMessage
+): Promise<void> {
+  const messages = tokens.map((t) => ({
+    to: t.token,
+    title: msg.title,
+    body: msg.content,
+    data: {
+      type: msg.type,
+      tenantId: msg.tenantId,
+      branchId: msg.branchId || null,
+      ...(msg.metadata || {}),
+    },
+    sound: 'default' as const,
+    badge: 1,
+  }));
+
+  const CHUNK_SIZE = 100;
+  for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
+    const chunk = messages.slice(i, i + CHUNK_SIZE);
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Accept-Encoding': 'gzip, deflate',
+      'Content-Type': 'application/json',
+    };
+
+    if (process.env.EXPO_ACCESS_TOKEN) {
+      headers['Authorization'] = `Bearer ${process.env.EXPO_ACCESS_TOKEN}`;
+    }
+
+    const response = await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(chunk),
+    });
+
+    if (!response.ok) {
+      console.error(`❌ Expo Push API HTTP Error ${response.status}:`, await response.text());
+      continue;
+    }
+
+    const result = await response.json();
+
+    const tokensToDeactivate: string[] = [];
+    if (result.data && Array.isArray(result.data)) {
+      result.data.forEach((ticket: any, idx: number) => {
+        if (ticket.status === 'error') {
+          console.error(`❌ Expo Push Ticket Error for ${chunk[idx].to}:`, ticket.message, ticket.details);
+          if (ticket.details?.error === 'DeviceNotRegistered') {
+            tokensToDeactivate.push(chunk[idx].to);
+          }
+        }
+      });
+    }
+
+    if (tokensToDeactivate.length > 0) {
+      const { error: deactivateError } = await admin
+        .from('push_tokens')
+        .update({ is_active: false })
+        .in('token', tokensToDeactivate);
+
+      if (deactivateError) {
+        console.error('⚠️ Failed to deactivate expired push tokens:', deactivateError.message);
+      } else {
+        console.log(`🗑️ Deactivated ${tokensToDeactivate.length} expired push token(s).`);
+      }
+    }
+  }
+}
+
+/**
  * Queries active push tokens matching the notification scope and sends
  * push notifications via the Expo Push API.
  * Automatically deactivates tokens that are no longer registered.
@@ -16,18 +92,60 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
   try {
     const admin = getSupabaseAdminClient();
 
-    // 1. Check shop level notification settings for this event type
-    if (msg.branchId && msg.type !== 'system_broadcast') {
+    // ─── system_broadcast: bypass HOÀN TOÀN mọi điều kiện lọc ───
+    // Gửi thẳng tới TẤT CẢ token active của tenant, không check
+    // event config, role, shop, hay bất cứ điều kiện nào khác.
+    if (msg.type === 'system_broadcast') {
+      let broadcastQuery = admin
+        .from('push_tokens')
+        .select('id, token')
+        .eq('tenant_id', msg.tenantId)
+        .eq('is_active', true);
+
+      if (msg.recipientId) {
+        broadcastQuery = broadcastQuery.eq('user_id', msg.recipientId);
+      }
+
+      const { data: broadcastTokens, error: broadcastError } = await broadcastQuery;
+
+      if (broadcastError) {
+        console.error('❌ [system_broadcast] Failed to query push_tokens:', broadcastError.message);
+        return;
+      }
+
+      if (!broadcastTokens || broadcastTokens.length === 0) {
+        console.warn(`⚠️ [system_broadcast] No active push tokens for tenant ${msg.tenantId}`);
+        return;
+      }
+
+      console.log(`📣 [system_broadcast] Sending to ${broadcastTokens.length} device(s) for tenant ${msg.tenantId}`);
+      await sendChunked(admin, broadcastTokens, msg);
+      return;
+    }
+
+    // ─── Regular events: check shop-level event settings ───
+    if (msg.branchId) {
+      // Map internal lowercase types → DB uppercase event names
+      let dbEventName = msg.type;
+      if (msg.type === 'qr_order') dbEventName = 'QR_ORDER_CREATED';
+      else if (msg.type === 'qr_session') dbEventName = 'QR_SESSION_CREATED';
+      else if (msg.type === 'low_stock') dbEventName = 'LOW_STOCK';
+
       const { data: eventConfig } = await admin
         .from('tenant_notification_events')
         .select('is_enabled, channels_config')
         .eq('shop_id', msg.branchId)
-        .eq('event_name', msg.type)
+        .eq('event_name', dbEventName)
         .maybeSingle();
 
-      const isEnabledByDefault = msg.type === 'QR_ORDER_CREATED' || msg.type === 'QR_SESSION_CREATED';
-      const isEnabled = eventConfig ? eventConfig.is_enabled : isEnabledByDefault;
+      const isEnabledByDefault =
+        dbEventName === 'QR_ORDER_CREATED' ||
+        dbEventName === 'QR_SESSION_CREATED' ||
+        msg.type === 'purchase_approval' ||
+        msg.type === 'system' ||
+        msg.type === 'debt_alert';
 
+      const isEnabled = eventConfig ? eventConfig.is_enabled : isEnabledByDefault;
       if (!isEnabled) return;
 
       if (eventConfig) {
@@ -35,13 +153,10 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
         if (config && typeof config === 'object') {
           const pushConfig = (config as any).push;
           if (pushConfig) {
-            // If push is explicitly disabled for this event
             if (pushConfig.enabled === false) return;
 
-            // If specific roles are targeted
             const targetRoles = pushConfig.roles;
             if (Array.isArray(targetRoles) && targetRoles.length > 0) {
-              // Get role IDs for codes
               const { data: rolesData } = await admin
                 .from('roles')
                 .select('id')
@@ -50,31 +165,21 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
               const roleIds = (rolesData || []).map(r => r.id);
 
               if (roleIds.length > 0) {
-                const { data: shopUsers } = await admin
-                  .from('user_shops')
-                  .select('user_id')
-                  .eq('shop_id', msg.branchId)
-                  .in('role_id', roleIds);
-
-                const { data: tenantUsers } = await admin
-                  .from('user_tenants')
-                  .select('user_id')
-                  .eq('tenant_id', msg.tenantId)
-                  .in('role_id', roleIds);
+                const [shopUsersResult, tenantUsersResult] = await Promise.all([
+                  admin.from('user_shops').select('user_id').eq('shop_id', msg.branchId).in('role_id', roleIds),
+                  admin.from('user_tenants').select('user_id').eq('tenant_id', msg.tenantId).in('role_id', roleIds),
+                ]);
 
                 const allowedUserIds = Array.from(new Set([
-                  ...(shopUsers || []).map(u => u.user_id),
-                  ...(tenantUsers || []).map(u => u.user_id)
+                  ...(shopUsersResult.data || []).map(u => u.user_id),
+                  ...(tenantUsersResult.data || []).map(u => u.user_id),
                 ]));
 
-                // If nobody has these roles, we don't send anything
                 if (allowedUserIds.length === 0) return;
 
-                // Restrict the recipient list
                 if (msg.recipientId) {
-                  if (!allowedUserIds.includes(msg.recipientId)) return; // Recipient doesn't have the required role
+                  if (!allowedUserIds.includes(msg.recipientId)) return;
                 } else {
-                  // We will restrict the query below to these user IDs
                   (msg as any)._restrictToUserIds = allowedUserIds;
                 }
               }
@@ -82,32 +187,15 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
           }
         }
       }
-    } else if (msg.branchId && msg.type === 'system_broadcast') {
-      // For system broadcasts targeted to a specific shop, restrict recipients to users in that shop
-      const { data: shopUsers } = await admin
-        .from('user_shops')
-        .select('user_id')
-        .eq('shop_id', msg.branchId);
-
-      const allowedUserIds = (shopUsers || []).map(u => u.user_id);
-
-      if (allowedUserIds.length === 0) return; // No users in this shop
-
-      if (msg.recipientId) {
-        if (!allowedUserIds.includes(msg.recipientId)) return;
-      } else {
-        (msg as any)._restrictToUserIds = allowedUserIds;
-      }
     }
 
-    // Build query for active tokens within the tenant scope
+    // ─── Build token query ───
     let query = admin
       .from('push_tokens')
       .select('id, token')
       .eq('tenant_id', msg.tenantId)
       .eq('is_active', true);
 
-    // Narrow to specific recipient if provided
     if (msg.recipientId) {
       query = query.eq('user_id', msg.recipientId);
     } else if ((msg as any)._restrictToUserIds) {
@@ -123,69 +211,7 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
 
     if (!tokens || tokens.length === 0) return;
 
-    // Build Expo push messages
-    const messages = tokens.map((t) => ({
-      to: t.token,
-      title: msg.title,
-      body: msg.content,
-      data: {
-        type: msg.type,
-        tenantId: msg.tenantId,
-        branchId: msg.branchId || null,
-        ...(msg.metadata || {}),
-      },
-      sound: 'default' as const,
-      badge: 1,
-    }));
-
-    // Expo recommends chunks of up to 100 messages
-    const CHUNK_SIZE = 100;
-    for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
-      const chunk = messages.slice(i, i + CHUNK_SIZE);
-
-      const response = await fetch(EXPO_PUSH_URL, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip, deflate',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(chunk),
-      });
-
-      if (!response.ok) {
-        console.error(`❌ Expo Push API returned ${response.status}:`, await response.text());
-        continue;
-      }
-
-      const result = await response.json();
-
-      // Deactivate tokens that are no longer registered
-      const tokensToDeactivate: string[] = [];
-      if (result.data && Array.isArray(result.data)) {
-        result.data.forEach((ticket: any, idx: number) => {
-          if (
-            ticket.status === 'error' &&
-            ticket.details?.error === 'DeviceNotRegistered'
-          ) {
-            tokensToDeactivate.push(chunk[idx].to);
-          }
-        });
-      }
-
-      if (tokensToDeactivate.length > 0) {
-        const { error: deactivateError } = await admin
-          .from('push_tokens')
-          .update({ is_active: false })
-          .in('token', tokensToDeactivate);
-
-        if (deactivateError) {
-          console.error('⚠️ Failed to deactivate expired push tokens:', deactivateError.message);
-        } else {
-          console.log(`🗑️ Deactivated ${tokensToDeactivate.length} expired push token(s).`);
-        }
-      }
-    }
+    await sendChunked(admin, tokens, msg);
   } catch (err) {
     console.error('❌ sendExpoPushNotifications failed:', err);
   }
@@ -275,9 +301,7 @@ export class RedisSocketIoAdapter implements RealtimeAdapter {
   }
 
   async publish(msg: RealtimeMessage): Promise<void> {
-    // 1. We STILL want to persist the notification log in PostgreSQL,
-    // so users can fetch their read/unread history later when they reload.
-    // We write to PostgreSQL in the background.
+    // 1. Persist notification log to PostgreSQL for read/unread history
     try {
       const admin = getSupabaseAdminClient();
       await admin.from('in_app_notifications').insert({
@@ -294,7 +318,7 @@ export class RedisSocketIoAdapter implements RealtimeAdapter {
       console.error('⚠️ DB persistence failed for Redis notification:', dbErr);
     }
 
-    // 2. We publish the realtime alert payload to Redis Pub/Sub
+    // 2. Publish realtime alert to Redis Pub/Sub
     if (!this.client || !this.isReady) {
       throw new Error('Redis client is not connected or initialized.');
     }
