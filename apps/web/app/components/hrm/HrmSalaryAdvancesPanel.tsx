@@ -705,14 +705,14 @@ function CreateAdvanceForm({
           : 'Gửi yêu cầu',
       variant: isDisbursement ? 'success' : 'default',
       onConfirm: async () => {
-        await submitMutation.mutateAsync(action);
+        await submitMutation.mutateAsync({ action });
       },
     });
   }
 
   const formIncomplete = !amount || !selectedProfileId;
   const pendingAction = submitMutation.isPending
-    ? submitMutation.variables
+    ? submitMutation.variables?.action
     : null;
 
   return (
@@ -1172,21 +1172,7 @@ function OverdraftWarningDialog({
       onClose={onCancel}
       onConfirm={onConfirm}
       title="Số dư quỹ đang thiếu"
-      description={
-        <span className="flex flex-col gap-2 mt-2">
-          <span>Số dư quỹ hiện tại không đủ để chi khoản tiền này. Bạn có muốn tiếp tục chi và cân đối sổ quỹ sau không?</span>
-          <span className="bg-amber-50 text-amber-900 p-3 rounded-lg border border-amber-200 block text-sm mt-1">
-            <span className="flex justify-between mb-1">
-              <span>Số dư quỹ:</span>
-              <span className="font-semibold">{available.toLocaleString('vi-VN')} đ</span>
-            </span>
-            <span className="flex justify-between">
-              <span>Số tiền chi:</span>
-              <span className="font-semibold">{required.toLocaleString('vi-VN')} đ</span>
-            </span>
-          </span>
-        </span>
-      }
+      description={`Số dư quỹ hiện có ${available.toLocaleString('vi-VN')} đ, không đủ để chi ${required.toLocaleString('vi-VN')} đ. Bạn có muốn tiếp tục chi và cân đối sổ quỹ sau không?`}
       confirmLabel={isProcessing ? 'Đang xử lý...' : 'Vẫn chi và cân đối sau'}
       cancelLabel="Hủy"
       variant="danger"

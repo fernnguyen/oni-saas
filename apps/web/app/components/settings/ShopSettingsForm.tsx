@@ -2844,7 +2844,7 @@ export function ShopSettingsForm({
                               </div>
                             )}
 
-                            {ev.group === 'hrm' && ev.audience === 'management' && (() => {
+                            {ev.group === 'hrm' && eventChannels[ev.id]?.routing && (() => {
                               const defaults = getDefaultNotificationChannels(ev.id);
                               const routing = eventChannels[ev.id]?.routing ?? defaults.routing!;
                               const selectedDepartmentIds = routing.department_ids;
@@ -2859,10 +2859,14 @@ export function ShopSettingsForm({
                                 <div className="ml-6 space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
                                   <div>
                                     <span className="block text-[10px] font-bold uppercase tracking-wider text-indigo-500">
-                                      Định tuyến người nhận quản lý
+                                      {ev.audience === 'management'
+                                        ? 'Định tuyến người nhận quản lý'
+                                        : 'Bản sao cập nhật cho quản lý'}
                                     </span>
                                     <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                                      Áp dụng đồng nhất cho Notification Center, Web realtime và Mobile Push. Người tạo yêu cầu luôn bị loại.
+                                      {ev.audience === 'management'
+                                        ? 'Áp dụng đồng nhất cho Notification Center, Web realtime và Mobile Push. Người tạo yêu cầu luôn bị loại.'
+                                        : 'Nhân viên và người thực hiện thao tác luôn nhận cập nhật; các nhóm dưới đây nhận thêm bản sao báo cáo.'}
                                     </p>
                                   </div>
 

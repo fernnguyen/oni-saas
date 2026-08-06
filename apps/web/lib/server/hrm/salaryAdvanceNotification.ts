@@ -1,7 +1,12 @@
 import type { RealtimeMessage } from '@/lib/server/realtime';
 import { HRM_NOTIFICATION_EVENTS } from '../../notifications/eventCatalog';
+import type { HrmDepartmentManagerDirectory } from './managementNotificationRecipients';
+import {
+  notifyHrmStatusChange,
+  type HrmStatusNotificationDependencies,
+} from './statusNotification';
 
-type ProfileAuthUserResolver = {
+type SalaryAdvanceStatusDirectory = HrmDepartmentManagerDirectory & {
   getAuthUserIdForProfileId(profileId: string): Promise<string | null>;
 };
 
@@ -10,10 +15,11 @@ type NotificationPublisher = {
 };
 
 type SalaryAdvanceEmployeeNotificationInput = {
-  repository: ProfileAuthUserResolver;
+  repository: SalaryAdvanceStatusDirectory;
   publisher: NotificationPublisher;
   tenantId: string;
   branchId: string;
+  actorUserId: string;
   profileId: string;
   advanceId: string;
   title: string;
@@ -21,41 +27,36 @@ type SalaryAdvanceEmployeeNotificationInput = {
 };
 
 /**
- * HRM profiles can exist without a login account. Only dispatch a personal
- * notification after resolving the profile to its linked Supabase auth user.
+ * Compatibility wrapper for salary-advance status events. Updates are sent to
+ * the linked employee, configured management recipients and the processing
+ * actor through the shared HRM status broadcaster.
  */
 export async function notifySalaryAdvanceEmployee({
   repository,
   publisher,
   tenantId,
   branchId,
+  actorUserId,
   profileId,
   advanceId,
   title,
   content,
-}: SalaryAdvanceEmployeeNotificationInput): Promise<'sent' | 'skipped'> {
-  const recipientId = await repository.getAuthUserIdForProfileId(profileId);
-
-  if (!recipientId) {
-    console.info(
-      '[HRM] Skipped salary advance notification because the employee has no linked login account.',
-      { advanceId },
-    );
-    return 'skipped';
-  }
-
-  await publisher.sendNotification({
+}: SalaryAdvanceEmployeeNotificationInput,
+dependencies?: HrmStatusNotificationDependencies,
+): Promise<number> {
+  return notifyHrmStatusChange({
+    repository,
+    publisher,
     tenantId,
     branchId,
-    recipientId,
-    type: HRM_NOTIFICATION_EVENTS.salaryAdvanceStatusChanged,
+    eventName: HRM_NOTIFICATION_EVENTS.salaryAdvanceStatusChanged,
+    actorUserId,
+    profileId,
+    path: '/hrm/salary-advances',
     title,
     content,
     metadata: {
-      path: '/hrm/salary-advances',
       advanceId,
     },
-  });
-
-  return 'sent';
+  }, dependencies);
 }

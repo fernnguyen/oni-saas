@@ -6,6 +6,7 @@ import {
 } from '@/lib/server/hrm/access';
 import { HRM_NOTIFICATION_EVENTS } from '@/lib/notifications/eventCatalog';
 import { notifyLeaveManagers } from '@/lib/server/hrm/leaveManagerNotification';
+import { notifyHrmStatusChange } from '@/lib/server/hrm/statusNotification';
 import { realtimeEngine } from '@/lib/server/realtime';
 
 export const dynamic = 'force-dynamic';
@@ -72,38 +73,36 @@ export async function PATCH(
     else action = 'cancel';
 
     const rejectionReason = parsed.rejection_reason || parsed.reason;
-    let employeeUserId: string | null = null;
     let title = '';
     let content = '';
-    let notifyEmployee = false;
+    let notifyStatus = false;
     let notifyManager = false;
 
     // Fetch the leave request to get profileId for notification
     const leaveProfile = await access.repository.getLeaveRequestDetails(leaveId);
-
-    if (leaveProfile) {
-      employeeUserId = await access.repository.getAuthUserIdForProfileId(leaveProfile.profileId);
-    }
+    const employeePrefix = leaveProfile?.employeeName
+      ? `${leaveProfile.employeeName}: `
+      : '';
 
     if (action === 'approve') {
       if (!canManage) return NextResponse.json({ error: { message: 'Không có quyền duyệt đơn.' } }, { status: 403 });
       await access.repository.approveLeaveRequest({ leaveId, actorUserId: access.userId });
-      notifyEmployee = true;
+      notifyStatus = true;
       title = 'Đơn xin nghỉ phép đã được duyệt';
-      content = `Đơn xin nghỉ phép ${leaveProfile?.totalDays || ''} ngày của bạn đã được duyệt.`;
+      content = `${employeePrefix}đơn xin nghỉ phép ${leaveProfile?.totalDays || ''} ngày đã được duyệt.`;
     } else if (action === 'reject') {
       if (!canManage) return NextResponse.json({ error: { message: 'Không có quyền từ chối đơn.' } }, { status: 403 });
       await access.repository.rejectLeaveRequest({ leaveId, actorUserId: access.userId, rejectionReason });
-      notifyEmployee = true;
+      notifyStatus = true;
       title = 'Đơn xin nghỉ phép bị từ chối';
-      content = `Đơn xin nghỉ phép của bạn đã bị từ chối. Lý do: ${rejectionReason || 'Không có lý do'}.`;
+      content = `${employeePrefix}đơn xin nghỉ phép đã bị từ chối. Lý do: ${rejectionReason || 'Không có lý do'}.`;
     } else if (action === 'cancel') {
       await access.repository.cancelLeaveRequest({ leaveId, actorUserId: access.userId, canManage });
-      if (canManage && leaveProfile?.profileId !== (await access.repository.getProfileIdForAuthUser(access.userId))) {
-        notifyEmployee = true;
-        title = 'Đơn nghỉ phép đã bị huỷ';
-        content = `Đơn xin nghỉ phép của bạn đã bị quản lý huỷ.`;
-      }
+      notifyStatus = true;
+      title = 'Đơn nghỉ phép đã bị huỷ';
+      content = canManage
+        ? `${employeePrefix}đơn xin nghỉ phép đã bị quản lý huỷ.`
+        : `${employeePrefix}nhân viên đã huỷ đơn xin nghỉ phép.`;
     } else if (action === 'request_cancel') {
       await access.repository.requestCancelLeaveRequest({ leaveId, actorUserId: access.userId, reason: rejectionReason });
       notifyManager = true;
@@ -112,22 +111,26 @@ export async function PATCH(
     } else if (action === 'reject_cancel') {
       if (!canManage) return NextResponse.json({ error: { message: 'Không có quyền từ chối yêu cầu huỷ.' } }, { status: 403 });
       await access.repository.rejectCancelLeaveRequest({ leaveId, actorUserId: access.userId, rejectionReason });
-      notifyEmployee = true;
+      notifyStatus = true;
       title = 'Yêu cầu huỷ đơn bị từ chối';
-      content = `Yêu cầu huỷ đơn nghỉ phép của bạn đã bị từ chối. Lý do: ${rejectionReason || 'Không có lý do'}.`;
+      content = `${employeePrefix}yêu cầu huỷ đơn nghỉ phép đã bị từ chối. Lý do: ${rejectionReason || 'Không có lý do'}.`;
     }
 
     // Notification delivery must never roll back a completed leave action.
-    if (notifyEmployee && employeeUserId) {
-      await realtimeEngine.sendNotification({
-          tenantId: access.tenantId,
-          branchId: access.shopId,
-          recipientId: employeeUserId,
-          type: HRM_NOTIFICATION_EVENTS.leaveStatusChanged,
-          title,
-          content,
-          metadata: { path: '/hrm/leaves', leaveId },
-        }).catch((error) => console.error('[HRM] Failed to notify leave employee:', error));
+    if (notifyStatus && leaveProfile?.profileId) {
+      await notifyHrmStatusChange({
+        repository: access.repository,
+        publisher: realtimeEngine,
+        tenantId: access.tenantId,
+        branchId: access.shopId,
+        eventName: HRM_NOTIFICATION_EVENTS.leaveStatusChanged,
+        actorUserId: access.userId,
+        profileId: leaveProfile.profileId,
+        path: '/hrm/leaves',
+        title,
+        content,
+        metadata: { leaveId },
+      });
     }
     if (notifyManager && leaveProfile?.profileId) {
       await notifyLeaveManagers({

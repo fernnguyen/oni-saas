@@ -17,10 +17,7 @@ test('all four HRM notification groups are enabled with push by default', () => 
     assert.equal(getDefaultNotificationChannels(eventName).push.enabled, true);
   }
 
-  for (const eventName of [
-    HRM_NOTIFICATION_EVENTS.leaveRequested,
-    HRM_NOTIFICATION_EVENTS.salaryAdvanceRequested,
-  ]) {
+  for (const eventName of Object.values(HRM_NOTIFICATION_EVENTS)) {
     assert.deepEqual(getDefaultNotificationChannels(eventName).routing, {
       role_codes: ['owner', 'admin'],
       requester_department_managers: true,

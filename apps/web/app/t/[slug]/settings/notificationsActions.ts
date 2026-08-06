@@ -131,7 +131,7 @@ export async function saveNotificationSettings(
     const rows = input.events.map((event) => {
       const definition = getNotificationEventDefinition(event.name);
       const channels = event.channels_config ?? getDefaultNotificationChannels(event.name);
-      const managementRouting = definition?.group === 'hrm' && definition.audience === 'management'
+      const managementRouting = definition?.group === 'hrm'
         ? (channels.routing ?? getDefaultNotificationChannels(event.name).routing)
         : undefined;
       return {

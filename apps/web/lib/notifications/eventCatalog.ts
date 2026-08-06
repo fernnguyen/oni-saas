@@ -83,8 +83,15 @@ export const NOTIFICATION_EVENT_CATALOG: readonly NotificationEventDefinition[] 
     defaultEnabled: true,
     allowTelegram: false,
     audience: 'employee',
-    audienceLabel: 'Chính nhân viên liên quan',
-    defaultChannels: channels(false),
+    audienceLabel: 'Nhân viên, người xử lý và nhóm quản lý được chọn',
+    defaultChannels: {
+      ...channels(false),
+      routing: {
+        ...DEFAULT_HRM_MANAGEMENT_NOTIFICATION_ROUTING,
+        role_codes: [...DEFAULT_HRM_MANAGEMENT_NOTIFICATION_ROUTING.role_codes],
+        department_ids: [],
+      },
+    },
   },
   {
     id: HRM_NOTIFICATION_EVENTS.salaryAdvanceRequested,
@@ -110,8 +117,15 @@ export const NOTIFICATION_EVENT_CATALOG: readonly NotificationEventDefinition[] 
     defaultEnabled: true,
     allowTelegram: false,
     audience: 'employee',
-    audienceLabel: 'Chính nhân viên liên quan',
-    defaultChannels: channels(false),
+    audienceLabel: 'Nhân viên, người xử lý và nhóm quản lý được chọn',
+    defaultChannels: {
+      ...channels(false),
+      routing: {
+        ...DEFAULT_HRM_MANAGEMENT_NOTIFICATION_ROUTING,
+        role_codes: [...DEFAULT_HRM_MANAGEMENT_NOTIFICATION_ROUTING.role_codes],
+        department_ids: [],
+      },
+    },
   },
 ];
 

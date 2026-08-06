@@ -52,10 +52,11 @@ export async function PATCH(
         publisher: realtimeEngine,
         tenantId,
         branchId: shopId,
+        actorUserId: userId,
         profileId: advance.profile_id,
         advanceId,
         title: 'Yêu cầu ứng lương bị từ chối',
-        content: `Yêu cầu ứng lương ${parseInt(advance.amount).toLocaleString('vi-VN')}đ đã bị từ chối. Lý do: ${payload.rejection_reason || 'Không có'}`,
+        content: `${advance.employee_name}: yêu cầu ứng lương ${parseInt(advance.amount).toLocaleString('vi-VN')}đ đã bị từ chối. Lý do: ${payload.rejection_reason || 'Không có'}`,
       });
 
       return NextResponse.json({ success: true });
@@ -76,10 +77,11 @@ export async function PATCH(
         publisher: realtimeEngine,
         tenantId,
         branchId: shopId,
+        actorUserId: userId,
         profileId: advance.profile_id,
         advanceId,
         title: 'Yêu cầu ứng lương đã được duyệt',
-        content: `Yêu cầu ứng lương ${parseInt(advance.amount).toLocaleString('vi-VN')}đ đã được duyệt và đang chờ chi tiền.`,
+        content: `${advance.employee_name}: yêu cầu ứng lương ${parseInt(advance.amount).toLocaleString('vi-VN')}đ đã được duyệt và đang chờ chi tiền.`,
       });
 
       return NextResponse.json({ success: true, status: 'approved' });
@@ -112,10 +114,11 @@ export async function PATCH(
         publisher: realtimeEngine,
         tenantId,
         branchId: shopId,
+        actorUserId: userId,
         profileId: advance.profile_id,
         advanceId,
         title: 'Khoản ứng lương đã được chi',
-        content: `Khoản ứng lương ${advanceAmount.toLocaleString('vi-VN')}đ đã được duyệt và chi từ quỹ.`,
+        content: `${advance.employee_name}: khoản ứng lương ${advanceAmount.toLocaleString('vi-VN')}đ đã được duyệt và chi từ quỹ.`,
       });
 
       return NextResponse.json({

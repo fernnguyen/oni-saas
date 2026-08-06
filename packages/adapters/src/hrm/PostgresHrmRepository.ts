@@ -4306,14 +4306,39 @@ export class PostgresHrmRepository {
     });
   }
 
-  async getLeaveRequestDetails(leaveId: string): Promise<{ profileId: string; totalDays: string; leaveType: string } | null> {
+  async getLeaveRequestDetails(leaveId: string): Promise<{
+    profileId: string;
+    totalDays: string;
+    leaveType: string;
+    employeeName: string;
+  } | null> {
     const result = await this.pool.query(
-      `select profile_id, total_days, leave_type from hrm_leave_requests where id = $1::text and tenant_id = $2::text and branch_id = $3::text`,
+      `select
+         lr.profile_id,
+         lr.total_days,
+         lr.leave_type,
+         e.name as employee_name
+       from hrm_leave_requests lr
+       join hrm_employee_profiles ep
+         on ep.id = lr.profile_id
+        and ep.tenant_id = lr.tenant_id
+        and ep.branch_id = lr.branch_id
+       join employees e
+         on e.id = ep.source_employee_id
+        and e.tenant_id = lr.tenant_id
+       where lr.id = $1::text
+         and lr.tenant_id = $2::text
+         and lr.branch_id = $3::text`,
       [leaveId, this.scope.tenantId, this.scope.branchId]
     );
     const row = result.rows[0];
     if (!row) return null;
-    return { profileId: row.profile_id, totalDays: row.total_days, leaveType: row.leave_type };
+    return {
+      profileId: row.profile_id,
+      totalDays: row.total_days,
+      leaveType: row.leave_type,
+      employeeName: row.employee_name,
+    };
   }
 
   async rejectLeaveRequest(input: {

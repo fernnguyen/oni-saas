@@ -170,7 +170,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
     const id = crypto.randomUUID();
     const ownerAction = canManage ? (payload.action ?? 'disburse') : null;
     const autoApprove = ownerAction === 'approve' || ownerAction === 'disburse';
-    let disbursement: { fundId: string } | undefined;
+    let disbursement: { fundId: string; force?: boolean } | undefined;
 
     if (ownerAction === 'disburse') {
       const canDisburse =
@@ -232,14 +232,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
         publisher: realtimeEngine,
         tenantId,
         branchId: shopId,
+        actorUserId: userId,
         profileId,
         advanceId: id,
         title: disbursement
           ? 'Khoản ứng lương đã được chi'
           : 'Yêu cầu ứng lương đã được duyệt',
         content: disbursement
-          ? `Khoản ứng lương ${payload.amount.toLocaleString('vi-VN')}đ đã được duyệt và chi từ quỹ.`
-          : `Yêu cầu ứng lương ${payload.amount.toLocaleString('vi-VN')}đ đã được duyệt và đang chờ chi tiền.`,
+          ? `${targetEmployee?.employeeName ?? 'Nhân viên'}: khoản ứng lương ${payload.amount.toLocaleString('vi-VN')}đ đã được duyệt và chi từ quỹ.`
+          : `${targetEmployee?.employeeName ?? 'Nhân viên'}: yêu cầu ứng lương ${payload.amount.toLocaleString('vi-VN')}đ đã được duyệt và đang chờ chi tiền.`,
       });
     }
 

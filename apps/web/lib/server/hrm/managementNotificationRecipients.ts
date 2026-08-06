@@ -13,7 +13,7 @@ type ResolveManagementNotificationRecipientsInput = {
   tenantId: string;
   branchId: string;
   eventName: string;
-  requesterUserId: string;
+  requesterUserId?: string;
   profileId: string;
   departmentDirectory: HrmDepartmentManagerDirectory;
 };
@@ -185,5 +185,7 @@ export async function resolveHrmManagementNotificationRecipients(
   ]);
 
   return Array.from(new Set([...roleUserIds, ...departmentManagerIds]))
-    .filter((userId) => userId !== requesterUserId && scopeUserSet.has(userId));
+    .filter((userId) => (
+      (!requesterUserId || userId !== requesterUserId) && scopeUserSet.has(userId)
+    ));
 }
