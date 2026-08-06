@@ -14,6 +14,7 @@ import {
   CalendarDays,
   RotateCcw,
   CircleDollarSign,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type Column } from '@/app/components/ui/DataTable';
@@ -170,8 +171,16 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
   ).sort((left, right) => right.localeCompare(left));
 
   // Mutations
+  const [overdraftWarning, setOverdraftWarning] = useState<{
+    advanceId: string;
+    status: 'approved' | 'disbursed';
+    fundId?: string;
+    available: number;
+    required: number;
+  } | null>(null);
+
   const processMutation = useMutation({
-    mutationFn: async (vars: { advanceId: string; status: 'approved' | 'disbursed' | 'rejected'; fundId?: string; reason?: string }) => {
+    mutationFn: async (vars: { advanceId: string; status: 'approved' | 'disbursed' | 'rejected'; fundId?: string; reason?: string; force?: boolean }) => {
       const res = await fetch(`/api/shops/${shopId}/hrm/salary-advances/${vars.advanceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -179,13 +188,17 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
           status: vars.status,
           fund_id: vars.fundId,
           rejection_reason: vars.reason,
+          force: vars.force,
         }),
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(
+        const err = new Error(
           data.error?.message ?? data.error ?? 'Lỗi xử lý yêu cầu',
-        );
+        ) as Error & { code?: string; status?: number };
+        err.code = data.error?.code;
+        err.status = res.status;
+        throw err;
       }
       return res.json();
     },
@@ -200,8 +213,25 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
       queryClient.invalidateQueries({ queryKey: ['hrm', shopId, 'salary-advances'] });
       setIsProcessOpen(false);
       setSelectedRequest(null);
+      setOverdraftWarning(null);
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: Error & { code?: string; status?: number }, vars) => {
+      if (err.code === 'HRM_INSUFFICIENT_FUND_BALANCE' && vars.status === 'disbursed') {
+        // Parse available/required from error message nếu có, fallback to 0
+        const match = err.message.match(/hiện có ([\.\d,]+)đ, cần ([\.\d,]+)đ/);
+        const available = match ? parseFloat(match[1].replace(/\./g, '')) : 0;
+        const required = match ? parseFloat(match[2].replace(/\./g, '')) : 0;
+        setOverdraftWarning({
+          advanceId: vars.advanceId,
+          status: vars.status,
+          fundId: vars.fundId,
+          available,
+          required,
+        });
+        return;
+      }
+      toast.error(err.message);
+    },
   });
 
   const columns: Column<SalaryAdvance>[] = [
@@ -497,6 +527,23 @@ export function HrmSalaryAdvancesPanel({ shopId, selfProfileId, canManage }: Pro
           isProcessing={processMutation.isPending}
         />
       )}
+
+      {overdraftWarning && (
+        <OverdraftWarningDialog
+          available={overdraftWarning.available}
+          required={overdraftWarning.required}
+          isProcessing={processMutation.isPending}
+          onConfirm={() => {
+            processMutation.mutate({
+              advanceId: overdraftWarning.advanceId,
+              status: overdraftWarning.status,
+              fundId: overdraftWarning.fundId,
+              force: true,
+            });
+          }}
+          onCancel={() => setOverdraftWarning(null)}
+        />
+      )}
     </div>
   );
 }
@@ -529,6 +576,11 @@ function CreateAdvanceForm({
   });
   const [reason, setReason] = useState('');
   const [fundId, setFundId] = useState('');
+  const [createOverdraftWarning, setCreateOverdraftWarning] = useState<{
+    action: CreateAdvanceAction;
+    available: number;
+    required: number;
+  } | null>(null);
   const selectedEmployee = employees.find(
     (employee) => employee.profileId === selectedProfileId,
   );
@@ -564,7 +616,8 @@ function CreateAdvanceForm({
   }, [canManage, fundId, funds]);
 
   const submitMutation = useMutation({
-    mutationFn: async (action: CreateAdvanceAction) => {
+    mutationFn: async (vars: { action: CreateAdvanceAction; force?: boolean }) => {
+      const { action, force } = vars;
       const res = await fetch(`/api/shops/${shopId}/hrm/salary-advances`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -576,11 +629,16 @@ function CreateAdvanceForm({
           reason,
           action: canManage && action !== 'submit' ? action : undefined,
           fund_id: canManage && action === 'disburse' ? fundId : undefined,
+          force: action === 'disburse' ? force : undefined,
         }),
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(payload.error?.message ?? 'Không thể tạo phiếu ứng lương');
+        const err = new Error(
+          payload.error?.message ?? 'Không thể tạo phiếu ứng lương',
+        ) as Error & { code?: string };
+        err.code = payload.error?.code;
+        throw err;
       }
       return payload as {
         data: { status: 'pending' | 'approved' | 'disbursed' };
@@ -596,10 +654,20 @@ function CreateAdvanceForm({
       );
       setAmount('');
       setReason('');
+      setCreateOverdraftWarning(null);
       if (canManage) setSelectedProfileId('');
       onSuccess();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: Error & { code?: string }, vars) => {
+      if (err.code === 'HRM_INSUFFICIENT_FUND_BALANCE' && vars.action === 'disburse') {
+        const match = err.message.match(/hiện có ([\.\d,]+)đ, cần ([\.\d,]+)đ/);
+        const available = match ? parseFloat(match[1].replace(/\./g, '')) : 0;
+        const required = match ? parseFloat(match[2].replace(/\./g, '')) : 0;
+        setCreateOverdraftWarning({ action: vars.action, available, required });
+        return;
+      }
+      toast.error(err.message);
+    },
   });
 
   async function confirmCreate(action: CreateAdvanceAction) {
@@ -648,7 +716,8 @@ function CreateAdvanceForm({
     : null;
 
   return (
-    <SlideOver
+    <>
+      <SlideOver
       open={open}
       onClose={() => {
         if (!submitMutation.isPending) onClose();
@@ -821,6 +890,21 @@ function CreateAdvanceForm({
           </div>
       </div>
     </SlideOver>
+    {createOverdraftWarning && (
+      <OverdraftWarningDialog
+        available={createOverdraftWarning.available}
+        required={createOverdraftWarning.required}
+        isProcessing={submitMutation.isPending}
+        onConfirm={() => {
+          submitMutation.mutate({
+            action: createOverdraftWarning.action,
+            force: true,
+          });
+        }}
+        onCancel={() => setCreateOverdraftWarning(null)}
+      />
+    )}
+    </>
   );
 }
 
@@ -1066,5 +1150,47 @@ function ProcessAdvanceDialog({
         )}
       </div>
     </ConfirmDialog>
+  );
+}
+
+function OverdraftWarningDialog({
+  available,
+  required,
+  isProcessing,
+  onConfirm,
+  onCancel,
+}: {
+  available: number;
+  required: number;
+  isProcessing: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <ConfirmDialog
+      open={true}
+      onClose={onCancel}
+      onConfirm={onConfirm}
+      title="Số dư quỹ đang thiếu"
+      description={
+        <span className="flex flex-col gap-2 mt-2">
+          <span>Số dư quỹ hiện tại không đủ để chi khoản tiền này. Bạn có muốn tiếp tục chi và cân đối sổ quỹ sau không?</span>
+          <span className="bg-amber-50 text-amber-900 p-3 rounded-lg border border-amber-200 block text-sm mt-1">
+            <span className="flex justify-between mb-1">
+              <span>Số dư quỹ:</span>
+              <span className="font-semibold">{available.toLocaleString('vi-VN')} đ</span>
+            </span>
+            <span className="flex justify-between">
+              <span>Số tiền chi:</span>
+              <span className="font-semibold">{required.toLocaleString('vi-VN')} đ</span>
+            </span>
+          </span>
+        </span>
+      }
+      confirmLabel={isProcessing ? 'Đang xử lý...' : 'Vẫn chi và cân đối sau'}
+      cancelLabel="Hủy"
+      variant="danger"
+      loading={isProcessing}
+    />
   );
 }

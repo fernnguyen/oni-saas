@@ -4595,6 +4595,8 @@ export class PostgresHrmRepository {
     autoApprove?: boolean;
     disbursement?: {
       fundId: string;
+      /** Bỏ qua kiểm tra số dư quỹ — chi và cân đối sau */
+      force?: boolean;
     };
   }): Promise<{ cashbookTransactionId: string | null }> {
     const scope = this.scope;
@@ -4664,6 +4666,7 @@ export class PostgresHrmRepository {
           advanceId: input.id,
           actorUserId: input.createdBy,
           fundId: input.disbursement!.fundId,
+          force: input.disbursement!.force,
         });
       return { cashbookTransactionId };
     });
@@ -4673,6 +4676,8 @@ export class PostgresHrmRepository {
     advanceId: string;
     actorUserId: string;
     fundId: string;
+    /** Bỏ qua kiểm tra số dư quỹ — chi và cân đối sau */
+    force?: boolean;
   }): Promise<{ cashbookTransactionId: string }> {
     return this.withTransaction(async (client, scope) => ({
       cashbookTransactionId: await this.disburseSalaryAdvanceInTransaction(
@@ -4686,7 +4691,7 @@ export class PostgresHrmRepository {
   private async disburseSalaryAdvanceInTransaction(
     client: PoolClient,
     scope: Readonly<HrmRepositoryScope>,
-    input: { advanceId: string; actorUserId: string; fundId: string },
+    input: { advanceId: string; actorUserId: string; fundId: string; force?: boolean },
   ): Promise<string> {
     const advanceResult = await client.query<{
       amount: string | number;
@@ -4735,7 +4740,7 @@ export class PostgresHrmRepository {
 
     const amount = Number(advance.amount);
     const currentBalance = Number(fund.current_balance ?? 0);
-    if (currentBalance < amount) {
+    if (currentBalance < amount && !input.force) {
       throw new HrmInsufficientFundBalanceError(currentBalance, amount);
     }
 

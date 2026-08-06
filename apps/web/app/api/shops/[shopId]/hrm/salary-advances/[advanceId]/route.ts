@@ -16,6 +16,8 @@ const patchSchema = z.object({
   status: z.enum(['approved', 'disbursed', 'rejected']),
   fund_id: z.string().optional(),
   rejection_reason: z.string().optional(),
+  /** Bỏ qua kiểm tra số dư quỹ — chi và cân đối sau */
+  force: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -102,6 +104,7 @@ export async function PATCH(
         advanceId,
         actorUserId: userId,
         fundId: payload.fund_id,
+        force: payload.force,
       });
 
       await notifySalaryAdvanceEmployee({

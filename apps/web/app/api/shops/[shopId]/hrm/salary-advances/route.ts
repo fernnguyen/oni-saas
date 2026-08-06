@@ -23,6 +23,8 @@ const createSchema = z.object({
   reason: z.string().optional(),
   fund_id: z.string().min(1, "Vui lòng chọn quỹ chi tiền").optional(),
   action: z.enum(['approve', 'disburse']).optional(),
+  /** Bỏ qua kiểm tra số dư quỹ — chi và cân đối sau */
+  force: z.boolean().optional(),
 });
 
 function respondError(error: unknown, label: string) {
@@ -195,6 +197,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
 
       disbursement = {
         fundId: payload.fund_id,
+        force: payload.force,
       };
     }
     
