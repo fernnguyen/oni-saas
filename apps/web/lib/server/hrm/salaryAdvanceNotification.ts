@@ -1,4 +1,5 @@
 import type { RealtimeMessage } from '@/lib/server/realtime';
+import { HRM_NOTIFICATION_EVENTS } from '../../notifications/eventCatalog';
 
 type ProfileAuthUserResolver = {
   getAuthUserIdForProfileId(profileId: string): Promise<string | null>;
@@ -47,7 +48,7 @@ export async function notifySalaryAdvanceEmployee({
     tenantId,
     branchId,
     recipientId,
-    type: 'system',
+    type: HRM_NOTIFICATION_EVENTS.salaryAdvanceStatusChanged,
     title,
     content,
     metadata: {

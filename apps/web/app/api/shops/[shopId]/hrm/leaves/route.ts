@@ -5,6 +5,7 @@ import {
   HrmAccessError,
   requireHrmAccess,
 } from '@/lib/server/hrm/access';
+import { notifyLeaveManagers } from '@/lib/server/hrm/leaveManagerNotification';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -94,17 +95,13 @@ export async function POST(
       createdBy: access.userId,
     });
 
-    // Notify managers
-    import('@/lib/server/realtime').then(({ realtimeEngine }) => {
-      realtimeEngine.sendNotification({
-        tenantId: access.tenantId,
-        branchId: access.shopId,
-        recipientRole: 'admin',
-        type: 'leave_approval',
-        title: 'Đơn xin phép mới',
-        content: `Có đơn xin nghỉ phép ${input.total_days} ngày cần được duyệt.`,
-        metadata: { path: '/hrm/leaves' }
-      }).catch(console.error);
+    await notifyLeaveManagers({
+      tenantId: access.tenantId,
+      branchId: access.shopId,
+      requesterUserId: access.userId,
+      leaveId: id,
+      title: 'Đơn xin phép mới',
+      content: `Có đơn xin nghỉ phép ${input.total_days} ngày cần được duyệt.`,
     });
 
     return NextResponse.json({ ok: true });

@@ -5,7 +5,7 @@ import { notifySalaryAdvanceManagers } from '../../../apps/web/lib/server/hrm/sa
 
 test('employee-created salary advance only notifies payroll managers other than the requester', async () => {
   const checkedUserIds: string[] = [];
-  const messages: Array<{ recipientId?: string }> = [];
+  const messages: Array<{ recipientId?: string; type: string }> = [];
 
   const recipientCount = await notifySalaryAdvanceManagers(
     {
@@ -50,6 +50,7 @@ test('employee-created salary advance only notifies payroll managers other than 
     ['OWNER-USER', 'PAYROLL-MANAGER'],
   );
   assert.ok(messages.every((message) => Boolean(message.recipientId)));
+  assert.ok(messages.every((message) => message.type === 'HRM_SALARY_ADVANCE_REQUESTED'));
 });
 
 test('manager notification resolution failure never broadcasts or rolls back the request', async () => {

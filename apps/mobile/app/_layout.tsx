@@ -85,11 +85,11 @@ export default function RootLayout() {
       if (data?.path) {
         const isWebOnlyNotification = (type?: string, path?: string) => {
           const webOnlyTypes = ['purchase_approval', 'return_approval', 'debt_alert', 'low_stock'];
-          if (type && webOnlyTypes.includes(type)) {
+          if (type && (webOnlyTypes.includes(type) || type.startsWith('HRM_'))) {
             return true;
           }
           if (path) {
-            const webOnlyPathKeywords = ['/p2p/', '/debt', '/inventory', '/reports'];
+            const webOnlyPathKeywords = ['/p2p/', '/debt', '/inventory', '/reports', '/hrm/'];
             const pathLower = path.toLowerCase();
             if (webOnlyPathKeywords.some(keyword => pathLower.includes(keyword))) {
               return true;

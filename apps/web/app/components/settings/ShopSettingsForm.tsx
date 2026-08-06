@@ -9,6 +9,10 @@ import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { IndustryIcon } from '../layout/IndustryIcon';
 import { Pencil, X } from 'lucide-react';
 import { saveNotificationSettings, generatePairingCode, checkSharedBotConnection, clearPairingCode, revokeSharedBotConnection } from '@/app/t/[slug]/settings/notificationsActions';
+import {
+  NOTIFICATION_EVENT_CATALOG,
+  getDefaultNotificationChannels,
+} from '@/lib/notifications/eventCatalog';
 
 interface ShopSettings {
   shop_id: string;
@@ -414,29 +418,16 @@ export function ShopSettingsForm({
 
   const [isPending, startTransition] = useTransition();
 
-  const AVAILABLE_EVENTS = [
-    { id: 'ORDER_CREATED', label: 'Đơn hàng mới' },
-    { id: 'PAYMENT_RECEIVED', label: 'Thanh toán thành công' },
-    { id: 'CUSTOMER_CREATED', label: 'Khách hàng mới' },
-    { id: 'ORDER_CANCELLED', label: 'Hủy đơn hàng' },
-    { id: 'ORDER_RETURNED', label: 'Khách trả hàng' },
-    { id: 'QR_ORDER_CREATED', label: 'Gọi món qua QR' },
-    { id: 'QR_SESSION_CREATED', label: 'Yêu cầu mở bàn ăn QR' },
-    { id: 'DAILY_DIGEST', label: 'Báo cáo tổng kết doanh thu cuối ngày' },
-    { id: 'EXPIRING_BATCHES', label: 'Cảnh báo lô sắp hết hạn' },
-    { id: 'LOW_STOCK', label: 'Cảnh báo sắp hết hàng' },
-  ];
-
   const [localTelegramConfig, setLocalTelegramConfig] = useState<typeof telegramConfig>(telegramConfig);
   const [botToken, setBotToken] = useState(telegramConfig?.bot_token || '');
   const [chatId, setChatId] = useState(telegramConfig?.chat_id || '');
   
   const [events, setEvents] = useState<Record<string, boolean>>(() => {
-    return AVAILABLE_EVENTS.reduce((acc, ev) => {
+    return NOTIFICATION_EVENT_CATALOG.reduce((acc, ev) => {
       const cfg = eventsConfig?.[ev.id];
       const isEnabled = typeof cfg === 'boolean' 
         ? cfg 
-        : (cfg?.is_enabled ?? (ev.id === 'QR_ORDER_CREATED' || ev.id === 'QR_SESSION_CREATED'));
+        : (cfg?.is_enabled ?? ev.defaultEnabled);
       return { ...acc, [ev.id]: isEnabled };
     }, {} as Record<string, boolean>);
   });
@@ -445,16 +436,11 @@ export function ShopSettingsForm({
     telegram: { enabled: boolean; chat_id?: string };
     push: { enabled: boolean; roles: string[] };
   }>>(() => {
-    return AVAILABLE_EVENTS.reduce((acc, ev) => {
+    return NOTIFICATION_EVENT_CATALOG.reduce((acc, ev) => {
       const cfg = eventsConfig?.[ev.id];
-      const isQr = ev.id === 'QR_ORDER_CREATED' || ev.id === 'QR_SESSION_CREATED';
-      const defaultChannels = {
-        telegram: { enabled: !isQr },
-        push: { enabled: true, roles: [] }
-      };
       const channels = (cfg && typeof cfg === 'object' && cfg.channels_config) 
         ? cfg.channels_config 
-        : defaultChannels;
+        : getDefaultNotificationChannels(ev.id);
       return { ...acc, [ev.id]: channels };
     }, {} as Record<string, any>);
   });
@@ -515,17 +501,18 @@ export function ShopSettingsForm({
     if (!tenantId) return;
     setTelegramSuccessMsg('');
     startTransition(async () => {
-      const eventsList = Object.keys(events).map(name => ({
-        name,
-        enabled: events[name],
-        channels_config: eventChannels[name] || {
-          telegram: { enabled: true },
-          push: { enabled: true, roles: [] }
-        }
-      }));
-      await saveNotificationSettings(tenantId, shop.id, slug, botToken, chatId, eventsList);
-      setTelegramSuccessMsg('Đã lưu cấu hình thông báo');
-      setTimeout(() => setTelegramSuccessMsg(''), 3000);
+      try {
+        const eventsList = NOTIFICATION_EVENT_CATALOG.map(({ id }) => ({
+          name: id,
+          enabled: events[id],
+          channels_config: eventChannels[id] || getDefaultNotificationChannels(id),
+        }));
+        await saveNotificationSettings(tenantId, shop.id, slug, botToken, chatId, eventsList);
+        setTelegramSuccessMsg('Đã lưu cấu hình thông báo');
+        setTimeout(() => setTelegramSuccessMsg(''), 3000);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Không thể lưu cấu hình thông báo.');
+      }
     });
   };
 
@@ -2625,8 +2612,23 @@ export function ShopSettingsForm({
               <div>
                 <h3 className="text-sm font-medium text-slate-900 mb-3">Sự kiện nhận thông báo</h3>
                 <div className="space-y-4">
-                  {AVAILABLE_EVENTS.map((ev) => (
-                    <div key={ev.id} className="border-b border-slate-100 pb-4 last:border-b-0">
+                  {NOTIFICATION_EVENT_CATALOG.map((ev, index) => {
+                    const startsGroup = index === 0 || NOTIFICATION_EVENT_CATALOG[index - 1]?.group !== ev.group;
+                    return (
+                    <div key={ev.id} className="space-y-3">
+                      {startsGroup && (
+                        <div className="pt-2">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                            {ev.group === 'hrm' ? 'Nhân sự (HRM)' : 'Bán hàng và vận hành'}
+                          </h4>
+                          {ev.group === 'hrm' && (
+                            <p className="mt-1 text-xs text-slate-400">
+                              Người nhận được xác định theo quyền HRM hoặc chính hồ sơ nhân viên, không phát rộng theo vai trò.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    <div className="border-b border-slate-100 pb-4 last:border-b-0">
                       <label className="flex items-center cursor-pointer max-w-sm">
                         <div className="relative">
                           <input
@@ -2646,6 +2648,7 @@ export function ShopSettingsForm({
 
                       {events[ev.id] && (
                         <div className="ml-13 mt-3 space-y-3 p-3 bg-slate-50/60 rounded-xl border border-slate-100 max-w-lg">
+                          {ev.allowTelegram ? (
                           <label className={`flex items-center ${localTelegramConfig?.chat_id ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
                             <input
                               type="checkbox"
@@ -2653,7 +2656,7 @@ export function ShopSettingsForm({
                               checked={!!localTelegramConfig?.chat_id && (eventChannels[ev.id]?.telegram?.enabled ?? true)}
                               disabled={!canManage || isPending || !localTelegramConfig?.chat_id}
                               onChange={(e) => {
-                                const prevCfg = eventChannels[ev.id] || { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
+                                const prevCfg = eventChannels[ev.id] || getDefaultNotificationChannels(ev.id);
                                 setEventChannels({
                                   ...eventChannels,
                                   [ev.id]: {
@@ -2667,6 +2670,11 @@ export function ShopSettingsForm({
                               Gửi tới Telegram Group {!localTelegramConfig?.chat_id && <span className="text-red-500 font-normal">(Chưa kết nối Telegram)</span>}
                             </span>
                           </label>
+                          ) : (
+                            <p className="text-xs text-slate-500">
+                              Telegram không áp dụng vì đây là thông báo cá nhân hoặc theo quyền HRM.
+                            </p>
+                          )}
 
                           {ev.id === 'DAILY_DIGEST' && (eventChannels[ev.id]?.telegram?.enabled ?? true) && (
                             <div className="ml-6">
@@ -2678,7 +2686,7 @@ export function ShopSettingsForm({
                                 value={eventChannels[ev.id]?.telegram?.chat_id || ''}
                                 disabled={!canManage || isPending}
                                 onChange={(e) => {
-                                  const prevCfg = eventChannels[ev.id] || { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
+                                  const prevCfg = eventChannels[ev.id] || getDefaultNotificationChannels(ev.id);
                                   setEventChannels({
                                     ...eventChannels,
                                     [ev.id]: {
@@ -2699,7 +2707,7 @@ export function ShopSettingsForm({
                                 checked={eventChannels[ev.id]?.push?.enabled ?? true}
                                 disabled={!canManage || isPending}
                                 onChange={(e) => {
-                                  const prevCfg = eventChannels[ev.id] || { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
+                                  const prevCfg = eventChannels[ev.id] || getDefaultNotificationChannels(ev.id);
                                   setEventChannels({
                                     ...eventChannels,
                                     [ev.id]: {
@@ -2715,7 +2723,14 @@ export function ShopSettingsForm({
                               <span className="ml-2 text-xs text-slate-600 font-medium">Gửi Push Notification (App Mobile)</span>
                             </label>
 
-                            {(eventChannels[ev.id]?.push?.enabled ?? true) && (
+                            {(eventChannels[ev.id]?.push?.enabled ?? true) && ev.audience !== 'all' && (
+                              <div className="ml-6 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2">
+                                <span className="block text-[10px] font-bold uppercase tracking-wider text-blue-500">Người nhận</span>
+                                <span className="mt-0.5 block text-xs font-medium text-blue-800">{ev.audienceLabel}</span>
+                              </div>
+                            )}
+
+                            {(eventChannels[ev.id]?.push?.enabled ?? true) && ev.audience === 'all' && (
                               <div className="ml-6 pl-3 border-l-2 border-slate-200 py-1 space-y-1.5">
                                 <span className="block text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                                   Giới hạn người nhận theo vai trò:
@@ -2734,7 +2749,7 @@ export function ShopSettingsForm({
                                         type="button"
                                         disabled={!canManage || isPending}
                                         onClick={() => {
-                                          const prevCfg = eventChannels[ev.id] || { telegram: { enabled: true }, push: { enabled: true, roles: [] } };
+                                          const prevCfg = eventChannels[ev.id] || getDefaultNotificationChannels(ev.id);
                                           const nextRoles = isSelected
                                             ? selectedRoles.filter(r => r !== role.code)
                                             : [...selectedRoles, role.code];
@@ -2776,7 +2791,9 @@ export function ShopSettingsForm({
                         </div>
                       )}
                     </div>
-                  ))}
+                    </div>
+                    );
+                  })}
                 </div>
               </div>
 

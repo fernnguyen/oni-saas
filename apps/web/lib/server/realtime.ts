@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { getNotificationEventDefinition } from '../notifications/eventCatalog';
 import { getSupabaseAdminClient } from './supabaseAdmin';
 
 // ─────────────────────────────────────────────────────────────
@@ -91,6 +92,47 @@ async function sendChunked(
 async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
   try {
     const admin = getSupabaseAdminClient();
+    let restrictToUserIds: string[] | undefined;
+
+    const resolveRoleUserIds = async (roleCodes: string[]): Promise<string[]> => {
+      const uniqueRoleCodes = Array.from(new Set(roleCodes.filter(Boolean)));
+      if (uniqueRoleCodes.length === 0) return [];
+
+      const { data: rolesData, error: rolesError } = await admin
+        .from('roles')
+        .select('id')
+        .in('code', uniqueRoleCodes)
+        .or(`is_system.eq.true,tenant_id.eq.${msg.tenantId}`);
+      if (rolesError) throw rolesError;
+
+      const roleIds = (rolesData || []).map((role) => role.id);
+      if (roleIds.length === 0) return [];
+
+      const membershipQueries = [
+        admin
+          .from('user_tenants')
+          .select('user_id')
+          .eq('tenant_id', msg.tenantId)
+          .in('role_id', roleIds),
+      ];
+      if (msg.branchId) {
+        membershipQueries.push(
+          admin
+            .from('user_shops')
+            .select('user_id')
+            .eq('shop_id', msg.branchId)
+            .in('role_id', roleIds),
+        );
+      }
+
+      const memberships = await Promise.all(membershipQueries);
+      const membershipError = memberships.find((result) => result.error)?.error;
+      if (membershipError) throw membershipError;
+
+      return Array.from(new Set(
+        memberships.flatMap((result) => (result.data || []).map((row) => row.user_id)),
+      ));
+    };
 
     // ─── system_broadcast: bypass HOÀN TOÀN mọi điều kiện lọc ───
     // Gửi thẳng tới TẤT CẢ token active của tenant, không check
@@ -134,16 +176,17 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
       const { data: eventConfig } = await admin
         .from('tenant_notification_events')
         .select('is_enabled, channels_config')
+        .eq('tenant_id', msg.tenantId)
         .eq('shop_id', msg.branchId)
         .eq('event_name', dbEventName)
         .maybeSingle();
 
-      const isEnabledByDefault =
-        dbEventName === 'QR_ORDER_CREATED' ||
-        dbEventName === 'QR_SESSION_CREATED' ||
+      const eventDefinition = getNotificationEventDefinition(dbEventName);
+      const isEnabledByDefault = eventDefinition?.defaultEnabled ?? (
         msg.type === 'purchase_approval' ||
         msg.type === 'system' ||
-        msg.type === 'debt_alert';
+        msg.type === 'debt_alert'
+      );
 
       const isEnabled = eventConfig ? eventConfig.is_enabled : isEnabledByDefault;
       if (!isEnabled) return;
@@ -157,36 +200,25 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
 
             const targetRoles = pushConfig.roles;
             if (Array.isArray(targetRoles) && targetRoles.length > 0) {
-              const { data: rolesData } = await admin
-                .from('roles')
-                .select('id')
-                .in('code', targetRoles);
-
-              const roleIds = (rolesData || []).map(r => r.id);
-
-              if (roleIds.length > 0) {
-                const [shopUsersResult, tenantUsersResult] = await Promise.all([
-                  admin.from('user_shops').select('user_id').eq('shop_id', msg.branchId).in('role_id', roleIds),
-                  admin.from('user_tenants').select('user_id').eq('tenant_id', msg.tenantId).in('role_id', roleIds),
-                ]);
-
-                const allowedUserIds = Array.from(new Set([
-                  ...(shopUsersResult.data || []).map(u => u.user_id),
-                  ...(tenantUsersResult.data || []).map(u => u.user_id),
-                ]));
-
-                if (allowedUserIds.length === 0) return;
-
-                if (msg.recipientId) {
-                  if (!allowedUserIds.includes(msg.recipientId)) return;
-                } else {
-                  (msg as any)._restrictToUserIds = allowedUserIds;
-                }
-              }
+              restrictToUserIds = await resolveRoleUserIds(targetRoles);
+              if (restrictToUserIds.length === 0) return;
             }
           }
         }
       }
+    }
+
+    if (msg.recipientRole) {
+      const roleUserIds = await resolveRoleUserIds([msg.recipientRole]);
+      if (roleUserIds.length === 0) return;
+      restrictToUserIds = restrictToUserIds
+        ? restrictToUserIds.filter((userId) => roleUserIds.includes(userId))
+        : roleUserIds;
+      if (restrictToUserIds.length === 0) return;
+    }
+
+    if (msg.recipientId && restrictToUserIds && !restrictToUserIds.includes(msg.recipientId)) {
+      return;
     }
 
     // ─── Build token query ───
@@ -198,8 +230,8 @@ async function sendExpoPushNotifications(msg: RealtimeMessage): Promise<void> {
 
     if (msg.recipientId) {
       query = query.eq('user_id', msg.recipientId);
-    } else if ((msg as any)._restrictToUserIds) {
-      query = query.in('user_id', (msg as any)._restrictToUserIds);
+    } else if (restrictToUserIds) {
+      query = query.in('user_id', restrictToUserIds);
     }
 
     const { data: tokens, error } = await query;

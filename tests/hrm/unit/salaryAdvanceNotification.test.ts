@@ -31,7 +31,7 @@ test('salary advance notification targets the auth user linked to the HRM profil
       tenantId: 'TENANT-1',
       branchId: 'SHOP-1',
       recipientId: 'AUTH-USER-1',
-      type: 'system',
+      type: 'HRM_SALARY_ADVANCE_STATUS_CHANGED',
       title: 'Đã duyệt',
       content: 'Phiếu ứng lương đã được duyệt.',
       metadata: {

@@ -11,6 +11,8 @@ import {
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getHrmSchemaError } from '@/lib/server/hrm/schemaError';
 import { notifySalaryAdvanceManagers } from '@/lib/server/hrm/salaryAdvanceManagerNotification';
+import { notifySalaryAdvanceEmployee } from '@/lib/server/hrm/salaryAdvanceNotification';
+import { realtimeEngine } from '@/lib/server/realtime';
 
 const createSchema = z.object({
   profile_id: z.string().min(1, "Vui lòng chọn nhân sự"),
@@ -215,6 +217,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
         advanceId: id,
         amount: payload.amount,
         payPeriod: payload.pay_period,
+      });
+    } else {
+      await notifySalaryAdvanceEmployee({
+        repository: hrmRepo,
+        publisher: realtimeEngine,
+        tenantId,
+        branchId: shopId,
+        profileId,
+        advanceId: id,
+        title: disbursement
+          ? 'Khoản ứng lương đã được chi'
+          : 'Yêu cầu ứng lương đã được duyệt',
+        content: disbursement
+          ? `Khoản ứng lương ${payload.amount.toLocaleString('vi-VN')}đ đã được duyệt và chi từ quỹ.`
+          : `Yêu cầu ứng lương ${payload.amount.toLocaleString('vi-VN')}đ đã được duyệt và đang chờ chi tiền.`,
       });
     }
 

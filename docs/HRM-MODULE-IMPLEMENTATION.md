@@ -4,7 +4,7 @@
 > Đối tượng: Hộ kinh doanh nhỏ và SME
 > Nguyên tắc: Module độc lập, plug-and-play, business data nằm tại PostgreSQL connector, không phá vỡ luồng ONI/POS hiện hữu
 
-## 0. Đánh giá hiện trạng (cập nhật 2026-08-04)
+## 0. Đánh giá hiện trạng (cập nhật 2026-08-06)
 
 Mức hoàn thiện chức năng hiện tại ước tính **75–80%**; module đã có luồng chính nhưng **chưa product ready** cho rollout diện rộng. Task list ở mục 11 là acceptance backlog gốc; trạng thái thực tế được tổng hợp tại đây.
 
@@ -25,10 +25,13 @@ Mức hoàn thiện chức năng hiện tại ước tính **75–80%**; module 
 - Giải ngân ứng lương khóa quỹ bằng `FOR UPDATE`, kiểm tra đủ số dư, ghi cashbook, trừ quỹ và đổi trạng thái advance trong một PostgreSQL transaction; yêu cầu đồng thời `hrm.payroll.pay` và `cashbook.manage`.
 - Physical schema contract đã bao phủ đủ 17 bảng HRM hiện có và các cột mở rộng.
 - Initial loading của HRM dùng skeleton mô phỏng đúng calendar, form, bảng công, danh sách nghỉ phép/ứng lương; spinner hoặc nhãn tiến trình chỉ dùng cho mutation, upload, refresh và tác vụ ngắn.
+- Settings → Push Notification có 4 nhóm HRM bật mặc định; leave/advance request chỉ gửi tới từng user có quyền quản lý tương ứng, còn thay đổi trạng thái chỉ gửi tới tài khoản liên kết của chính nhân viên.
+- In-app notification luôn được ghi trước; cấu hình event chỉ bật/tắt Mobile Push. Telegram không áp dụng cho event HRM cá nhân/theo quyền để tránh phát dữ liệu nhân sự vào group chung.
+- Mobile hiện chưa có màn hình quản lý HRM nên tap notification HRM hiển thị hướng dẫn mở Web, không điều hướng vào route không tồn tại.
 
 Quality gate hiện tại:
 
-- `pnpm test:hrm`: 84/84 pass.
+- `pnpm test:hrm`: 87/87 pass.
 - `pnpm test:hrm:regression`: 3/3 pass.
 - TypeScript web và `pnpm build`: pass (build còn cảnh báo NFT trace sẵn có từ `opengraph-image`).
 - `pnpm test:hrm:integration`: chưa chạy được vì môi trường chưa cung cấp `HRM_TEST_DATABASE_URL` + `HRM_TEST_DATABASE_DISPOSABLE=true`.
@@ -182,6 +185,24 @@ Quy tắc UX:
 - Không tự chạy DDL trong request GET hoặc lúc application boot.
 - Sau khi shared schema đã đạt version yêu cầu, enable/disable từng tenant chỉ cập nhật entitlement record ở Supabase.
 - Tắt entitlement không xóa schema hoặc dữ liệu.
+
+### 3.8. Contract thông báo HRM
+
+| Event | Mặc định | Người nhận Push |
+|---|---:|---|
+| `HRM_LEAVE_REQUESTED` | Bật | User có `hrm.attendance.manage`, loại người gửi |
+| `HRM_LEAVE_STATUS_CHANGED` | Bật | Auth user liên kết với hồ sơ nhân viên của đơn |
+| `HRM_SALARY_ADVANCE_REQUESTED` | Bật | User có `hrm.payroll.manage`, loại người gửi |
+| `HRM_SALARY_ADVANCE_STATUS_CHANGED` | Bật | Auth user liên kết với hồ sơ nhân viên của phiếu |
+
+Quy tắc bắt buộc:
+
+- Producer ghi `in_app_notifications` kể cả khi event hoặc kênh Push bị tắt; cấu hình chỉ điều khiển việc gửi Expo Push.
+- Event manager-targeted phải resolve permission holder và gửi từng `recipient_id`; không broadcast theo role chung như `admin`.
+- Event employee-targeted phải resolve `hrm_employee_profiles.auth_user_id`; hồ sơ chưa liên kết tài khoản thì bỏ qua an toàn, không broadcast fallback.
+- Push sender luôn tôn trọng `recipient_id`, `recipient_role`, tenant, branch và role filter của event; không được query toàn bộ token tenant khi message đã giới hạn người nhận.
+- Bốn event HRM bật và bật Push mặc định kể cả khi chi nhánh chưa có row trong `tenant_notification_events`; lần lưu Settings sẽ upsert toàn bộ catalog.
+- Server action lưu cấu hình phải xác thực session, shop thuộc tenant, quyền `settings.manage|shops.manage`, whitelist event và chuẩn hóa HRM Telegram/role config.
 
 ## 4. Cấu trúc module
 

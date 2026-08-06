@@ -1,4 +1,5 @@
 import { hasPermission } from '../permissions';
+import { HRM_NOTIFICATION_EVENTS } from '../../notifications/eventCatalog';
 import {
   realtimeEngine,
   type RealtimeMessage,
@@ -99,7 +100,7 @@ export async function notifySalaryAdvanceManagers(
           tenantId,
           branchId,
           recipientId,
-          type: 'system',
+          type: HRM_NOTIFICATION_EVENTS.salaryAdvanceRequested,
           title: 'Yêu cầu ứng lương mới',
           content: `Có một yêu cầu ứng lương mới ${amount.toLocaleString('vi-VN')}đ cho kỳ lương ${payPeriod}.`,
           metadata: {

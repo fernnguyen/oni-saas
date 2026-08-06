@@ -4,6 +4,9 @@ import {
   HrmAccessError,
   requireHrmAccess,
 } from '@/lib/server/hrm/access';
+import { HRM_NOTIFICATION_EVENTS } from '@/lib/notifications/eventCatalog';
+import { notifyLeaveManagers } from '@/lib/server/hrm/leaveManagerNotification';
+import { realtimeEngine } from '@/lib/server/realtime';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -96,35 +99,31 @@ export async function PATCH(
       content = `Yêu cầu huỷ đơn nghỉ phép của bạn đã bị từ chối. Lý do: ${rejectionReason || 'Không có lý do'}.`;
     }
 
-    // Send notifications
-    import('@/lib/server/realtime').then(({ realtimeEngine }) => {
-      if (notifyEmployee && employeeUserId) {
-        realtimeEngine.sendNotification({
+    // Notification delivery must never roll back a completed leave action.
+    if (notifyEmployee && employeeUserId) {
+      await realtimeEngine.sendNotification({
           tenantId: access.tenantId,
           branchId: access.shopId,
           recipientId: employeeUserId,
-          type: 'leave_approval',
+          type: HRM_NOTIFICATION_EVENTS.leaveStatusChanged,
           title,
           content,
-          metadata: { path: '/hrm/leaves' }
-        }).catch(console.error);
-      }
-      if (notifyManager) {
-        realtimeEngine.sendNotification({
-          tenantId: access.tenantId,
-          branchId: access.shopId,
-          recipientRole: 'admin',
-          type: 'leave_approval',
-          title,
-          content,
-          metadata: { path: '/hrm/leaves' }
-        }).catch(console.error);
-      }
-    });
+          metadata: { path: '/hrm/leaves', leaveId },
+        }).catch((error) => console.error('[HRM] Failed to notify leave employee:', error));
+    }
+    if (notifyManager) {
+      await notifyLeaveManagers({
+        tenantId: access.tenantId,
+        branchId: access.shopId,
+        requesterUserId: access.userId,
+        leaveId,
+        title,
+        content,
+      });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
     return respondError(err);
   }
 }
-
