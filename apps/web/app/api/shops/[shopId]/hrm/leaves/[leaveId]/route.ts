@@ -12,8 +12,26 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const actionSchema = z.object({
-  action: z.enum(['approve', 'reject', 'cancel', 'approved', 'rejected', 'cancelled']).optional(),
-  status: z.enum(['approve', 'reject', 'cancel', 'approved', 'rejected', 'cancelled']).optional(),
+  action: z.enum([
+    'approve',
+    'reject',
+    'cancel',
+    'request_cancel',
+    'reject_cancel',
+    'approved',
+    'rejected',
+    'cancelled',
+  ]).optional(),
+  status: z.enum([
+    'approve',
+    'reject',
+    'cancel',
+    'request_cancel',
+    'reject_cancel',
+    'approved',
+    'rejected',
+    'cancelled',
+  ]).optional(),
   rejection_reason: z.string().optional(),
   reason: z.string().optional(),
 }).refine(data => Boolean(data.action || data.status), {
@@ -111,14 +129,16 @@ export async function PATCH(
           metadata: { path: '/hrm/leaves', leaveId },
         }).catch((error) => console.error('[HRM] Failed to notify leave employee:', error));
     }
-    if (notifyManager) {
+    if (notifyManager && leaveProfile?.profileId) {
       await notifyLeaveManagers({
         tenantId: access.tenantId,
         branchId: access.shopId,
         requesterUserId: access.userId,
+        profileId: leaveProfile.profileId,
         leaveId,
         title,
         content,
+        departmentDirectory: access.repository,
       });
     }
 

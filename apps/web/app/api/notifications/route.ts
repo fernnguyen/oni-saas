@@ -14,7 +14,10 @@ export async function GET(req: NextRequest) {
     const sp = req.nextUrl.searchParams;
     const tenantId = sp.get('tenantId');
     const branchId = sp.get('shopId'); // Optional branch-specific filter
-    const limit = parseInt(sp.get('limit') || '50', 10);
+    const requestedLimit = Number.parseInt(sp.get('limit') || '50', 10);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(100, Math.max(1, requestedLimit))
+      : 50;
 
     if (!tenantId) {
       return NextResponse.json({ error: 'tenantId search parameter is required' }, { status: 400 });
@@ -46,6 +49,7 @@ export async function GET(req: NextRequest) {
         )
       `)
       .eq('tenant_id', tenantId)
+      .or(`recipient_id.is.null,recipient_id.eq.${auth.user.id}`)
       .order('created_at', { ascending: false })
       .limit(limit);
 

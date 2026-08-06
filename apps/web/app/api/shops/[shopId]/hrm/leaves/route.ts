@@ -99,9 +99,11 @@ export async function POST(
       tenantId: access.tenantId,
       branchId: access.shopId,
       requesterUserId: access.userId,
+      profileId: input.profile_id,
       leaveId: id,
       title: 'Đơn xin phép mới',
       content: `Có đơn xin nghỉ phép ${input.total_days} ngày cần được duyệt.`,
+      departmentDirectory: access.repository,
     });
 
     return NextResponse.json({ ok: true });

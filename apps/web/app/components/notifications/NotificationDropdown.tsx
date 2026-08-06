@@ -23,7 +23,8 @@ export function NotificationDropdown({ shopId, basePath }: Props) {
     toggleMute,
     markAsRead,
     markAllAsRead,
-    openQRDrawer
+    openQRDrawer,
+    refreshNotifications,
   } = useNotificationCenter();
 
   // Filter notifications by tab
@@ -115,7 +116,11 @@ export function NotificationDropdown({ shopId, basePath }: Props) {
     <div className="relative inline-flex items-center">
       {/* Bell Icon Trigger */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          const nextOpen = !isOpen;
+          setIsOpen(nextOpen);
+          if (nextOpen) void refreshNotifications();
+        }}
         className="relative p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all focus:outline-none cursor-pointer"
         title="Thông báo vận hành"
       >

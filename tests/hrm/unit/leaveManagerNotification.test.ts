@@ -3,27 +3,33 @@ import test from 'node:test';
 
 import { notifyLeaveManagers } from '../../../apps/web/lib/server/hrm/leaveManagerNotification';
 
-test('leave request only notifies attendance managers other than the requester', async () => {
-  const messages: Array<{ recipientId?: string; type: string }> = [];
+const departmentDirectory = {
+  async getDepartmentIdForProfileId() {
+    return 'DEPARTMENT-1';
+  },
+  async listDepartmentManagerUserIds() {
+    return ['DEPARTMENT-MANAGER'];
+  },
+};
 
+test('leave request persists one notification per resolved management recipient', async () => {
+  const messages: Array<{ recipientId?: string; type: string }> = [];
   const recipientCount = await notifyLeaveManagers(
     {
       tenantId: 'TENANT-1',
       branchId: 'SHOP-1',
       requesterUserId: 'EMPLOYEE-USER',
+      profileId: 'PROFILE-1',
       leaveId: 'LEAVE-1',
       title: 'Đơn xin phép mới',
       content: 'Có một đơn xin phép cần duyệt.',
+      departmentDirectory,
     },
     {
-      async listCandidateUserIds() {
-        return ['EMPLOYEE-USER', 'OWNER-USER', 'HR-MANAGER', 'UNRELATED-USER', 'OWNER-USER'];
-      },
-      async userHasPermission(userId, tenantId, permission, branchId) {
-        assert.equal(tenantId, 'TENANT-1');
-        assert.equal(permission, 'hrm.attendance.manage');
-        assert.equal(branchId, 'SHOP-1');
-        return userId === 'OWNER-USER' || userId === 'HR-MANAGER';
+      async resolveRecipients(input) {
+        assert.equal(input.eventName, 'HRM_LEAVE_REQUESTED');
+        assert.equal(input.requesterUserId, 'EMPLOYEE-USER');
+        return ['OWNER-USER', 'ADMIN-USER', 'DEPARTMENT-MANAGER'];
       },
       async sendNotification(message) {
         messages.push(message);
@@ -31,15 +37,16 @@ test('leave request only notifies attendance managers other than the requester',
     },
   );
 
-  assert.equal(recipientCount, 2);
+  assert.equal(recipientCount, 3);
   assert.deepEqual(messages.map((message) => message.recipientId), [
     'OWNER-USER',
-    'HR-MANAGER',
+    'ADMIN-USER',
+    'DEPARTMENT-MANAGER',
   ]);
   assert.ok(messages.every((message) => message.type === 'HRM_LEAVE_REQUESTED'));
 });
 
-test('leave manager resolution failure does not broadcast the request', async () => {
+test('leave management resolution failure does not broadcast the request', async () => {
   let publishCount = 0;
   const originalConsoleError = console.error;
   console.error = () => {};
@@ -50,16 +57,15 @@ test('leave manager resolution failure does not broadcast the request', async ()
         tenantId: 'TENANT-1',
         branchId: 'SHOP-1',
         requesterUserId: 'EMPLOYEE-USER',
+        profileId: 'PROFILE-1',
         leaveId: 'LEAVE-2',
         title: 'Yêu cầu huỷ đơn nghỉ phép',
         content: 'Có một yêu cầu cần xử lý.',
+        departmentDirectory,
       },
       {
-        async listCandidateUserIds() {
-          throw new Error('permission service unavailable');
-        },
-        async userHasPermission() {
-          return true;
+        async resolveRecipients() {
+          throw new Error('control plane unavailable');
         },
         async sendNotification() {
           publishCount += 1;

@@ -1,70 +1,41 @@
-import { hasPermission } from '../permissions';
 import { HRM_NOTIFICATION_EVENTS } from '../../notifications/eventCatalog';
 import {
-  realtimeEngine,
-  type RealtimeMessage,
-} from '../realtime';
-import { getSupabaseAdminClient } from '../supabaseAdmin';
+  resolveHrmManagementNotificationRecipients,
+  type HrmDepartmentManagerDirectory,
+} from './managementNotificationRecipients';
+import { realtimeEngine, type RealtimeMessage } from '../realtime';
 
 type SalaryAdvanceManagerNotificationInput = {
   tenantId: string;
   branchId: string;
   requesterUserId: string;
+  profileId: string;
+  departmentDirectory: HrmDepartmentManagerDirectory;
   advanceId: string;
   amount: number;
   payPeriod: string;
 };
 
 type SalaryAdvanceManagerNotificationDependencies = {
-  listCandidateUserIds(
-    tenantId: string,
-    branchId: string,
+  resolveRecipients(
+    input: Parameters<typeof resolveHrmManagementNotificationRecipients>[0],
   ): Promise<string[]>;
-  userHasPermission(
-    userId: string,
-    tenantId: string,
-    permission: string,
-    branchId: string,
-  ): Promise<boolean>;
   sendNotification(message: RealtimeMessage): Promise<void>;
 };
 
-async function listCandidateUserIds(
-  tenantId: string,
-  branchId: string,
-): Promise<string[]> {
-  const admin = getSupabaseAdminClient();
-  const [tenantMemberships, branchMemberships] = await Promise.all([
-    admin.from('user_tenants').select('user_id').eq('tenant_id', tenantId),
-    admin.from('user_shops').select('user_id').eq('shop_id', branchId),
-  ]);
-
-  if (tenantMemberships.error) throw tenantMemberships.error;
-  if (branchMemberships.error) throw branchMemberships.error;
-
-  return Array.from(
-    new Set([
-      ...(tenantMemberships.data ?? []).map((membership) => membership.user_id),
-      ...(branchMemberships.data ?? []).map((membership) => membership.user_id),
-    ]),
-  );
-}
-
 const defaultDependencies: SalaryAdvanceManagerNotificationDependencies = {
-  listCandidateUserIds,
-  userHasPermission: hasPermission,
+  resolveRecipients: resolveHrmManagementNotificationRecipients,
   sendNotification: (message) => realtimeEngine.sendNotification(message),
 };
 
-/**
- * Notifies payroll managers about an employee-created salary advance without
- * broadcasting the request back to the employee or unrelated shop users.
- */
+/** Sends one persisted notification per configured management recipient. */
 export async function notifySalaryAdvanceManagers(
   {
     tenantId,
     branchId,
     requesterUserId,
+    profileId,
+    departmentDirectory,
     advanceId,
     amount,
     payPeriod,
@@ -72,49 +43,34 @@ export async function notifySalaryAdvanceManagers(
   dependencies: SalaryAdvanceManagerNotificationDependencies = defaultDependencies,
 ): Promise<number> {
   try {
-    const candidates = await dependencies.listCandidateUserIds(
+    const recipients = await dependencies.resolveRecipients({
       tenantId,
       branchId,
-    );
-    const uniqueCandidates = Array.from(new Set(candidates)).filter(
-      (userId) => userId !== requesterUserId,
-    );
-    const permissionChecks = await Promise.all(
-      uniqueCandidates.map(async (userId) => ({
-        userId,
-        canManagePayroll: await dependencies.userHasPermission(
-          userId,
-          tenantId,
-          'hrm.payroll.manage',
-          branchId,
-        ),
-      })),
-    );
-    const recipients = permissionChecks
-      .filter(({ canManagePayroll }) => canManagePayroll)
-      .map(({ userId }) => userId);
+      eventName: HRM_NOTIFICATION_EVENTS.salaryAdvanceRequested,
+      requesterUserId,
+      profileId,
+      departmentDirectory,
+    });
 
-    await Promise.all(
-      recipients.map((recipientId) =>
-        dependencies.sendNotification({
-          tenantId,
-          branchId,
-          recipientId,
-          type: HRM_NOTIFICATION_EVENTS.salaryAdvanceRequested,
-          title: 'Yêu cầu ứng lương mới',
-          content: `Có một yêu cầu ứng lương mới ${amount.toLocaleString('vi-VN')}đ cho kỳ lương ${payPeriod}.`,
-          metadata: {
-            path: '/hrm/salary-advances',
-            advanceId,
-          },
-        }),
-      ),
-    );
+    await Promise.all(recipients.map((recipientId) =>
+      dependencies.sendNotification({
+        tenantId,
+        branchId,
+        recipientId,
+        type: HRM_NOTIFICATION_EVENTS.salaryAdvanceRequested,
+        title: 'Yêu cầu ứng lương mới',
+        content: `Có một yêu cầu ứng lương mới ${amount.toLocaleString('vi-VN')}đ cho kỳ lương ${payPeriod}.`,
+        metadata: {
+          path: '/hrm/salary-advances',
+          advanceId,
+        },
+      }),
+    ));
 
     return recipients.length;
   } catch (error) {
     console.error(
-      '[HRM] Failed to notify payroll managers about a salary advance request:',
+      '[HRM] Failed to notify management about a salary advance request:',
       error,
     );
     return 0;

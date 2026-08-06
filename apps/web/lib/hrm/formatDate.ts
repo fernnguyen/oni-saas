@@ -63,3 +63,25 @@ export function formatHrmDateTime(
 
   return `${values.get('hour')}:${values.get('minute')}:${values.get('second')} ${values.get('day')}/${values.get('month')}/${values.get('year')}`;
 }
+
+export function formatHrmPayPeriod(
+  value: string | null | undefined,
+  fallback = '—',
+): string {
+  if (!value) return fallback;
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  const [, yearText, monthText] = match;
+  return `${monthText}/${yearText}`;
+}
+
+export function formatHrmPayPeriodLong(
+  value: string | null | undefined,
+  fallback = '—',
+): string {
+  if (!value) return fallback;
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  const [, yearText, monthText] = match;
+  return `Tháng ${Number(monthText)}/${yearText}`;
+}

@@ -25,6 +25,11 @@ const notificationEventSchema = z.object({
       enabled: z.boolean(),
       roles: z.array(z.string().trim().min(1).max(64)).max(50),
     }),
+    routing: z.object({
+      role_codes: z.array(z.string().trim().min(1).max(64)).max(50),
+      requester_department_managers: z.boolean(),
+      department_ids: z.array(z.string().trim().min(1).max(255)).max(100),
+    }).optional(),
   }).optional(),
 });
 
@@ -126,6 +131,9 @@ export async function saveNotificationSettings(
     const rows = input.events.map((event) => {
       const definition = getNotificationEventDefinition(event.name);
       const channels = event.channels_config ?? getDefaultNotificationChannels(event.name);
+      const managementRouting = definition?.group === 'hrm' && definition.audience === 'management'
+        ? (channels.routing ?? getDefaultNotificationChannels(event.name).routing)
+        : undefined;
       return {
         tenant_id: input.tenantId,
         shop_id: input.shopId,
@@ -139,6 +147,15 @@ export async function saveNotificationSettings(
             ...channels.push,
             roles: definition?.audience === 'all' ? channels.push.roles : [],
           },
+          ...(managementRouting
+            ? {
+                routing: {
+                  ...managementRouting,
+                  role_codes: Array.from(new Set(managementRouting.role_codes)),
+                  department_ids: Array.from(new Set(managementRouting.department_ids)),
+                },
+              }
+            : {}),
         },
       };
     });

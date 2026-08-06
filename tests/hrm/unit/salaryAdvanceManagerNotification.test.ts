@@ -3,35 +3,33 @@ import test from 'node:test';
 
 import { notifySalaryAdvanceManagers } from '../../../apps/web/lib/server/hrm/salaryAdvanceManagerNotification';
 
-test('employee-created salary advance only notifies payroll managers other than the requester', async () => {
-  const checkedUserIds: string[] = [];
-  const messages: Array<{ recipientId?: string; type: string }> = [];
+const departmentDirectory = {
+  async getDepartmentIdForProfileId() {
+    return 'DEPARTMENT-1';
+  },
+  async listDepartmentManagerUserIds() {
+    return ['DEPARTMENT-MANAGER'];
+  },
+};
 
+test('salary advance persists one notification per configured role or department manager', async () => {
+  const messages: Array<{ recipientId?: string; type: string }> = [];
   const recipientCount = await notifySalaryAdvanceManagers(
     {
       tenantId: 'TENANT-1',
       branchId: 'SHOP-1',
       requesterUserId: 'EMPLOYEE-USER',
+      profileId: 'PROFILE-1',
+      departmentDirectory,
       advanceId: 'ADVANCE-1',
       amount: 1_500_000,
-      payPeriod: '2026-08',
+      payPeriod: '08/2026',
     },
     {
-      async listCandidateUserIds() {
-        return [
-          'EMPLOYEE-USER',
-          'OWNER-USER',
-          'PAYROLL-MANAGER',
-          'UNRELATED-USER',
-          'OWNER-USER',
-        ];
-      },
-      async userHasPermission(userId, tenantId, permission, branchId) {
-        checkedUserIds.push(userId);
-        assert.equal(tenantId, 'TENANT-1');
-        assert.equal(permission, 'hrm.payroll.manage');
-        assert.equal(branchId, 'SHOP-1');
-        return userId === 'OWNER-USER' || userId === 'PAYROLL-MANAGER';
+      async resolveRecipients(input) {
+        assert.equal(input.eventName, 'HRM_SALARY_ADVANCE_REQUESTED');
+        assert.equal(input.profileId, 'PROFILE-1');
+        return ['OWNER-USER', 'ADMIN-USER', 'DEPARTMENT-MANAGER'];
       },
       async sendNotification(message) {
         messages.push(message);
@@ -39,21 +37,17 @@ test('employee-created salary advance only notifies payroll managers other than 
     },
   );
 
-  assert.equal(recipientCount, 2);
-  assert.deepEqual(checkedUserIds, [
+  assert.equal(recipientCount, 3);
+  assert.deepEqual(messages.map((message) => message.recipientId), [
     'OWNER-USER',
-    'PAYROLL-MANAGER',
-    'UNRELATED-USER',
+    'ADMIN-USER',
+    'DEPARTMENT-MANAGER',
   ]);
-  assert.deepEqual(
-    messages.map((message) => message.recipientId),
-    ['OWNER-USER', 'PAYROLL-MANAGER'],
-  );
   assert.ok(messages.every((message) => Boolean(message.recipientId)));
   assert.ok(messages.every((message) => message.type === 'HRM_SALARY_ADVANCE_REQUESTED'));
 });
 
-test('manager notification resolution failure never broadcasts or rolls back the request', async () => {
+test('salary advance recipient resolution failure never broadcasts or rolls back the request', async () => {
   let publishCount = 0;
   const originalConsoleError = console.error;
   console.error = () => {};
@@ -64,16 +58,15 @@ test('manager notification resolution failure never broadcasts or rolls back the
         tenantId: 'TENANT-1',
         branchId: 'SHOP-1',
         requesterUserId: 'EMPLOYEE-USER',
+        profileId: 'PROFILE-1',
+        departmentDirectory,
         advanceId: 'ADVANCE-2',
         amount: 500_000,
-        payPeriod: '2026-08',
+        payPeriod: '08/2026',
       },
       {
-        async listCandidateUserIds() {
+        async resolveRecipients() {
           throw new Error('control plane unavailable');
-        },
-        async userHasPermission() {
-          return true;
         },
         async sendNotification() {
           publishCount += 1;

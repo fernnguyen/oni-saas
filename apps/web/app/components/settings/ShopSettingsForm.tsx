@@ -10,8 +10,10 @@ import { IndustryIcon } from '../layout/IndustryIcon';
 import { Pencil, X } from 'lucide-react';
 import { saveNotificationSettings, generatePairingCode, checkSharedBotConnection, clearPairingCode, revokeSharedBotConnection } from '@/app/t/[slug]/settings/notificationsActions';
 import {
+  HRM_NOTIFICATION_EVENTS,
   NOTIFICATION_EVENT_CATALOG,
   getDefaultNotificationChannels,
+  type NotificationChannelsConfig,
 } from '@/lib/notifications/eventCatalog';
 
 interface ShopSettings {
@@ -105,6 +107,56 @@ function formatWithDots(val: string | number): string {
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
+type NotificationSettingsGroup = {
+  id: string;
+  label: string;
+  description: string;
+  eventIds: readonly string[];
+};
+
+type NotificationDepartment = {
+  id: string;
+  name: string;
+};
+
+const NOTIFICATION_SETTINGS_GROUPS: readonly NotificationSettingsGroup[] = [
+  {
+    id: 'sales',
+    label: 'Bán hàng & khách hàng',
+    description: 'Đơn hàng, thanh toán, đổi trả và khách hàng mới.',
+    eventIds: [
+      'ORDER_CREATED',
+      'PAYMENT_RECEIVED',
+      'CUSTOMER_CREATED',
+      'ORDER_CANCELLED',
+      'ORDER_RETURNED',
+    ],
+  },
+  {
+    id: 'qr-ordering',
+    label: 'Đặt hàng qua QR',
+    description: 'Các yêu cầu phát sinh từ kênh gọi món và mở bàn QR.',
+    eventIds: ['QR_ORDER_CREATED', 'QR_SESSION_CREATED'],
+  },
+  {
+    id: 'alerts-reports',
+    label: 'Cảnh báo & báo cáo',
+    description: 'Báo cáo định kỳ và cảnh báo vận hành kho.',
+    eventIds: ['DAILY_DIGEST', 'EXPIRING_BATCHES', 'LOW_STOCK'],
+  },
+  {
+    id: 'hrm',
+    label: 'Nhân sự (HRM)',
+    description: 'Yêu cầu quản lý gửi theo nhóm vai trò và trưởng bộ phận; trạng thái gửi về chính nhân viên.',
+    eventIds: [
+      'HRM_LEAVE_REQUESTED',
+      'HRM_LEAVE_STATUS_CHANGED',
+      'HRM_SALARY_ADVANCE_REQUESTED',
+      'HRM_SALARY_ADVANCE_STATUS_CHANGED',
+    ],
+  },
+];
 
 export function ShopSettingsForm({
   shop,
@@ -432,18 +484,49 @@ export function ShopSettingsForm({
     }, {} as Record<string, boolean>);
   });
 
-  const [eventChannels, setEventChannels] = useState<Record<string, {
-    telegram: { enabled: boolean; chat_id?: string };
-    push: { enabled: boolean; roles: string[] };
-  }>>(() => {
+  const [eventChannels, setEventChannels] = useState<Record<string, NotificationChannelsConfig>>(() => {
     return NOTIFICATION_EVENT_CATALOG.reduce((acc, ev) => {
       const cfg = eventsConfig?.[ev.id];
-      const channels = (cfg && typeof cfg === 'object' && cfg.channels_config) 
-        ? cfg.channels_config 
-        : getDefaultNotificationChannels(ev.id);
+      const defaults = getDefaultNotificationChannels(ev.id);
+      const saved = (cfg && typeof cfg === 'object' && cfg.channels_config)
+        ? cfg.channels_config as Partial<NotificationChannelsConfig>
+        : undefined;
+      const savedRouting = saved?.routing as
+        | (Partial<NonNullable<NotificationChannelsConfig['routing']>> & {
+            fallback_to_owner?: boolean;
+          })
+        | undefined;
+      const channels: NotificationChannelsConfig = saved
+        ? {
+            telegram: { ...defaults.telegram, ...saved.telegram },
+            push: {
+              ...defaults.push,
+              ...saved.push,
+              roles: saved.push?.roles ?? defaults.push.roles,
+            },
+            ...((savedRouting || defaults.routing)
+              ? {
+                  routing: {
+                    ...defaults.routing!,
+                    ...savedRouting,
+                    role_codes:
+                      savedRouting?.role_codes
+                      ?? (savedRouting?.fallback_to_owner === false
+                        ? []
+                        : defaults.routing?.role_codes ?? []),
+                    department_ids:
+                      savedRouting?.department_ids ?? defaults.routing?.department_ids ?? [],
+                  },
+                }
+              : {}),
+          }
+        : defaults;
       return { ...acc, [ev.id]: channels };
-    }, {} as Record<string, any>);
+    }, {} as Record<string, NotificationChannelsConfig>);
   });
+  const [notificationDepartments, setNotificationDepartments] = useState<NotificationDepartment[] | null>(null);
+  const [notificationDepartmentsState, setNotificationDepartmentsState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [notificationDepartmentsAttempt, setNotificationDepartmentsAttempt] = useState(0);
   const [telegramSuccessMsg, setTelegramSuccessMsg] = useState('');
   const [pairingCode, setPairingCode] = useState('');
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
@@ -459,6 +542,35 @@ export function ShopSettingsForm({
       setChatId('');
     }
   }, [telegramConfig]);
+
+  useEffect(() => {
+    if (activeTab !== 'notification' || notificationDepartments !== null) return;
+
+    const controller = new AbortController();
+    setNotificationDepartmentsState('loading');
+    void fetch(`/api/shops/${shop.id}/departments?limit=500`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload?.error?.message || payload?.error || 'Không thể tải danh sách phòng ban.');
+        }
+        const rows: unknown[] = Array.isArray(payload?.data) ? payload.data : [];
+        setNotificationDepartments(rows
+          .filter((row: unknown): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
+          .filter((row) => typeof row.id === 'string' && typeof row.name === 'string')
+          .map((row) => ({ id: row.id as string, name: row.name as string })));
+        setNotificationDepartmentsState('idle');
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        console.error('Failed to fetch notification departments:', error);
+        setNotificationDepartmentsState('error');
+      });
+
+    return () => controller.abort();
+  }, [activeTab, notificationDepartments, notificationDepartmentsAttempt, shop.id]);
 
   useEffect(() => {
     if (!pairingCode) return;
@@ -2611,24 +2723,26 @@ export function ShopSettingsForm({
 
               <div>
                 <h3 className="text-sm font-medium text-slate-900 mb-3">Sự kiện nhận thông báo</h3>
-                <div className="space-y-4">
-                  {NOTIFICATION_EVENT_CATALOG.map((ev, index) => {
-                    const startsGroup = index === 0 || NOTIFICATION_EVENT_CATALOG[index - 1]?.group !== ev.group;
+                <div className="space-y-6">
+                  {NOTIFICATION_SETTINGS_GROUPS.map((group) => {
+                    const groupEvents = NOTIFICATION_EVENT_CATALOG.filter((event) =>
+                      group.eventIds.includes(event.id),
+                    );
                     return (
-                    <div key={ev.id} className="space-y-3">
-                      {startsGroup && (
-                        <div className="pt-2">
-                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                            {ev.group === 'hrm' ? 'Nhân sự (HRM)' : 'Bán hàng và vận hành'}
-                          </h4>
-                          {ev.group === 'hrm' && (
-                            <p className="mt-1 text-xs text-slate-400">
-                              Người nhận được xác định theo quyền HRM hoặc chính hồ sơ nhân viên, không phát rộng theo vai trò.
-                            </p>
-                          )}
+                      <section key={group.id} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 sm:p-5">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h4 className="text-sm font-semibold text-slate-800">{group.label}</h4>
+                            <p className="mt-1 text-xs text-slate-500">{group.description}</p>
+                          </div>
+                          <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-bold text-slate-500">
+                            {groupEvents.length} sự kiện
+                          </span>
                         </div>
-                      )}
-                    <div className="border-b border-slate-100 pb-4 last:border-b-0">
+
+                        <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+                          {groupEvents.map((ev) => (
+                    <div key={ev.id} className="h-full rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
                       <label className="flex items-center cursor-pointer max-w-sm">
                         <div className="relative">
                           <input
@@ -2647,7 +2761,7 @@ export function ShopSettingsForm({
                       </label>
 
                       {events[ev.id] && (
-                        <div className="ml-13 mt-3 space-y-3 p-3 bg-slate-50/60 rounded-xl border border-slate-100 max-w-lg">
+                        <div className="mt-3 space-y-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 sm:ml-13">
                           {ev.allowTelegram ? (
                           <label className={`flex items-center ${localTelegramConfig?.chat_id ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
                             <input
@@ -2730,6 +2844,180 @@ export function ShopSettingsForm({
                               </div>
                             )}
 
+                            {ev.group === 'hrm' && ev.audience === 'management' && (() => {
+                              const defaults = getDefaultNotificationChannels(ev.id);
+                              const routing = eventChannels[ev.id]?.routing ?? defaults.routing!;
+                              const selectedDepartmentIds = routing.department_ids;
+                              const selectedRoleCodes = routing.role_codes;
+                              const availableRoles = Array.from(new Map([
+                                { code: 'owner', name: 'Chủ sở hữu' },
+                                { code: 'admin', name: 'Quản trị viên' },
+                                ...(roles ?? []),
+                              ].map((role) => [role.code, role])).values());
+
+                              return (
+                                <div className="ml-6 space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
+                                  <div>
+                                    <span className="block text-[10px] font-bold uppercase tracking-wider text-indigo-500">
+                                      Định tuyến người nhận quản lý
+                                    </span>
+                                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                                      Áp dụng đồng nhất cho Notification Center, Web realtime và Mobile Push. Người tạo yêu cầu luôn bị loại.
+                                    </p>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <div>
+                                      <span className="block text-xs font-semibold text-slate-700">Nhóm quyền nhận thông báo</span>
+                                      <span className="mt-0.5 block text-[10px] text-slate-500">Owner và Admin được bật mặc định; có thể tắt hoặc chọn thêm vai trò khác.</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                                      {availableRoles.map((role) => {
+                                        const isSelected = selectedRoleCodes.includes(role.code);
+                                        return (
+                                          <button
+                                            key={role.code}
+                                            type="button"
+                                            disabled={!canManage || isPending}
+                                            onClick={() => {
+                                              const prevCfg = eventChannels[ev.id] || defaults;
+                                              const roleCodes = isSelected
+                                                ? selectedRoleCodes.filter((code) => code !== role.code)
+                                                : [...selectedRoleCodes, role.code];
+                                              setEventChannels({
+                                                ...eventChannels,
+                                                [ev.id]: {
+                                                  ...prevCfg,
+                                                  routing: { ...routing, role_codes: roleCodes },
+                                                },
+                                              });
+                                            }}
+                                            className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
+                                              isSelected
+                                                ? 'border-indigo-200 bg-white font-semibold text-indigo-800'
+                                                : 'border-transparent bg-white/60 text-slate-600 hover:border-slate-200'
+                                            }`}
+                                          >
+                                            <span className={`flex h-4 w-4 items-center justify-center rounded border ${isSelected ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-white'}`}>
+                                              {isSelected && <span className="text-[10px] leading-none">✓</span>}
+                                            </span>
+                                            <span className="truncate">{role.name}</span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+
+                                  <label className="flex cursor-pointer items-start gap-2 border-t border-indigo-100 pt-3">
+                                    <input
+                                      type="checkbox"
+                                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#fa5907] focus:ring-[#fa5907]"
+                                      checked={routing.requester_department_managers}
+                                      disabled={!canManage || isPending}
+                                      onChange={(e) => {
+                                        const prevCfg = eventChannels[ev.id] || defaults;
+                                        setEventChannels({
+                                          ...eventChannels,
+                                          [ev.id]: {
+                                            ...prevCfg,
+                                            routing: {
+                                              ...routing,
+                                              requester_department_managers: e.target.checked,
+                                            },
+                                          },
+                                        });
+                                      }}
+                                    />
+                                    <span className="text-xs font-medium leading-relaxed text-slate-700">
+                                      Gửi thêm cho trưởng bộ phận hiện tại của nhân viên
+                                    </span>
+                                  </label>
+
+                                  {ev.id === HRM_NOTIFICATION_EVENTS.leaveRequested && <div className="space-y-2">
+                                    <div>
+                                      <span className="block text-xs font-semibold text-slate-700">Bộ phận nhận bổ sung</span>
+                                      <span className="mt-0.5 block text-[10px] text-slate-500">Có thể chọn nhiều bộ phận; hệ thống chỉ lấy người được đánh dấu là trưởng bộ phận.</span>
+                                    </div>
+
+                                    {notificationDepartmentsState === 'loading' && notificationDepartments === null && (
+                                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-label="Đang tải phòng ban">
+                                        {[0, 1, 2, 3].map((item) => (
+                                          <div key={item} className="h-8 animate-pulse rounded-lg border border-indigo-100 bg-white/80" />
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {notificationDepartmentsState === 'error' && notificationDepartments === null && (
+                                      <div className="flex items-center justify-between gap-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2">
+                                        <span className="text-[11px] text-red-700">Không tải được danh sách phòng ban.</span>
+                                        <button
+                                          type="button"
+                                          className="shrink-0 text-[11px] font-semibold text-red-700 underline underline-offset-2"
+                                          onClick={() => setNotificationDepartmentsAttempt((attempt) => attempt + 1)}
+                                        >
+                                          Thử lại
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {notificationDepartments && notificationDepartments.length === 0 && (
+                                      <p className="rounded-lg border border-dashed border-slate-200 bg-white/70 px-3 py-2 text-[11px] text-slate-500">
+                                        Chi nhánh chưa có phòng ban để chọn thêm.
+                                      </p>
+                                    )}
+
+                                    {notificationDepartments && notificationDepartments.length > 0 && (
+                                      <div className="grid max-h-44 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2">
+                                        {notificationDepartments.map((department) => {
+                                          const isSelected = selectedDepartmentIds.includes(department.id);
+                                          return (
+                                            <label
+                                              key={department.id}
+                                              className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-xs transition-colors ${
+                                                isSelected
+                                                  ? 'border-indigo-200 bg-white font-semibold text-indigo-800'
+                                                  : 'border-transparent bg-white/60 text-slate-600 hover:border-slate-200'
+                                              }`}
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                className="h-4 w-4 rounded border-slate-300 text-[#fa5907] focus:ring-[#fa5907]"
+                                                checked={isSelected}
+                                                disabled={!canManage || isPending}
+                                                onChange={() => {
+                                                  const prevCfg = eventChannels[ev.id] || defaults;
+                                                  const departmentIds = isSelected
+                                                    ? selectedDepartmentIds.filter((id) => id !== department.id)
+                                                    : [...selectedDepartmentIds, department.id];
+                                                  setEventChannels({
+                                                    ...eventChannels,
+                                                    [ev.id]: {
+                                                      ...prevCfg,
+                                                      routing: {
+                                                        ...routing,
+                                                        department_ids: departmentIds,
+                                                      },
+                                                    },
+                                                  });
+                                                }}
+                                              />
+                                              <span className="truncate" title={department.name}>{department.name}</span>
+                                            </label>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>}
+
+                                  {selectedRoleCodes.length === 0 && !routing.requester_department_managers && selectedDepartmentIds.length === 0 && (
+                                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-700">
+                                      Sự kiện này hiện không có nhóm người nhận quản lý nào.
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
                             {(eventChannels[ev.id]?.push?.enabled ?? true) && ev.audience === 'all' && (
                               <div className="ml-6 pl-3 border-l-2 border-slate-200 py-1 space-y-1.5">
                                 <span className="block text-[10px] uppercase font-bold text-slate-400 tracking-wider">
@@ -2791,7 +3079,9 @@ export function ShopSettingsForm({
                         </div>
                       )}
                     </div>
-                    </div>
+                          ))}
+                        </div>
+                      </section>
                     );
                   })}
                 </div>

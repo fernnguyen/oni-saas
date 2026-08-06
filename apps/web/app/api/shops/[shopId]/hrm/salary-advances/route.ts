@@ -13,6 +13,7 @@ import { getHrmSchemaError } from '@/lib/server/hrm/schemaError';
 import { notifySalaryAdvanceManagers } from '@/lib/server/hrm/salaryAdvanceManagerNotification';
 import { notifySalaryAdvanceEmployee } from '@/lib/server/hrm/salaryAdvanceNotification';
 import { realtimeEngine } from '@/lib/server/realtime';
+import { formatHrmPayPeriod } from '@/lib/hrm/formatDate';
 
 const createSchema = z.object({
   profile_id: z.string().min(1, "Vui lòng chọn nhân sự"),
@@ -209,14 +210,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sho
       disbursement,
     });
 
+    // convert yyyy-mm thành mm/yyyy
+    const payPeriodFormatted = formatHrmPayPeriod(payload.pay_period);
     if (!autoApprove) {
       await notifySalaryAdvanceManagers({
         tenantId,
         branchId: shopId,
         requesterUserId: userId,
+        profileId,
+        departmentDirectory: hrmRepo,
         advanceId: id,
         amount: payload.amount,
-        payPeriod: payload.pay_period,
+        payPeriod: payPeriodFormatted,
       });
     } else {
       await notifySalaryAdvanceEmployee({

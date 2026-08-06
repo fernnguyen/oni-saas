@@ -1,9 +1,18 @@
 export type NotificationEventGroup = 'operations' | 'hrm';
 export type NotificationEventAudience = 'all' | 'management' | 'employee';
 
+export type HrmManagementNotificationRoutingConfig = {
+  role_codes: string[];
+  requester_department_managers: boolean;
+  department_ids: string[];
+};
+
+export type LeaveNotificationRoutingConfig = HrmManagementNotificationRoutingConfig;
+
 export type NotificationChannelsConfig = {
   telegram: { enabled: boolean; chat_id?: string };
   push: { enabled: boolean; roles: string[] };
+  routing?: HrmManagementNotificationRoutingConfig;
 };
 
 export type NotificationEventDefinition = {
@@ -31,6 +40,14 @@ function channels(telegramEnabled: boolean): NotificationChannelsConfig {
   };
 }
 
+export const DEFAULT_HRM_MANAGEMENT_NOTIFICATION_ROUTING: Readonly<HrmManagementNotificationRoutingConfig> = {
+  role_codes: ['owner', 'admin'],
+  requester_department_managers: true,
+  department_ids: [],
+};
+
+export const DEFAULT_LEAVE_NOTIFICATION_ROUTING = DEFAULT_HRM_MANAGEMENT_NOTIFICATION_ROUTING;
+
 export const NOTIFICATION_EVENT_CATALOG: readonly NotificationEventDefinition[] = [
   { id: 'ORDER_CREATED', label: 'Đơn hàng mới', group: 'operations', defaultEnabled: false, allowTelegram: true, audience: 'all', defaultChannels: channels(true) },
   { id: 'PAYMENT_RECEIVED', label: 'Thanh toán thành công', group: 'operations', defaultEnabled: false, allowTelegram: true, audience: 'all', defaultChannels: channels(true) },
@@ -49,8 +66,15 @@ export const NOTIFICATION_EVENT_CATALOG: readonly NotificationEventDefinition[] 
     defaultEnabled: true,
     allowTelegram: false,
     audience: 'management',
-    audienceLabel: 'Người có quyền quản lý chấm công và nghỉ phép',
-    defaultChannels: channels(false),
+    audienceLabel: 'Nhóm quyền được chọn và trưởng bộ phận liên quan',
+    defaultChannels: {
+      ...channels(false),
+      routing: {
+        ...DEFAULT_HRM_MANAGEMENT_NOTIFICATION_ROUTING,
+        role_codes: [...DEFAULT_HRM_MANAGEMENT_NOTIFICATION_ROUTING.role_codes],
+        department_ids: [],
+      },
+    },
   },
   {
     id: HRM_NOTIFICATION_EVENTS.leaveStatusChanged,
@@ -69,8 +93,15 @@ export const NOTIFICATION_EVENT_CATALOG: readonly NotificationEventDefinition[] 
     defaultEnabled: true,
     allowTelegram: false,
     audience: 'management',
-    audienceLabel: 'Người có quyền quản lý bảng lương',
-    defaultChannels: channels(false),
+    audienceLabel: 'Nhóm quyền được chọn và trưởng bộ phận liên quan',
+    defaultChannels: {
+      ...channels(false),
+      routing: {
+        ...DEFAULT_HRM_MANAGEMENT_NOTIFICATION_ROUTING,
+        role_codes: [...DEFAULT_HRM_MANAGEMENT_NOTIFICATION_ROUTING.role_codes],
+        department_ids: [],
+      },
+    },
   },
   {
     id: HRM_NOTIFICATION_EVENTS.salaryAdvanceStatusChanged,
@@ -103,5 +134,14 @@ export function getDefaultNotificationChannels(
   return {
     telegram: { ...defaults.telegram },
     push: { ...defaults.push, roles: [...defaults.push.roles] },
+    ...(defaults.routing
+      ? {
+          routing: {
+            ...defaults.routing,
+            role_codes: [...defaults.routing.role_codes],
+            department_ids: [...defaults.routing.department_ids],
+          },
+        }
+      : {}),
   };
 }

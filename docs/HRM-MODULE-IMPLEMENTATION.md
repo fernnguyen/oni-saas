@@ -25,13 +25,15 @@ Mức hoàn thiện chức năng hiện tại ước tính **75–80%**; module 
 - Giải ngân ứng lương khóa quỹ bằng `FOR UPDATE`, kiểm tra đủ số dư, ghi cashbook, trừ quỹ và đổi trạng thái advance trong một PostgreSQL transaction; yêu cầu đồng thời `hrm.payroll.pay` và `cashbook.manage`.
 - Physical schema contract đã bao phủ đủ 17 bảng HRM hiện có và các cột mở rộng.
 - Initial loading của HRM dùng skeleton mô phỏng đúng calendar, form, bảng công, danh sách nghỉ phép/ứng lương; spinner hoặc nhãn tiến trình chỉ dùng cho mutation, upload, refresh và tác vụ ngắn.
-- Settings → Push Notification có 4 nhóm HRM bật mặc định; leave/advance request chỉ gửi tới từng user có quyền quản lý tương ứng, còn thay đổi trạng thái chỉ gửi tới tài khoản liên kết của chính nhân viên.
-- In-app notification luôn được ghi trước; cấu hình event chỉ bật/tắt Mobile Push. Telegram không áp dụng cho event HRM cá nhân/theo quyền để tránh phát dữ liệu nhân sự vào group chung.
+- Settings → Push Notification có 4 nhóm HRM bật mặc định. Hai event yêu cầu quản lý (`leave requested`, `salary advance requested`) mặc định gửi riêng tới Owner, Admin và trưởng bộ phận hiện tại; từng nhóm có thể bật/tắt độc lập. Leave request còn có thể chọn thêm trưởng của các bộ phận liên quan; thay đổi trạng thái chỉ gửi tới tài khoản liên kết của chính nhân viên.
+- Luồng xin huỷ đơn đã duyệt và từ chối yêu cầu huỷ dùng đúng action contract `request_cancel`/`reject_cancel`; quản lý duyệt huỷ dùng `cancel`, nhờ đó manager notification và employee status update chạy đúng nhánh.
+- Mỗi người nhận HRM được ghi một `in_app_notifications` có `recipient_id` trước khi gửi Expo Push, vì vậy Notification Center và Mobile Push dùng cùng một tập người nhận. Web Notification Center cập nhật ngay từ realtime, tự reconcile lại qua API khi auth/subscription chưa sẵn sàng và refresh khi mở chuông hoặc quay lại tab.
+- Cấu hình event bật/tắt Mobile Push nhưng không làm mất bản ghi in-app. Telegram không áp dụng cho event HRM cá nhân/theo quyền để tránh phát dữ liệu nhân sự vào group chung.
 - Mobile hiện chưa có màn hình quản lý HRM nên tap notification HRM hiển thị hướng dẫn mở Web, không điều hướng vào route không tồn tại.
 
 Quality gate hiện tại:
 
-- `pnpm test:hrm`: 87/87 pass.
+- `pnpm test:hrm`: 94/94 pass.
 - `pnpm test:hrm:regression`: 3/3 pass.
 - TypeScript web và `pnpm build`: pass (build còn cảnh báo NFT trace sẵn có từ `opengraph-image`).
 - `pnpm test:hrm:integration`: chưa chạy được vì môi trường chưa cung cấp `HRM_TEST_DATABASE_URL` + `HRM_TEST_DATABASE_DISPOSABLE=true`.
@@ -190,17 +192,23 @@ Quy tắc UX:
 
 | Event | Mặc định | Người nhận Push |
 |---|---:|---|
-| `HRM_LEAVE_REQUESTED` | Bật | User có `hrm.attendance.manage`, loại người gửi |
+| `HRM_LEAVE_REQUESTED` | Bật | Owner + Admin + trưởng bộ phận hiện tại; có thể tắt từng nhóm và chọn thêm trưởng bộ phận liên quan; loại người gửi |
 | `HRM_LEAVE_STATUS_CHANGED` | Bật | Auth user liên kết với hồ sơ nhân viên của đơn |
-| `HRM_SALARY_ADVANCE_REQUESTED` | Bật | User có `hrm.payroll.manage`, loại người gửi |
+| `HRM_SALARY_ADVANCE_REQUESTED` | Bật | Owner + Admin + trưởng bộ phận hiện tại; có thể tắt từng nhóm; loại người gửi |
 | `HRM_SALARY_ADVANCE_STATUS_CHANGED` | Bật | Auth user liên kết với hồ sơ nhân viên của phiếu |
 
 Quy tắc bắt buộc:
 
 - Producer ghi `in_app_notifications` kể cả khi event hoặc kênh Push bị tắt; cấu hình chỉ điều khiển việc gửi Expo Push.
-- Event manager-targeted phải resolve permission holder và gửi từng `recipient_id`; không broadcast theo role chung như `admin`.
+- Event manager-targeted phải resolve các nhóm được cấu hình thành user cụ thể và gửi từng `recipient_id`; không tạo một notification chung chỉ mang `recipient_role`.
+- Cấu hình mặc định cho cả leave request và salary advance request là `role_codes=[owner, admin]` cùng `requester_department_managers=true`. Đây là chính sách nhận thông báo, không phải quyền thực hiện nghiệp vụ; route/action vẫn kiểm tra permission HRM tương ứng trước khi cho phép xem hoặc xử lý dữ liệu.
+- `HRM_LEAVE_REQUESTED` có thể chọn thêm nhiều bộ phận nhận, nhưng chỉ người được gán `departments.manager_id` hoặc `user_departments.is_manager=TRUE` mới là ứng viên của nhóm trưởng bộ phận.
+- Tham chiếu trưởng bộ phận lịch sử có thể là employee ID hoặc auth user ID; resolver ánh xạ qua `hrm_employee_profiles.source_employee_id → auth_user_id`, sau đó giao toàn bộ kết quả với membership tenant/shop hiện hữu.
+- Người tạo yêu cầu luôn bị loại khỏi danh sách nhận manager event; các nguồn Owner, Admin và trưởng bộ phận được union rồi dedupe trước khi gửi.
+- Cấu hình được lưu trong `tenant_notification_events.channels_config.routing`, gồm `role_codes`, `requester_department_managers` và `department_ids`; không cần thêm bảng hoặc migration schema. Row cấu hình cũ dùng `fallback_to_owner=false` vẫn được hiểu là không chọn role để tránh tự bật lại Owner sau khi nâng cấp.
 - Event employee-targeted phải resolve `hrm_employee_profiles.auth_user_id`; hồ sơ chưa liên kết tài khoản thì bỏ qua an toàn, không broadcast fallback.
 - Push sender luôn tôn trọng `recipient_id`, `recipient_role`, tenant, branch và role filter của event; không được query toàn bộ token tenant khi message đã giới hạn người nhận.
+- Web Notification Center phải hiển thị cùng notification đã ghi cho Mobile Push: realtime event được đưa ngay vào state, rồi reconcile qua `/api/notifications`; API chỉ trả notification broadcast hoặc có `recipient_id` đúng auth user.
 - Bốn event HRM bật và bật Push mặc định kể cả khi chi nhánh chưa có row trong `tenant_notification_events`; lần lưu Settings sẽ upsert toàn bộ catalog.
 - Server action lưu cấu hình phải xác thực session, shop thuộc tenant, quyền `settings.manage|shops.manage`, whitelist event và chuẩn hóa HRM Telegram/role config.
 

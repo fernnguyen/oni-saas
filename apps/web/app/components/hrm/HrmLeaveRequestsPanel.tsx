@@ -1410,7 +1410,9 @@ export function HrmLeaveRequestsPanel({ shopId, selfProfileId, canManage }: Prop
             }
             actionMutation.mutate({
               leaveId: rejectingRequest.id,
-              action: 'reject',
+              action: rejectingRequest.status === 'pending_cancellation'
+                ? 'reject_cancel'
+                : 'reject',
               rejectionReason: reason,
             });
           }}
@@ -1425,7 +1427,9 @@ export function HrmLeaveRequestsPanel({ shopId, selfProfileId, canManage }: Prop
           onConfirm={(reason) =>
             actionMutation.mutate({
               leaveId: cancellingRequest.id,
-              action: cancellingRequest.status === 'pending' || canManage && cancellingRequest.status !== 'pending_cancellation' ? 'cancel' : 'request_cancel',
+              action: canManage || cancellingRequest.status === 'pending'
+                ? 'cancel'
+                : 'request_cancel',
               reason,
             })
           }

@@ -17,7 +17,11 @@ export interface AppNotification {
     | 'order_expiring' 
     | 'debt_alert' 
     | 'return_approval' 
-    | 'purchase_approval';
+    | 'purchase_approval'
+    | 'HRM_LEAVE_REQUESTED'
+    | 'HRM_LEAVE_STATUS_CHANGED'
+    | 'HRM_SALARY_ADVANCE_REQUESTED'
+    | 'HRM_SALARY_ADVANCE_STATUS_CHANGED';
   title: string;
   description: string;
   status: 'unread' | 'read' | 'archived';
@@ -329,6 +333,12 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
               tenantId: n.tenant_id,
             }
           }));
+        } else {
+          const errorPayload = await inAppRes.json().catch(() => ({}));
+          console.error('[Notification Center] Failed to fetch persisted notifications:', {
+            status: inAppRes.status,
+            error: errorPayload?.error,
+          });
         }
       }
 
@@ -358,6 +368,18 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void fetchData();
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [fetchData]);
 
   const tablesRef = useRef(tables);
@@ -774,12 +796,36 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
               console.log("[Notification Realtime DB Event] Filtered out: branch mismatch");
               return;
             }
-            if (newNoti.recipient_id && newNoti.recipient_id !== authUserRef.current?.id) {
+            if (newNoti.recipient_id && !authUserRef.current?.id) {
+              console.log('[Notification Realtime DB Event] Auth user is not ready; reconciling through API.');
+              void fetchData();
+              return;
+            }
+            if (newNoti.recipient_id && newNoti.recipient_id !== authUserRef.current.id) {
               console.log("[Notification Realtime DB Event] Filtered out: recipient mismatch");
               return;
             }
 
             const notiId = `in_app_${newNoti.id}`;
+            const realtimeNotification: AppNotification = {
+              id: notiId,
+              type: newNoti.type,
+              title: newNoti.title,
+              description: newNoti.content,
+              status: 'unread',
+              priority: newNoti.metadata?.priority || 'medium',
+              createdAt: newNoti.created_at,
+              metadata: {
+                ...(newNoti.metadata || {}),
+                branchId: newNoti.branch_id,
+                tenantId: newNoti.tenant_id,
+              },
+            };
+            setNotifications((current) =>
+              current.some((notification) => notification.id === notiId)
+                ? current
+                : [realtimeNotification, ...current],
+            );
             let shouldAlert = false;
             if (!toastedIdsRef.current.has(notiId)) {
               toastedIdsRef.current.add(notiId);
@@ -800,15 +846,25 @@ export function NotificationProvider({ shopId, tenantId, children }: ProviderPro
                   toast.info(`📢 ${newNoti.title}: ${newNoti.content}`, {
                     duration: 10000,
                   });
+                } else if (typeof newNoti.type === 'string' && newNoti.type.startsWith('HRM_')) {
+                  toast.info(newNoti.title, {
+                    description: newNoti.content,
+                    duration: 8000,
+                  });
                 }
               }
-
-              // Pull latest notifications (quietly updates Noti Center)
-              void fetchData();
             }
+
+            // Reconcile read state and server-side recipient filtering.
+            void fetchData();
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') void fetchData();
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.error(`[Notification Center] Realtime subscription status: ${status}`);
+          }
+        });
 
       return () => {
         void supabase.removeChannel(channel);

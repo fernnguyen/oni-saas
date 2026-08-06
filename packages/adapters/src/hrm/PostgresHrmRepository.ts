@@ -1214,6 +1214,86 @@ export class PostgresHrmRepository {
     return result.rows[0]?.auth_user_id ?? null;
   }
 
+  /** Returns the current department assigned to an HRM profile in this branch. */
+  async getDepartmentIdForProfileId(profileId: string): Promise<string | null> {
+    const result = await this.pool.query<{ department_id: string }>(
+      `
+        select department_id
+        from hrm_employee_profiles
+        where tenant_id = $1 and branch_id = $2 and id = $3
+        limit 1
+      `,
+      [this.scope.tenantId, this.scope.branchId, profileId],
+    );
+    return result.rows[0]?.department_id ?? null;
+  }
+
+  /**
+   * Resolves department managers to login user IDs.
+   *
+   * Historical department rows may store either employees.id or auth user ID in
+   * manager_id/user_departments.user_id. Return both the original reference and
+   * any auth ID resolved through the HRM profile; the notification layer then
+   * intersects these values with real tenant/shop memberships.
+   */
+  async listDepartmentManagerUserIds(departmentIds: string[]): Promise<string[]> {
+    const uniqueDepartmentIds = Array.from(new Set(
+      departmentIds.map((id) => id.trim()).filter(Boolean),
+    ));
+    if (uniqueDepartmentIds.length === 0) return [];
+
+    const result = await this.pool.query<{ user_id: string }>(
+      `
+        with manager_refs as (
+          select d.manager_id as user_ref
+          from departments d
+          where d.tenant_id = $1
+            and d.branch_id = $2
+            and d.id = any($3::varchar[])
+            and upper(coalesce(d.active, 'TRUE')) = 'TRUE'
+            and nullif(trim(d.manager_id), '') is not null
+
+          union
+
+          select ud.user_id as user_ref
+          from user_departments ud
+          join departments d
+            on d.tenant_id = ud.tenant_id
+           and d.id = ud.department_id
+           and d.branch_id = $2
+           and upper(coalesce(d.active, 'TRUE')) = 'TRUE'
+          where ud.tenant_id = $1
+            and ud.department_id = any($3::varchar[])
+            and upper(coalesce(ud.active, 'TRUE')) = 'TRUE'
+            and upper(coalesce(ud.is_manager, 'FALSE')) = 'TRUE'
+        ), resolved_users as (
+          select user_ref as user_id
+          from manager_refs
+
+          union
+
+          select profile.auth_user_id::text as user_id
+          from manager_refs refs
+          join hrm_employee_profiles profile
+            on profile.tenant_id = $1
+           and profile.branch_id = $2
+           and (
+             profile.source_employee_id = refs.user_ref
+             or profile.auth_user_id::text = refs.user_ref
+           )
+          where profile.auth_user_id is not null
+            and profile.employment_status in ('active', 'probation')
+        )
+        select distinct user_id
+        from resolved_users
+        where nullif(trim(user_id), '') is not null
+      `,
+      [this.scope.tenantId, this.scope.branchId, uniqueDepartmentIds],
+    );
+
+    return result.rows.map((row) => row.user_id);
+  }
+
   async listShiftTemplates(
     options: { includeInactive?: boolean } = {},
   ): Promise<HrmShiftTemplate[]> {

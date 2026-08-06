@@ -16,4 +16,15 @@ test('all four HRM notification groups are enabled with push by default', () => 
     assert.equal(definition.allowTelegram, false);
     assert.equal(getDefaultNotificationChannels(eventName).push.enabled, true);
   }
+
+  for (const eventName of [
+    HRM_NOTIFICATION_EVENTS.leaveRequested,
+    HRM_NOTIFICATION_EVENTS.salaryAdvanceRequested,
+  ]) {
+    assert.deepEqual(getDefaultNotificationChannels(eventName).routing, {
+      role_codes: ['owner', 'admin'],
+      requester_department_managers: true,
+      department_ids: [],
+    });
+  }
 });

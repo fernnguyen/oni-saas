@@ -26,7 +26,7 @@ import { SlideOver } from '@/app/components/ui/SlideOver';
 import { useConfirm } from '@/app/components/ui/ConfirmProvider';
 import { ConfirmDialog } from '@/app/components/ui/ConfirmDialog';
 import { SearchBar } from '@/app/components/ui/SearchBar';
-import { formatHrmDateTime } from '@/lib/hrm/formatDate';
+import { formatHrmDateTime, formatHrmPayPeriod, formatHrmPayPeriodLong } from '@/lib/hrm/formatDate';
 
 type AdvanceStatus = 'pending' | 'approved' | 'rejected' | 'disbursed' | 'cancelled';
 type CreateAdvanceAction = 'submit' | 'approve' | 'disburse';
@@ -81,9 +81,7 @@ function currentPayPeriod(): string {
 }
 
 function formatPayPeriod(payPeriod: string): string {
-  const match = /^(\d{4})-(\d{2})$/.exec(payPeriod);
-  if (!match) return payPeriod;
-  return `Tháng ${Number(match[2])}/${match[1]}`;
+  return formatHrmPayPeriodLong(payPeriod);
 }
 
 function recentPayPeriods(count = 12): string[] {
@@ -963,7 +961,7 @@ function ProcessAdvanceDialog({
             <div>
               <p className="text-xs text-slate-500">Kỳ lương</p>
               <p className="font-medium text-slate-800">
-                Kỳ {request.payPeriod.split('-').reverse().join('/')}
+                Kỳ {formatHrmPayPeriod(request.payPeriod)}
               </p>
             </div>
             <div>

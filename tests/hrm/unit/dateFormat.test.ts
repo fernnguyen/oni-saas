@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   formatHrmDate,
   formatHrmDateTime,
+  formatHrmPayPeriod,
+  formatHrmPayPeriodLong,
 } from '../../../apps/web/lib/hrm/formatDate';
 
 test('HRM date formatter displays ISO business dates as dd/mm/yyyy', () => {
@@ -29,4 +31,20 @@ test('HRM datetime formatter displays Vietnam time with seconds', () => {
   );
   assert.equal(formatHrmDateTime(null), '—');
   assert.equal(formatHrmDateTime('không xác định'), 'không xác định');
+});
+
+test('HRM pay period formatter displays yyyy-mm as mm/yyyy', () => {
+  assert.equal(formatHrmPayPeriod('2026-08'), '08/2026');
+  assert.equal(formatHrmPayPeriod('2026-12'), '12/2026');
+  assert.equal(formatHrmPayPeriod(null), '—');
+  assert.equal(formatHrmPayPeriod('', 'Chưa có'), 'Chưa có');
+  assert.equal(formatHrmPayPeriod('invalid-format'), 'invalid-format');
+});
+
+test('HRM long pay period formatter displays yyyy-mm as Tháng m/yyyy', () => {
+  assert.equal(formatHrmPayPeriodLong('2026-08'), 'Tháng 8/2026');
+  assert.equal(formatHrmPayPeriodLong('2026-10'), 'Tháng 10/2026');
+  assert.equal(formatHrmPayPeriodLong(null), '—');
+  assert.equal(formatHrmPayPeriodLong('', 'Chưa có'), 'Chưa có');
+  assert.equal(formatHrmPayPeriodLong('invalid-format'), 'invalid-format');
 });
