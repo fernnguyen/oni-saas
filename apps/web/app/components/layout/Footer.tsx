@@ -6,7 +6,7 @@ export function Footer() {
   return (
     <footer className="bg-slate-900 text-slate-400 py-20 border-t border-slate-850">
       <div className="mx-auto max-w-7xl px-6">
-        <div className="grid gap-12 md:grid-cols-4 lg:grid-cols-5 mb-16 pb-12 border-b border-slate-800">
+        <div className="grid gap-12 md:grid-cols-4 lg:grid-cols-6 mb-16 pb-12 border-b border-slate-800">
           <div className="lg:col-span-2 space-y-4">
             <Link href="/" className="flex items-center gap-3">
               <Image src="/logo.png" alt="ONI.vn" width={44} height={44} className="rounded-xl border border-slate-800" />
@@ -44,13 +44,37 @@ export function Footer() {
               </ul>
             </div>
           ))}
+
+          <div className="space-y-4">
+            <h4 className="text-xs font-black uppercase tracking-wider text-slate-200 border-b border-slate-800 pb-2">Chính sách & Quy định</h4>
+            <ul className="space-y-2.5 text-xs font-semibold">
+              <li>
+                <Link href="/chinh-sach/bao-mat" className="hover:text-primary transition-colors hover:underline">Chính sách bảo mật</Link>
+              </li>
+              <li>
+                <Link href="/chinh-sach/chinh-sach-gia" className="hover:text-primary transition-colors hover:underline">Chính sách giá</Link>
+              </li>
+              <li>
+                <Link href="/chinh-sach/thanh-toan" className="hover:text-primary transition-colors hover:underline">Chính sách thanh toán</Link>
+              </li>
+              <li>
+                <Link href="/chinh-sach/cung-cap-va-hoan-tien" className="hover:text-primary transition-colors hover:underline">Đổi trả & Hoàn tiền</Link>
+              </li>
+              <li>
+                <Link href="/chinh-sach/dieu-kien-giao-dich" className="hover:text-primary transition-colors hover:underline">Điều kiện giao dịch</Link>
+              </li>
+              <li>
+                <Link href="/chinh-sach/giai-quyet-khieu-nai" className="hover:text-primary transition-colors hover:underline">Giải quyết khiếu nại</Link>
+              </li>
+            </ul>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-bold text-slate-500">
           <div className="flex flex-wrap gap-x-8 gap-y-2 justify-center">
             <Link href="/#features" className="hover:text-white transition-colors">Tính năng nghiệp vụ</Link>
             <Link href="/#pricing" className="hover:text-white transition-colors">Bảng giá</Link>
-            <Link href="/privacy" className="hover:text-white transition-colors">Chính sách bảo mật</Link>
+            <Link href="/chinh-sach/bao-mat" className="hover:text-white transition-colors">Chính sách bảo mật</Link>
             <Link href="/support" className="hover:text-white transition-colors">Liên hệ hỗ trợ</Link>
             <a href="https://zalo.me/s/3208409885005498355" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Mở Zalo Mini App</a>
           </div>

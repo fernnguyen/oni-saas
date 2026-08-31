@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '@/app/components/ui/PageHeader'
 
+import { toast } from 'sonner'
 import { RefreshCw } from 'lucide-react'
 
 interface Props { shopId: string }
@@ -67,6 +68,13 @@ function fmtShort(v: number) {
   if (v >= 1_000_000)     return (v / 1_000_000).toFixed(1) + 'M'
   if (v >= 1_000)         return (v / 1_000).toFixed(0) + 'K'
   return String(v)
+}
+
+const formatDateLocal = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function KpiCard({ label, value, sub, highlight }: { label: string; value: string; sub?: string; highlight?: boolean }) {
@@ -150,10 +158,54 @@ function ExpensePieChart({ data, total }: { data: { category: string; amount: nu
 }
 
 export function ProfitClient({ shopId }: Props) {
-  const [period, setPeriod] = useState('7d')
+  const [period, setPeriod] = useState<string>('month')
+  const [customFrom, setCustomFrom] = useState<string>('')
+  const [customTo, setCustomTo] = useState<string>('')
+
+  const handleCustomFromChange = (val: string) => {
+    if (customTo && val) {
+      const start = new Date(val)
+      const end = new Date(customTo)
+      if (start > end) {
+        toast.error('Ngày bắt đầu không được lớn hơn ngày kết thúc')
+        return
+      }
+      const diffTime = Math.abs(end.getTime() - start.getTime())
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+      if (diffDays > 93) {
+        toast.warning('Khoảng thời gian tra cứu tối đa là 3 tháng (93 ngày).')
+        const newStart = new Date(end)
+        newStart.setDate(end.getDate() - 93)
+        setCustomFrom(formatDateLocal(newStart))
+        return
+      }
+    }
+    setCustomFrom(val)
+  }
+
+  const handleCustomToChange = (val: string) => {
+    if (customFrom && val) {
+      const start = new Date(customFrom)
+      const end = new Date(val)
+      if (start > end) {
+        toast.error('Ngày kết thúc không được nhỏ hơn ngày bắt đầu')
+        return
+      }
+      const diffTime = Math.abs(end.getTime() - start.getTime())
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+      if (diffDays > 93) {
+        toast.warning('Khoảng thời gian tra cứu tối đa là 3 tháng (93 ngày).')
+        const newEnd = new Date(start)
+        newEnd.setDate(start.getDate() + 93)
+        setCustomTo(formatDateLocal(newEnd))
+        return
+      }
+    }
+    setCustomTo(val)
+  }
 
   const { data, isLoading, refetch, isFetching } = useQuery<ProfitData>({
-    queryKey: ['reports-profit', shopId, period],
+    queryKey: ['reports-profit', shopId, period, customFrom, customTo],
     queryFn: async () => {
       let from = ''
       let to = ''
@@ -162,18 +214,28 @@ export function ProfitClient({ shopId }: Props) {
       const localNow = new Date(now.getTime() + tzOffset)
       const todayString = localNow.toISOString().slice(0, 10)
       
-      if (period === '7d') {
-        const d = new Date(localNow.getTime() - 6 * 86_400_000)
-        from = d.toISOString().slice(0, 10)
+      if (period === 'today') {
+        from = todayString
         to = todayString
-      } else if (period === '30d') {
-        const d = new Date(localNow.getTime() - 29 * 86_400_000)
+      } else if (period === '7d') {
+        const d = new Date(localNow.getTime() - 6 * 86_400_000)
         from = d.toISOString().slice(0, 10)
         to = todayString
       } else if (period === 'month') {
         const d = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), 1))
         from = d.toISOString().slice(0, 10)
         to = todayString
+      } else if (period === '30d') {
+        const d = new Date(localNow.getTime() - 29 * 86_400_000)
+        from = d.toISOString().slice(0, 10)
+        to = todayString
+      } else if (period === '3m') {
+        const d = new Date(localNow.getTime() - 90 * 86_400_000)
+        from = d.toISOString().slice(0, 10)
+        to = todayString
+      } else if (period === 'custom') {
+        from = customFrom || todayString
+        to = customTo || todayString
       }
 
       let url = `/api/shops/${shopId}/reports/profit`
@@ -187,17 +249,33 @@ export function ProfitClient({ shopId }: Props) {
   })
 
   const actions = (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center flex-wrap gap-2">
       <div className="relative">
         <select
           value={period}
-          onChange={(e) => setPeriod(e.target.value)}
-          className="appearance-none h-10 w-[140px] rounded-xl border border-slate-200 bg-white pl-4 pr-10 text-sm font-medium text-slate-700 outline-none transition-all hover:border-slate-300 hover:bg-slate-50 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-xs"
+          onChange={(e) => {
+            const val = e.target.value
+            setPeriod(val)
+            if (val === 'custom') {
+              const now = new Date()
+              const tzOffset = 7 * 60 * 60 * 1000
+              const localNow = new Date(now.getTime() + tzOffset)
+              const todayStr = localNow.toISOString().slice(0, 10)
+              if (!customTo) setCustomTo(todayStr)
+              if (!customFrom) {
+                const monthStart = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), 1)).toISOString().slice(0, 10)
+                setCustomFrom(monthStart)
+              }
+            }
+          }}
+          className="appearance-none h-10 w-[150px] rounded-xl border border-slate-200 bg-white pl-4 pr-10 text-sm font-medium text-slate-700 outline-none transition-all hover:border-slate-300 hover:bg-slate-50 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-xs"
         >
+          <option value="today">Hôm nay</option>
           <option value="7d">7 ngày qua</option>
-          <option value="30d">30 ngày qua</option>
           <option value="month">Tháng này</option>
-          <option value="all">Toàn thời gian</option>
+          <option value="30d">30 ngày qua</option>
+          <option value="3m">3 tháng qua</option>
+          <option value="custom">Tùy chỉnh</option>
         </select>
         <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -205,6 +283,27 @@ export function ProfitClient({ shopId }: Props) {
           </svg>
         </div>
       </div>
+
+      {period === 'custom' && (
+        <div className="flex items-center gap-1.5">
+          <input
+            type="date"
+            value={customFrom}
+            onChange={(e) => handleCustomFromChange(e.target.value)}
+            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 outline-none hover:border-slate-300 focus:border-blue-500 shadow-xs cursor-pointer"
+            title="Từ ngày"
+          />
+          <span className="text-slate-400 text-xs">-</span>
+          <input
+            type="date"
+            value={customTo}
+            onChange={(e) => handleCustomToChange(e.target.value)}
+            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 outline-none hover:border-slate-300 focus:border-blue-500 shadow-xs cursor-pointer"
+            title="Đến ngày"
+          />
+        </div>
+      )}
+
       <button
         onClick={() => refetch()}
         disabled={isFetching}

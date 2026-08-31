@@ -169,19 +169,30 @@ const shopModules = [
 
 // ── Realistic Mock Data for Demo Mode ────────────────────────────────────────
 const generateMockData = (): OverviewData => {
+  const tzOffset = 7 * 60 * 60 * 1000;
   const now = new Date();
+  const localNow = new Date(now.getTime() + tzOffset);
+  const todayMs = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate())).getTime() - tzOffset;
+  const monthStart = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), 1)).getTime() - tzOffset;
+  const day30 = todayMs - 29 * 86_400_000;
+  const seriesStartMs = Math.min(monthStart, day30);
+
   const series: RevenueDay[] = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-    const dayOfWeek = d.getDay();
+  let curr = seriesStartMs;
+  let idx = 0;
+  while (curr <= todayMs + 1000) {
+    const d = new Date(curr + tzOffset);
+    const dayOfWeek = d.getUTCDay();
     // Weekends have 1.6x sales, upward monthly trend
-    const base = 2500000 + (30 - i) * 70000;
+    const base = 2500000 + (idx % 30) * 70000;
     const factor = dayOfWeek === 0 || dayOfWeek === 6 ? 1.6 : 1.0;
     const noise = 0.85 + Math.random() * 0.3;
     series.push({
       date: d.toISOString().slice(0, 10),
       revenue: Math.round(base * factor * noise),
     });
+    curr += 86_400_000;
+    idx++;
   }
 
   return {
@@ -257,7 +268,7 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
   const [showModal, setShowModal] = useState(connectorStatus !== 'active');
   const [connected, setConnected] = useState(connectorStatus === 'active' || searchParams.get('success') === 'connected');
   const [demoMode, setDemoMode] = useState(false);
-  const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'month'>('month');
+  const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'month' | '30days'>('month');
 
   const errorParam = searchParams.get('error');
   const successParam = searchParams.get('success');
@@ -377,10 +388,22 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
   const showOnboardBanner = connected && !demoMode && productsData && !hasUserProducts;
 
   if (activeData) {
+    const tzOffset = 7 * 60 * 60 * 1000;
+    const now = new Date();
+    const localNow = new Date(now.getTime() + tzOffset);
+    const todayString = localNow.toISOString().slice(0, 10);
+    const currentMonthPrefix = localNow.toISOString().slice(0, 7);
+
     if (timeFilter === 'today') {
-      chartSeries = chartSeries.slice(-1);
+      const todayEntry = chartSeries.find((s) => s.date === todayString);
+      chartSeries = todayEntry ? [todayEntry] : chartSeries.slice(-1);
     } else if (timeFilter === 'week') {
       chartSeries = chartSeries.slice(-7);
+    } else if (timeFilter === 'month') {
+      const monthEntries = chartSeries.filter((s) => s.date.startsWith(currentMonthPrefix));
+      chartSeries = monthEntries.length > 0 ? monthEntries : chartSeries;
+    } else if (timeFilter === '30days') {
+      chartSeries = chartSeries.slice(-30);
     }
   }
 
@@ -616,6 +639,14 @@ export function ShopDashboard({ shop, connectorStatus, homePath }: Props) {
                   onClick={() => setTimeFilter('month')}
                   className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
                     timeFilter === 'month' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Tháng này
+                </button>
+                <button
+                  onClick={() => setTimeFilter('30days')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                    timeFilter === '30days' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   30 ngày qua

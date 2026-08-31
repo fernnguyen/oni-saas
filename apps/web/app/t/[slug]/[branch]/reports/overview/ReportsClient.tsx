@@ -1,4 +1,5 @@
 'use client'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '@/app/components/ui/PageHeader'
 import { getPaymentMethodLabel } from '@oni/core'
@@ -78,6 +79,8 @@ function MiniBarChart({ data }: { data: { label: string; tooltipLabel?: string; 
 }
 
 export function ReportsClient({ shopId }: Props) {
+  const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'month' | '30days'>('month')
+
   const { data, isLoading } = useQuery<OverviewData>({
     queryKey: ['reports-overview', shopId],
     queryFn: async () => {
@@ -105,15 +108,41 @@ export function ReportsClient({ shopId }: Props) {
 
   const { kpi, revenueSeries, topProducts, statusBreakdown, paymentRevenue } = data
 
-  // Last 30 days revenue chart — show every 5th day label
-  const chartData = revenueSeries.map((d, i) => {
+  const tzOffset = 7 * 60 * 60 * 1000
+  const now = new Date()
+  const localNow = new Date(now.getTime() + tzOffset)
+  const todayString = localNow.toISOString().slice(0, 10)
+  const currentMonthPrefix = localNow.toISOString().slice(0, 7)
+
+  let displaySeries = revenueSeries
+  if (timeFilter === 'today') {
+    const todayEntry = revenueSeries.find((s) => s.date === todayString)
+    displaySeries = todayEntry ? [todayEntry] : revenueSeries.slice(-1)
+  } else if (timeFilter === 'week') {
+    displaySeries = revenueSeries.slice(-7)
+  } else if (timeFilter === 'month') {
+    const monthEntries = revenueSeries.filter((s) => s.date.startsWith(currentMonthPrefix))
+    displaySeries = monthEntries.length > 0 ? monthEntries : revenueSeries
+  } else if (timeFilter === '30days') {
+    displaySeries = revenueSeries.slice(-30)
+  }
+
+  const chartTitle = {
+    today: 'Doanh thu hôm nay',
+    week: 'Doanh thu 7 ngày qua',
+    month: 'Doanh thu tháng này',
+    '30days': 'Doanh thu 30 ngày qua',
+  }[timeFilter]
+
+  const chartData = displaySeries.map((d, i) => {
     const parts = d.date.split('-')
     const [y, m, day] = parts.length === 3 ? parts : [d.date, '', '']
     const formattedLabel = parts.length === 3 ? `${day}/${m}` : d.date
     const formattedTooltip = parts.length === 3 ? `${day}/${m}/${y}` : d.date
+    const step = Math.max(1, Math.floor(displaySeries.length / 7))
 
     return {
-      label: i % 5 === 0 ? formattedLabel : '',
+      label: i % step === 0 ? formattedLabel : '',
       tooltipLabel: formattedTooltip,
       value: d.revenue,
       fullDate: d.date,
@@ -156,7 +185,43 @@ export function ReportsClient({ shopId }: Props) {
 
       {/* Revenue chart */}
       <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold text-slate-700">Doanh thu 30 ngày qua</h2>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <h2 className="text-sm font-semibold text-slate-700">{chartTitle}</h2>
+          <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200/50 w-fit">
+            <button
+              onClick={() => setTimeFilter('today')}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
+                timeFilter === 'today' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Hôm nay
+            </button>
+            <button
+              onClick={() => setTimeFilter('week')}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
+                timeFilter === 'week' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              7 ngày qua
+            </button>
+            <button
+              onClick={() => setTimeFilter('month')}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
+                timeFilter === 'month' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Tháng này
+            </button>
+            <button
+              onClick={() => setTimeFilter('30days')}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-all ${
+                timeFilter === '30days' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              30 ngày qua
+            </button>
+          </div>
+        </div>
         <MiniBarChart data={chartData} />
         <div className="mt-1 flex justify-between text-xs text-slate-400">
           {chartData.filter((d) => d.label).map((d) => (

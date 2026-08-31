@@ -29,18 +29,21 @@ function buildOverview(orders: Row[], returns: Row[], orderItems: Row[], payment
   const todayMs = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate())).getTime() - tzOffset
   const monthStart = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), 1)).getTime() - tzOffset
   const day30 = todayMs - 29 * 86_400_000
+  const seriesStartMs = Math.min(monthStart, day30)
 
-  // ── Revenue by day (last 30 days) ────────────────────────────────────────
+  // ── Revenue by day (includes both full current month & last 30 days) ──────
   const revenueByDay: Record<string, number> = {}
-  for (let d = 0; d < 30; d++) {
-    const k = new Date(todayMs - d * 86_400_000).toISOString().slice(0, 10)
-    revenueByDay[k] = 0
+  let curr = seriesStartMs
+  while (curr <= todayMs + 1000) {
+    const k = dayKey(new Date(curr).toISOString())
+    if (k) revenueByDay[k] = 0
+    curr += 86_400_000
   }
 
   for (const o of orders) {
     if (o.is_return === 'TRUE') continue
     const t = new Date(o.created_at || 0).getTime()
-    if (t < day30) continue
+    if (t < seriesStartMs) continue
     const k = dayKey(o.created_at)
     if (k in revenueByDay) revenueByDay[k] += parseAmount(o.total_amount)
   }

@@ -27,8 +27,22 @@ function buildProfitReport(orders: Row[], orderItems: Row[], products: Row[], ca
   let toMs = Infinity
   if (dateRange) {
     // Treat from and to as Vietnam local time, convert to UTC ms
-    fromMs = new Date(`${dateRange.from}T00:00:00Z`).getTime() - tzOffset
-    toMs = new Date(`${dateRange.to}T23:59:59.999Z`).getTime() - tzOffset
+    let f = new Date(`${dateRange.from}T00:00:00Z`).getTime() - tzOffset
+    let t = new Date(`${dateRange.to}T23:59:59.999Z`).getTime() - tzOffset
+    if (isNaN(f)) f = 0
+    if (isNaN(t)) t = Infinity
+    if (f > t) {
+      const tmp = f
+      f = t - 86_400_000 + 1
+      t = tmp + 86_400_000 - 1
+    }
+    // Cap to max 93 days (approx 3 months)
+    const MAX_RANGE_MS = 93 * 86_400_000
+    if (t - f > MAX_RANGE_MS) {
+      f = t - MAX_RANGE_MS
+    }
+    fromMs = f
+    toMs = t
   }
   
   const inRange = (isoString: string) => {
