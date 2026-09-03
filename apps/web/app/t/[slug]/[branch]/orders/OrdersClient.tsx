@@ -128,6 +128,7 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
   const [debouncedSearch] = useDebounce(search, 300)
   const [statusFilter, setStatusFilter] = useState('')
   const [timeFilter, setTimeFilter] = useState('all')
+  const [sortBy, setSortBy] = useState<'created_at' | 'updated_at'>('created_at')
   const [selectedOrder, setSelectedOrder] = useState<Row | null>(null)
   const [cancelTarget, setCancelTarget] = useState<Row | null>(null)
   const [cancelReason, setCancelReason] = useState('Sai sót hệ thống')
@@ -220,12 +221,13 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
 
   // Orders list
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['orders', shopId, page, debouncedSearch, statusFilter, timeFilter],
+    queryKey: ['orders', shopId, page, debouncedSearch, statusFilter, timeFilter, sortBy],
     queryFn: async () => {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
       if (debouncedSearch) sp.set('search', debouncedSearch)
       if (statusFilter) sp.set('status', statusFilter)
       if (timeFilter && timeFilter !== 'all') sp.set('time', timeFilter)
+      if (sortBy) sp.set('sortBy', sortBy)
       const res = await fetch(`/api/shops/${shopId}/orders?${sp}`)
       if (!res.ok) throw new Error('Không tải được dữ liệu')
       return res.json() as Promise<{ data: Row[]; total: number }>
@@ -840,6 +842,15 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
           <option value="yesterday">Hôm qua</option>
           <option value="last7days">7 ngày trước</option>
           <option value="lastmonth">Tháng trước</option>
+        </select>
+        <select
+          value={sortBy}
+          onChange={(e) => { setSortBy(e.target.value as 'created_at' | 'updated_at'); setPage(1) }}
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[160px] sm:max-w-[190px]"
+          title="Sắp xếp theo"
+        >
+          <option value="created_at">Mới nhất (Ngày tạo)</option>
+          <option value="updated_at">Cập nhật gần nhất</option>
         </select>
         <button
           onClick={() => {

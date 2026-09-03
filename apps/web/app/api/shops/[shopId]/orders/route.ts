@@ -59,8 +59,13 @@ export async function GET(
       }
     }
 
-    const sortDesc = true;
-    const sortBy = time && time !== 'all' ? 'created_at' : 'updated_at' // Default to updated_at if not provided in list
+    const sortByParam = sp.get('sortBy') || sp.get('sort_by')
+    const sortOrderParam = sp.get('sortOrder') || sp.get('sort_order')
+    const sortDesc = sortOrderParam ? sortOrderParam.toLowerCase() !== 'asc' : true
+
+    // Default to 'created_at' (newest first). Allow whitelisted fields if requested.
+    const allowedSortFields = ['created_at', 'updated_at', 'total_amount', 'debt_amount', 'order_no']
+    const sortBy = sortByParam && allowedSortFields.includes(sortByParam) ? sortByParam : 'created_at'
 
     const result = await connector.list('orders', { page, limit, search: search || undefined, filters, date_range, sortBy, sortDesc })
     result.data = await withOrderEmployeeNames(connector, shop.tenant_id, result.data)
