@@ -1,18 +1,25 @@
 import { notFound } from 'next/navigation';
-import { POLICIES } from '../policiesData';
+import { findPolicyBySlug, getAllPolicySlugs } from '../policiesData';
 import { Navbar } from '../../components/layout/Navbar';
 import { Footer } from '../../components/layout/Footer';
 import { FloatingZalo } from '../../components/layout/FloatingZalo';
 import type { Metadata } from 'next';
 
+interface Props {
+  params: Promise<{
+    slug: string;
+  }>;
+}
+
 export function generateStaticParams() {
-  return POLICIES.map((policy) => ({
-    slug: policy.slug,
+  return getAllPolicySlugs().map((slug) => ({
+    slug,
   }));
 }
 
-export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
-  const policy = POLICIES.find((p) => p.slug === params.slug);
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  const policy = findPolicyBySlug(slug);
   if (!policy) return { title: 'Không tìm thấy trang' };
   
   return {
@@ -21,8 +28,9 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function PolicyPage({ params }: { params: { slug: string } }) {
-  const policy = POLICIES.find((p) => p.slug === params.slug);
+export default async function PolicyPage({ params }: Props) {
+  const { slug } = await params;
+  const policy = findPolicyBySlug(slug);
 
   if (!policy) {
     notFound();

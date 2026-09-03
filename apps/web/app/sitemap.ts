@@ -1,6 +1,8 @@
 import { MetadataRoute } from 'next';
 import { INDUSTRIES_LIST, ALL_SECTORS } from './components/layout/industriesData';
 
+import { POLICIES } from './chinh-sach/policiesData';
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://oni.vn';
   const currentDate = new Date();
@@ -19,6 +21,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'monthly',
       priority: 0.3,
     },
+    ...POLICIES.map((p) => ({
+      url: `${baseUrl}/chinh-sach/${p.slug}`,
+      lastModified: currentDate,
+      changeFrequency: 'monthly' as const,
+      priority: 0.5,
+    })),
   ];
 
   // 2. Large Solutions Categories (/solutions/[slug])

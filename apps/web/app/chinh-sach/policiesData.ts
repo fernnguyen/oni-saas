@@ -1,6 +1,19 @@
-export const POLICIES = [
+export interface PolicySection {
+  title: string;
+  items: string[];
+}
+
+export interface Policy {
+  slug: string;
+  aliases?: string[];
+  title: string;
+  sections: PolicySection[];
+}
+
+export const POLICIES: Policy[] = [
   {
     slug: 'bao-mat',
+    aliases: ['chinh-sach-bao-mat', 'privacy'],
     title: 'CHÍNH SÁCH BẢO MẬT VÀ BẢO VỆ THÔNG TIN CÁ NHÂN KHIẾU NẠI',
     sections: [
       {
@@ -65,6 +78,7 @@ export const POLICIES = [
   },
   {
     slug: 'giai-quyet-khieu-nai',
+    aliases: ['khieu-nai', 'phuong-thuc-giai-quyet-khieu-nai'],
     title: 'PHƯƠNG THỨC TIẾP NHẬN VÀ GIẢI QUYẾT PHẢN ÁNH, YÊU CẦU, KHIẾU NẠI',
     sections: [
       {
@@ -101,6 +115,7 @@ export const POLICIES = [
   },
   {
     slug: 'chinh-sach-gia',
+    aliases: ['gia', 'bang-gia'],
     title: 'CHÍNH SÁCH GIÁ DỊCH VỤ PHẦN MỀM ONI',
     sections: [
       {
@@ -129,6 +144,7 @@ export const POLICIES = [
   },
   {
     slug: 'thanh-toan',
+    aliases: ['chinh-sach-thanh-toan'],
     title: 'CHÍNH SÁCH VỀ THANH TOÁN',
     sections: [
       {
@@ -156,6 +172,7 @@ export const POLICIES = [
   },
   {
     slug: 'dieu-kien-giao-dich',
+    aliases: ['dieu-kien-va-han-che', 'dieu-khoan-su-dung'],
     title: 'ĐIỀU KIỆN VÀ HẠN CHẾ TRONG VIỆC CUNG CẤP DỊCH VỤ ONI',
     sections: [
       {
@@ -190,6 +207,7 @@ export const POLICIES = [
   },
   {
     slug: 'cung-cap-va-hoan-tien',
+    aliases: ['doi-tra', 'hoan-tien', 'bao-hanh', 'chinh-sach-doi-tra', 'chinh-sach-bao-hanh', 'chinh-sach-hoan-tien'],
     title: 'PHƯƠNG THỨC CUNG CẤP DỊCH VỤ, CHÍNH SÁCH CHẤM DỨT DỊCH VỤ VÀ HOÀN TIỀN',
     sections: [
       {
@@ -219,3 +237,20 @@ export const POLICIES = [
     ]
   }
 ];
+
+export function findPolicyBySlug(slug: string): Policy | undefined {
+  return POLICIES.find((p) => p.slug === slug || p.aliases?.includes(slug));
+}
+
+export function getAllPolicySlugs(): string[] {
+  const slugs = new Set<string>();
+  for (const p of POLICIES) {
+    slugs.add(p.slug);
+    if (p.aliases) {
+      for (const alias of p.aliases) {
+        slugs.add(alias);
+      }
+    }
+  }
+  return Array.from(slugs);
+}

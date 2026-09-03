@@ -8,7 +8,7 @@ import {
 } from './lib/authCookieScope';
 
 // Paths that are public on the MAIN domain (no auth required)
-const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register', '/onboarding', '/admin-login', '/qr-order', '/solutions', '/icons', '/logos', '/fonts', '/.well-known', '/support', '/privacy'];
+const MAIN_DOMAIN_PUBLIC = ['/auth', '/api', '/_next', '/favicon', '/register', '/onboarding', '/admin-login', '/qr-order', '/solutions', '/icons', '/logos', '/fonts', '/.well-known', '/support', '/privacy', '/chinh-sach'];
 
 // Paths on subdomain that bypass AAL check (auth flows themselves)
 const SUBDOMAIN_AUTH_BYPASS = ['/auth/', '/api/', '/_next/'];
@@ -92,11 +92,15 @@ export async function proxy(req: NextRequest) {
       pathname.startsWith('/dashboard') ||
       pathname.startsWith('/register') ||
       pathname.startsWith('/onboarding') ||
-      pathname.startsWith('/super')
+      pathname.startsWith('/super') ||
+      pathname.startsWith('/chinh-sach') ||
+      pathname.startsWith('/privacy') ||
+      pathname.startsWith('/support')
     ) {
       const cleanRoot = rootDomain.replace(/^https?:\/\//, '');
       const protocol = req.headers.get('x-forwarded-proto') || 'http';
-      const redirectUrl = new URL('/', `${protocol}://${cleanRoot}`);
+      const targetPath = (pathname.startsWith('/chinh-sach') || pathname.startsWith('/privacy') || pathname.startsWith('/support')) ? pathname : '/';
+      const redirectUrl = new URL(targetPath, `${protocol}://${cleanRoot}`);
       return NextResponse.redirect(redirectUrl);
     }
 
