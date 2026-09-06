@@ -51,20 +51,32 @@ function buildProfitReport(orders: Row[], orderItems: Row[], products: Row[], ca
     return t >= fromMs && t <= toMs
   }
 
-  // Filter completed orders
-  const completedOrders = orders.filter(o => {
-    if (o.status !== 'completed' || o.is_return === 'TRUE') return false
-    // Manual entries intentionally use their selected invoice time; POS orders
-    // retain the existing completion/update-time convention.
-    const dateStr = o.channel === 'manual' ? o.created_at : (o.updated_at || o.created_at || new Date().toISOString())
+  // Filter qualifying sales orders: exclude cancelled orders and return-only orders.
+  // Standardized to created_at (transaction sale time) to match Orders list and Dashboard.
+  const salesOrders = orders.filter(o => {
+    if (o.status === 'cancelled' || o.is_return === 'TRUE') return false
+    const dateStr = o.created_at || ''
     return inRange(dateStr)
   })
-  const completedOrderIds = new Set(completedOrders.map(o => o.order_id || o.id))
+  const salesOrderIds = new Set(salesOrders.map(o => o.order_id || o.id))
 
   // Create products map for COGS fallback
   const productMap = new Map<string, Row>()
   for (const p of products) {
     productMap.set(p.product_id || p.id, p)
+  }
+
+  // Group order items by order_id for O(1) retrieval
+  const itemsByOrderId = new Map<string, Row[]>()
+  for (const item of orderItems) {
+    const orderId = item.order_id
+    if (!orderId || !salesOrderIds.has(orderId)) continue
+    let list = itemsByOrderId.get(orderId)
+    if (!list) {
+      list = []
+      itemsByOrderId.set(orderId, list)
+    }
+    list.push(item)
   }
 
   // Time series mapping
@@ -84,95 +96,96 @@ function buildProfitReport(orders: Row[], orderItems: Row[], products: Row[], ca
     let curr = fromMs
     while (curr <= toMs) {
       const k = dayKey(new Date(curr).toISOString())
-      seriesMap[k] = { gross_revenue: 0, discounts: 0, returns: 0, net_revenue: 0, cogs: 0, gross_profit: 0, expenses: 0, net_profit: 0 }
+      if (k) {
+        seriesMap[k] = { gross_revenue: 0, discounts: 0, returns: 0, net_revenue: 0, cogs: 0, gross_profit: 0, expenses: 0, net_profit: 0 }
+      }
       curr += 86_400_000
     }
   }
 
-  let totalGrossRevenue = 0
-  let totalDiscounts = 0
-  let totalReturns = 0
+  const ensureSeriesDay = (dKey: string) => {
+    if (!seriesMap[dKey]) {
+      seriesMap[dKey] = { gross_revenue: 0, discounts: 0, returns: 0, net_revenue: 0, cogs: 0, gross_profit: 0, expenses: 0, net_profit: 0 }
+    }
+    return seriesMap[dKey]
+  }
+
   let totalCogs = 0
+  let totalDiscounts = 0
   let totalExpenses = 0
+  let totalReturns = 0
 
   const expensesBreakdown: Record<string, number> = {}
   const cogsBreakdown: Record<string, { name: string, cogs: number, qty: number }> = {}
 
-  // 1. Process Orders & Order Items
-  for (const item of orderItems) {
-    const orderId = item.order_id
-    if (!completedOrderIds.has(orderId)) continue
-
-    const order = completedOrders.find(o => (o.order_id || o.id) === orderId)
-    const dateStr = order?.channel === 'manual' ? order.created_at : (order?.updated_at || order?.created_at || new Date().toISOString())
+  // 1. Process Sales Orders & their Items
+  for (const order of salesOrders) {
+    const orderId = order.order_id || order.id
+    const dateStr = order.created_at || new Date().toISOString()
     const dKey = dayKey(dateStr)
+    const dayData = ensureSeriesDay(dKey)
 
-    if (!seriesMap[dKey]) {
-      seriesMap[dKey] = { gross_revenue: 0, discounts: 0, returns: 0, net_revenue: 0, cogs: 0, gross_profit: 0, expenses: 0, net_profit: 0 }
-    }
+    const items = itemsByOrderId.get(orderId) || []
 
-    const qty = parseAmount(item.qty)
-    const lineTotal = parseAmount(item.line_total)
-    let unitCost = parseAmount(item.unit_cost)
+    const orderTotal = parseAmount(order.total_amount)
+    const orderDiscount = parseAmount(order.discount_amount)
 
-    if (unitCost === 0 && item.product_id) {
-      const product = productMap.get(item.product_id)
-      if (product) {
-        unitCost = parseAmount(product.cost_price)
+    let itemLineDiscounts = 0
+    let orderCogs = 0
+
+    for (const item of items) {
+      const qty = parseAmount(item.qty)
+      let unitCost = parseAmount(item.unit_cost)
+
+      if (unitCost === 0 && item.product_id) {
+        const product = productMap.get(item.product_id)
+        if (product) {
+          unitCost = parseAmount(product.cost_price)
+        }
+      }
+
+      const itemCogs = qty * unitCost
+      orderCogs += itemCogs
+
+      const lineDiscount = parseAmount(item.line_discount || item.discount_amount)
+      itemLineDiscounts += lineDiscount
+
+      if (item.product_id) {
+        if (!cogsBreakdown[item.product_id]) {
+          cogsBreakdown[item.product_id] = { name: item.product_name || item.product_id, cogs: 0, qty: 0 }
+        }
+        cogsBreakdown[item.product_id].cogs += itemCogs
+        cogsBreakdown[item.product_id].qty += qty
       }
     }
 
-    const cogs = qty * unitCost
-    const lineDiscount = parseAmount(item.line_discount)
+    const totalOrderDiscount = orderDiscount + itemLineDiscounts
+    // Gross revenue is net total + all discounts applied
+    const grossRev = orderTotal + totalOrderDiscount
 
-    const grossRev = parseAmount(item.unit_price) * qty
+    dayData.gross_revenue += grossRev
+    dayData.discounts += totalOrderDiscount
+    dayData.cogs += orderCogs
 
-    totalCogs += cogs
-    
-    seriesMap[dKey].gross_revenue += grossRev
-    seriesMap[dKey].cogs += cogs
-
-    if (item.product_id) {
-      if (!cogsBreakdown[item.product_id]) {
-        cogsBreakdown[item.product_id] = { name: item.product_name, cogs: 0, qty: 0 }
-      }
-      cogsBreakdown[item.product_id].cogs += cogs
-      cogsBreakdown[item.product_id].qty += qty
-    }
+    totalCogs += orderCogs
+    totalDiscounts += totalOrderDiscount
   }
 
-  // 2. Process Order-Level Discounts
-  for (const o of completedOrders) {
-    const dateStr = o.channel === 'manual' ? o.created_at : (o.updated_at || o.created_at || new Date().toISOString())
-    const dKey = dayKey(dateStr)
-    const discount = parseAmount(o.discount_amount)
-    
-    if (!seriesMap[dKey]) {
-      seriesMap[dKey] = { gross_revenue: 0, discounts: 0, returns: 0, net_revenue: 0, cogs: 0, gross_profit: 0, expenses: 0, net_profit: 0 }
-    }
-    
-    seriesMap[dKey].discounts += discount
-    totalDiscounts += discount
-  }
-
-  // 3. Process Returns
+  // 2. Process Returns
   for (const ret of returns) {
     if (ret.status !== 'completed' && ret.status !== 'approved') continue 
     const dateStr = ret.processed_at || ret.created_at || new Date().toISOString()
     if (!inRange(dateStr)) continue
     
     const dKey = dayKey(dateStr)
-    
-    if (!seriesMap[dKey]) {
-      seriesMap[dKey] = { gross_revenue: 0, discounts: 0, returns: 0, net_revenue: 0, cogs: 0, gross_profit: 0, expenses: 0, net_profit: 0 }
-    }
+    const dayData = ensureSeriesDay(dKey)
     
     const refund = parseAmount(ret.total_refund)
-    seriesMap[dKey].returns += refund
+    dayData.returns += refund
     totalReturns += refund
   }
 
-  // 4. Process Expenses (Cashbook)
+  // 3. Process Expenses (Cashbook)
   for (const cb of cashbook) {
     const type = cb.type?.toLowerCase()
     if (type === 'payment' || type === 'expense') {
@@ -194,19 +207,16 @@ function buildProfitReport(orders: Row[], orderItems: Row[], products: Row[], ca
       if (!inRange(dateStr)) continue
       
       const dKey = dayKey(dateStr)
+      const dayData = ensureSeriesDay(dKey)
       const amount = parseAmount(cb.amount)
 
-      if (!seriesMap[dKey]) {
-        seriesMap[dKey] = { gross_revenue: 0, discounts: 0, returns: 0, net_revenue: 0, cogs: 0, gross_profit: 0, expenses: 0, net_profit: 0 }
-      }
-      
-      seriesMap[dKey].expenses += amount
+      dayData.expenses += amount
       totalExpenses += amount
       expensesBreakdown[category] = (expensesBreakdown[category] || 0) + amount
     }
   }
 
-  // 5. Aggregate Series
+  // 4. Aggregate Series
   const series = Object.entries(seriesMap)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, data]) => {
@@ -263,12 +273,12 @@ export async function GET(
     const toDate = searchParams.get('to')
 
     // Local PSQL queries using connector
-    // Currently fetching all, we can optimize with date filters later if needed
+    // Sort descending by created_at to prioritize the latest data
     const [ordersResult, returnsResult, itemsResult, cashbookResult, productsResult] = await Promise.all([
-      connector.list('orders',      { limit: 10000 }),
-      connector.list('returns',     { limit: 5000 }).catch(() => ({ data: [], total: 0 })),
+      connector.list('orders',      { limit: 10000, sortBy: 'created_at', sortDesc: true }),
+      connector.list('returns',     { limit: 5000, sortBy: 'created_at', sortDesc: true }).catch(() => ({ data: [], total: 0 })),
       connector.list('order-items', { limit: 20000 }),
-      connector.list('cashbook',    { limit: 10000 }).catch(() => ({ data: [], total: 0 })),
+      connector.list('cashbook',    { limit: 10000, sortBy: 'created_at', sortDesc: true }).catch(() => ({ data: [], total: 0 })),
       connector.list('products',    { limit: 5000 }).catch(() => ({ data: [], total: 0 })),
     ])
 
