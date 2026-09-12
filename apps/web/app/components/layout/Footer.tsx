@@ -25,9 +25,22 @@ export function Footer() {
                 </a>
               </p>
             </div>
-            {/* <div className="text-xs text-slate-500 font-bold">
-              &copy; {new Date().getFullYear()} ONI.vn. Đã đăng ký bản quyền.
-            </div> */}
+            <div className="pt-2">
+              <a
+                href="https://online.gov.vn/nen-tang/631803dd-2940-452b-8536-aeb9eacff466"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Đã xác nhận với Bộ Công Thương"
+                className="inline-block hover:opacity-90 transition-opacity"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="https://fileserver.online.gov.vn/uploads/Resources/iconxacnhan/DaThongBao.png"
+                  alt="Đã xác nhận với Bộ Công Thương"
+                  style={{ height: '44px' }}
+                />
+              </a>
+            </div>
           </div>
           
           {ALL_SECTORS.map((group) => (

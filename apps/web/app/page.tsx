@@ -160,16 +160,16 @@ export default async function LandingPage() {
           <div className="flex-1 text-center lg:text-left z-10">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-sm font-medium text-primary shadow-sm md:bg-blue-50/80 md:backdrop-blur-md">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              Sở hữu cơ sở dữ liệu riêng biệt
+              Dành cho cửa hàng, quán ăn & hộ kinh doanh
             </div>
             <h1 className="text-4xl md:text-6xl lg:text-[3.5rem] font-extrabold leading-[1.1] tracking-tight text-slate-900 mb-6 drop-shadow-sm">
-              Bán hàng dễ dàng <br/>
+              Phần mềm bán hàng & tính tiền <br/>
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-orange-400">
-                Quản lý gọn gàng
+                Đơn giản, dễ dùng cho mọi chủ quán
               </span>
             </h1>
             <p className="mt-6 max-w-2xl mx-auto lg:mx-0 text-lg md:text-xl text-slate-650 leading-relaxed font-medium">
-              ONI.vn là phần mềm bán hàng POS và quản trị doanh nghiệp thông minh. Bảo mật dữ liệu kinh doanh tuyệt đối với kiến trúc CSDL ổn định cao, cho phép kết nối CSDL riêng của từng đơn vị, giúp doanh nghiệp làm chủ 100% tài sản số của mình.
+              Phần mềm tính tiền POS, kiểm kho và quản lý sổ quỹ thu chi dành riêng cho cửa hàng, quán ăn và hộ kinh doanh. Dữ liệu bán hàng lưu riêng độc lập thuộc về bạn, dùng mượt mà ngay trên điện thoại, máy tính bảng và máy in bill.
             </p>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
               <Link href="/register" id="hero-cta-register" className="group flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-8 py-4 text-base font-bold text-white shadow-xl hover:bg-primary-dark transition-all hover:scale-105">
@@ -229,9 +229,9 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl px-6">
           <div className="text-center mb-16 lg:mb-20">
             <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Phân khúc ngành nghề</p>
-            <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Giải pháp tối ưu cho từng lĩnh vực</h2>
+            <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Đúng ngành đúng nghề, mở ra là biết dùng</h2>
             <p className="mt-4 max-w-2xl mx-auto text-lg text-slate-500 font-medium">
-              Không ép buộc tất cả sử dụng chung một giao diện. ONI phân loại giao diện POS, cách tính bill và báo cáo tài chính phù hợp hoàn hảo cho từng phân khúc kinh doanh đặc thù.
+              Tạp hóa quét mã vạch, quán cafe bấm order theo bàn, tiệm bida tự động tính tiền giờ. Mỗi mô hình có sẵn màn hình tính tiền riêng, không mất thời gian mày mò học dùng.
             </p>
           </div>
 
@@ -316,8 +316,8 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl px-6">
           <div className="text-center mb-16 lg:mb-24">
             <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Tính năng</p>
-            <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Hệ sinh thái hoàn chỉnh</h2>
-            <p className="mt-4 max-w-2xl mx-auto text-lg text-slate-500 font-medium">Kiến trúc Provider-Agnostic - kết nối bất kỳ nguồn dữ liệu nào. Bạn giữ toàn quyền kiểm soát.</p>
+            <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Đầy đủ mọi việc cần cho một ngày bán hàng</h2>
+            <p className="mt-4 max-w-2xl mx-auto text-lg text-slate-500 font-medium">Từ in bill thanh toán, tạo mã VietQR động, theo dõi tồn kho đến sổ thu chi hàng ngày – tất cả gói gọn trong một phần mềm, không cần sổ tay hay Excel phức tạp.</p>
           </div>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f, idx) => (
@@ -750,10 +750,10 @@ export default async function LandingPage() {
         </div>
         <div className="relative mx-auto max-w-4xl px-6 text-center z-10">
           <h2 className="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight mb-6">
-            Bắt đầu quản lý kinh doanh thông minh
+            Mở gian hàng và bắt đầu bán ngay hôm nay
           </h2>
           <p className="text-xl text-slate-650 font-medium mb-10 max-w-2xl mx-auto">
-            Bắt đầu bán hàng ngay với gói Tiên phong miễn phí vĩnh viễn. Nâng cấp linh hoạt khi quy mô mở rộng.
+            Đăng ký trong 1 phút, không cần cài đặt rườm rà, bán được ngay trên điện thoại hoặc máy tính có sẵn.
           </p>
           <div className="mb-8 rounded-3xl border border-slate-200 bg-white px-6 py-5 text-left shadow-sm md:bg-white/80 md:backdrop-blur-sm">
             <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-3">

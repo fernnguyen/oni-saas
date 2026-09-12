@@ -358,9 +358,9 @@ export function PricingSection({ plans }: { plans: any[] }) {
         {/* Header */}
         <div className="text-center mb-16 lg:mb-20">
           <p className="text-sm font-bold uppercase tracking-widest text-primary mb-3">Bảng giá</p>
-          <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Chi phí tối ưu, hiệu quả tối đa</h2>
+          <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 tracking-tight">Bảng giá rõ ràng, không chi phí ẩn</h2>
           <p className="mt-4 text-lg text-slate-500 font-medium max-w-xl mx-auto">
-            Khởi đầu vững chắc với gói Tiên phong miễn phí vĩnh viễn. Nâng cấp linh hoạt khi quy mô mở rộng.
+            Có gói miễn phí vĩnh viễn cho quán mới mở. Quán đông khách thì nâng cấp, không ép mua gói năm, không phát sinh chi phí lắt léo.
           </p>
 
           {/* Billing toggle */}

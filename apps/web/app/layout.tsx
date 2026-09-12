@@ -9,25 +9,25 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://oni.vn';
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'ONI.vn – Phần mềm bán hàng POS - Đơn giản & Hiệu quả',
+    default: 'ONI.vn – Phần mềm bán hàng & tính tiền - Đơn giản, dễ dùng',
     template: '%s | ONI.vn',
   },
   description:
-    'Phần mềm bán hàng POS, quản lý kho, chuỗi mua hàng và chăm sóc khách hàng đa chi nhánh. Tùy biến kết nối database riêng biệt (BYOD), tích hợp AI, Zalo & Telegram.',
+    'Phần mềm tính tiền POS, kiểm kho và quản lý sổ quỹ thu chi dành riêng cho cửa hàng, quán ăn và hộ kinh doanh. Dữ liệu bán hàng lưu riêng độc lập thuộc về bạn, dùng mượt mà trên mọi thiết bị.',
   openGraph: {
     type: 'website',
     locale: 'vi_VN',
     url: siteUrl,
     siteName: 'ONI.vn',
-    title: 'ONI.vn – Phần mềm bán hàng POS - Đơn giản & Hiệu quả',
+    title: 'ONI.vn – Phần mềm bán hàng & tính tiền - Đơn giản, dễ dùng',
     description:
-      'Phần mềm bán hàng POS, quản lý kho, chuỗi mua hàng và chăm sóc khách hàng đa chi nhánh. Tùy biến kết nối database riêng biệt (BYOD), tích hợp AI, Zalo & Telegram.',
+      'Phần mềm tính tiền POS, kiểm kho và quản lý sổ quỹ thu chi dành riêng cho cửa hàng, quán ăn và hộ kinh doanh. Dữ liệu bán hàng lưu riêng độc lập thuộc về bạn, dùng mượt mà trên mọi thiết bị.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ONI.vn – Phần mềm bán hàng POS - Đơn giản & Hiệu quả',
+    title: 'ONI.vn – Phần mềm bán hàng & tính tiền - Đơn giản, dễ dùng',
     description:
-      'Phần mềm bán hàng POS, quản lý kho, chuỗi mua hàng và chăm sóc khách hàng đa chi nhánh. Tùy biến kết nối database riêng biệt (BYOD), tích hợp AI, Zalo & Telegram.',
+      'Phần mềm tính tiền POS, kiểm kho và quản lý sổ quỹ thu chi dành riêng cho cửa hàng, quán ăn và hộ kinh doanh. Dữ liệu bán hàng lưu riêng độc lập thuộc về bạn, dùng mượt mà trên mọi thiết bị.',
   },
   icons: {
     icon: [
