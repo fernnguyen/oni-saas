@@ -26,7 +26,13 @@ export async function GET(
       sortDesc: false 
     })
 
-    return NextResponse.json(result)
+    return NextResponse.json(result, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        Pragma: 'no-cache',
+        Expires: '0',
+      },
+    })
   } catch (e) {
     return handleApiError(e, 'GET location-resources')
   }

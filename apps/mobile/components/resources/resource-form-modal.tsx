@@ -177,6 +177,7 @@ export function ResourceFormModal({
   const [subType, setSubType] = useState('');
   const [hourlyRate, setHourlyRate] = useState('');
   const [advancedEnabled, setAdvancedEnabled] = useState(false);
+  const [chargeByMinute, setChargeByMinute] = useState(false);
   const [baseHours, setBaseHours] = useState('1');
   const [basePrice, setBasePrice] = useState('');
   const [nextHourlyRate, setNextHourlyRate] = useState('');
@@ -219,6 +220,7 @@ export function ResourceFormModal({
     setSubType(String(metadata.sub_type || template?.subTypes?.[0]?.value || ''));
     setHourlyRate(moneyDigits(resource?.hourly_rate));
     setAdvancedEnabled(Boolean(advanced.enabled));
+    setChargeByMinute(Boolean(advanced.charge_by_minute));
     setBaseHours(String(advanced.base_hours ?? 1));
     setBasePrice(moneyDigits(advanced.base_price));
     setNextHourlyRate(moneyDigits(advanced.next_hourly_rate));
@@ -307,6 +309,7 @@ export function ResourceFormModal({
     if (advancedEnabled) {
       metadata.advanced_pricing = {
         enabled: true,
+        charge_by_minute: chargeByMinute,
         base_hours: Number(baseHours) || 1,
         base_price: Number(basePrice) || 0,
         next_hourly_rate: Number(nextHourlyRate) || 0,
@@ -316,7 +319,10 @@ export function ResourceFormModal({
         ),
       };
     } else {
-      metadata.advanced_pricing = {enabled: false};
+      metadata.advanced_pricing = {
+        enabled: false,
+        charge_by_minute: chargeByMinute,
+      };
     }
 
     setValidationError('');
@@ -464,6 +470,21 @@ export function ResourceFormModal({
                   <Switch
                     value={advancedEnabled}
                     onValueChange={setAdvancedEnabled}
+                  />
+                </View>
+
+                <View className="flex-row items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
+                  <View className="flex-1 pr-4">
+                    <Text className="text-xs font-bold text-slate-800">
+                      Tính tiền theo từng phút thực tế
+                    </Text>
+                    <Text className="mt-1 text-xxs text-slate-500">
+                      Chia đơn giá giờ cho 60 phút × số phút chơi (VD: 30k/h chơi 15p = 7.500₫)
+                    </Text>
+                  </View>
+                  <Switch
+                    value={chargeByMinute}
+                    onValueChange={setChargeByMinute}
                   />
                 </View>
 

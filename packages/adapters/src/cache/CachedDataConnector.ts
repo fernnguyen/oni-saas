@@ -23,7 +23,16 @@ export class CachedDataConnector implements IDataConnector {
     // Dữ liệu tài chính khách hàng: nợ, điểm tích lũy, ví trả trước thay đổi thường xuyên
     // Cache 30 phút có thể hiển thị nợ đã trả hoặc số dư sai trong POS
     'customers',
-    'customer-branch-stats'
+    'customer-branch-stats',
+    // Dữ liệu vận hành thời gian thực (sơ đồ bàn/phòng/sân, trạng thái đang chơi/trống, đặt bàn, buồng phòng):
+    // Tuyệt đối không cache trong RAM của từng worker PM2 cluster để tránh lệch dữ liệu khi F5 giữa Web và Mobile
+    'location-resources',
+    'reservations',
+    'ota-bookings',
+    'housekeeping-logs',
+    'room-minibar-stock',
+    'qr-orders',
+    'qr-sessions'
   ])
 
   constructor(

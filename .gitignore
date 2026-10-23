@@ -32,3 +32,11 @@ build-*
 backups/
 AGENTS.md
 CLAUDE.md
+
+# Code intelligence & AI agent local artifacts
+.gitnexus/
+.planning/
+.expo/
+.agents/
+.cursor/
+.gemini/

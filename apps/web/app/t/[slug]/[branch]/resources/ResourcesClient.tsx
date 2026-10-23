@@ -463,6 +463,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
 
   // Advanced Hourly Pricing States
   const [useAdvancedPricing, setUseAdvancedPricing] = useState(false)
+  const [formChargeByMinute, setFormChargeByMinute] = useState(false)
   const [formBaseHours, setFormBaseHours] = useState('1')
   const [formBasePrice, setFormBasePrice] = useState('')
   const [formNextHourlyRate, setFormNextHourlyRate] = useState('')
@@ -470,6 +471,33 @@ export function ResourcesClient({ shopId, industryType }: Props) {
   const [formProgressiveRates, setFormProgressiveRates] = useState<{ hour: string; rate: string }[]>([])
   const [newProgHour, setNewProgHour] = useState('')
   const [newProgRate, setNewProgRate] = useState('')
+
+  const broadcastResourceSync = useCallback((action = 'RESOURCE_UPDATED') => {
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('oni-pos-sync')
+        bc.postMessage({ type: 'REFRESH_TABLE_MAP', shopId, action })
+        bc.close()
+      }
+      if (slug && shopId) {
+        import('@/lib/supabaseBrowser').then(({ getSupabaseBrowserClient }) => {
+          const supabase = getSupabaseBrowserClient()
+          const channel = supabase.channel(`pos_sync_${slug}_${shopId}`)
+          channel.subscribe((status: string) => {
+            if (status === 'SUBSCRIBED') {
+              channel.send({
+                type: 'broadcast',
+                event: 'pos_change',
+                payload: { event: action, shopId, timestamp: Date.now() },
+              }).finally(() => {
+                setTimeout(() => supabase.removeChannel(channel), 500)
+              })
+            }
+          })
+        }).catch(() => {})
+      }
+    } catch {}
+  }, [slug, shopId])
 
   const nextProgressiveHour = useMemo(() => {
     const baseHourNum = Number(formBaseHours) || 1
@@ -486,7 +514,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
 
   const fetchResources = useCallback(async () => {
     try {
-      const res = await fetch(`/api/shops/${shopId}/location-resources?limit=500`)
+      const res = await fetch(`/api/shops/${shopId}/location-resources?limit=500&t=${Date.now()}`, { cache: 'no-store' })
       if (!res.ok) throw new Error('Failed to load')
       const json = await res.json()
       setResources(json.data ?? [])
@@ -560,6 +588,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     setFormCheckoutTime('12:00'); setFormDepositAmount(''); setFormExtraBedFee('')
     setFormAmenities([])
     setUseAdvancedPricing(false)
+    setFormChargeByMinute(false)
     setFormBaseHours('1')
     setFormBasePrice('')
     setFormNextHourlyRate('')
@@ -598,6 +627,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     // Parse Advanced Pricing
     const adv = md.advanced_pricing || {}
     setUseAdvancedPricing(!!adv.enabled)
+    setFormChargeByMinute(!!adv.charge_by_minute)
     setFormBaseHours(String(adv.base_hours ?? '1'))
     setFormBasePrice(maskVND(String(adv.base_price ?? '')))
     setFormNextHourlyRate(maskVND(String(adv.next_hourly_rate ?? '')))
@@ -640,6 +670,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     // Parse Advanced Pricing
     const adv = md.advanced_pricing || {}
     setUseAdvancedPricing(!!adv.enabled)
+    setFormChargeByMinute(!!adv.charge_by_minute)
     setFormBaseHours(String(adv.base_hours ?? '1'))
     setFormBasePrice(maskVND(String(adv.base_price ?? '')))
     setFormNextHourlyRate(maskVND(String(adv.next_hourly_rate ?? '')))
@@ -705,6 +736,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       }
       meta.advanced_pricing = {
         enabled: true,
+        charge_by_minute: formChargeByMinute,
         base_hours: Number(formBaseHours) || 1,
         base_price: Number(unmaskVND(formBasePrice)) || 0,
         next_hourly_rate: Number(unmaskVND(formNextHourlyRate)) || 0,
@@ -714,6 +746,7 @@ export function ResourcesClient({ shopId, industryType }: Props) {
     } else {
       meta.advanced_pricing = {
         enabled: false,
+        charge_by_minute: formChargeByMinute,
       }
     }
 
@@ -746,7 +779,8 @@ export function ResourcesClient({ shopId, industryType }: Props) {
         toast.success(`Đã tạo ${formName}`)
       }
       resetForm()
-      fetchResources()
+      await fetchResources()
+      broadcastResourceSync(editingId ? 'RESOURCE_UPDATED' : 'RESOURCE_CREATED')
     } catch {
       toast.error('Lỗi khi lưu')
     } finally {
@@ -771,7 +805,8 @@ export function ResourcesClient({ shopId, industryType }: Props) {
       })
       if (!res.ok) throw new Error()
       toast.success(`Đã xóa ${r.name}`)
-      fetchResources()
+      await fetchResources()
+      broadcastResourceSync('RESOURCE_DELETED')
     } catch {
       toast.error('Lỗi khi xóa')
     }
@@ -808,7 +843,8 @@ export function ResourcesClient({ shopId, industryType }: Props) {
         body: JSON.stringify({ status: newStatus }),
       })
       if (!res.ok) throw new Error()
-      fetchResources()
+      await fetchResources()
+      broadcastResourceSync('RESOURCE_STATUS_CHANGED')
     } catch {
       toast.error('Lỗi khi cập nhật trạng thái')
     }
@@ -878,7 +914,15 @@ export function ResourcesClient({ shopId, industryType }: Props) {
         return (
           <div className="space-y-1 text-[11px] text-slate-600">
             {r.hourly_rate && Number(r.hourly_rate) > 0 && (
-              <div className="flex items-center gap-1.5"><span>⏱️</span> <span className="font-semibold">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span></div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span>⏱️</span>
+                <span className="font-semibold">{Number(r.hourly_rate).toLocaleString('vi-VN')}₫/h</span>
+                {rmd.advanced_pricing?.charge_by_minute && (
+                  <span className="inline-flex items-center rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
+                    Theo phút
+                  </span>
+                )}
+              </div>
             )}
             {isRoomType && rmd.overnight_rate && (
               <div className="flex items-center gap-1.5"><span>🌙</span> <span className="font-semibold">{Number(rmd.overnight_rate).toLocaleString('vi-VN')}₫/đêm</span></div>
@@ -1310,6 +1354,24 @@ export function ResourcesClient({ shopId, industryType }: Props) {
                         />
                         <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-primary"></div>
                         <span className="ml-2 text-xs font-medium text-slate-650 whitespace-nowrap">Tính giá nâng cao</span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-xl border border-emerald-200/80 bg-emerald-50/40 px-3.5 py-2.5">
+                      <div className="pr-3">
+                        <span className="block text-xs font-bold text-slate-800">Tính tiền theo từng phút thực tế</span>
+                        <span className="block text-[11px] text-slate-500 mt-0.5">
+                          Chia đơn giá giờ cho 60 phút × số phút sử dụng (VD: 30.000₫/h chơi 15 phút = 7.500₫)
+                        </span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={formChargeByMinute}
+                          onChange={e => setFormChargeByMinute(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm peer-checked:bg-emerald-600"></div>
                       </label>
                     </div>
 

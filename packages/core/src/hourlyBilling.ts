@@ -5,6 +5,7 @@ export interface HourlyPricingConfig {
   next_hourly_rate?: number;
   grace_minutes: number;
   progressive_rates?: Record<string | number, number | string>;
+  charge_by_minute?: boolean;
 }
 
 export interface BillingResult {
@@ -37,6 +38,7 @@ export function calculateHourlyBilling({
   
   const stdRate = Number(standardRate) || 0;
   const enabled = config?.enabled ?? false;
+  const chargeByMinute = config?.charge_by_minute ?? false;
   const baseHours = enabled ? (Number(config?.base_hours) || 1) : 1;
   const basePrice = enabled ? (Number(config?.base_price) || stdRate) : stdRate;
   const graceMinutes = enabled ? (Number(config?.grace_minutes) || 0) : 0;
@@ -57,6 +59,66 @@ export function calculateHourlyBilling({
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   const durationLabel = `${h}h ${m}p`;
+
+  // Per-minute billing mode (e.g., Billiards charging exact minutes used)
+  if (chargeByMinute) {
+    const baseHourlyRate = baseHours > 0 ? (basePrice / baseHours) : stdRate;
+
+    if (totalMinutes <= baseMinutes) {
+      const totalAmount = Math.round((baseHourlyRate / 60) * totalMinutes);
+      return {
+        billableQty: 1,
+        totalAmount,
+        durationLabel,
+        detailsLabel: `${totalMinutes} phút (tính theo phút)`
+      };
+    }
+
+    const excessMinutes = totalMinutes - baseMinutes;
+    const excessHoursComplete = Math.floor(excessMinutes / 60);
+    const excessMinutesRem = excessMinutes % 60;
+    const graceApplied = graceMinutes > 0 && excessMinutesRem > 0 && excessMinutesRem <= graceMinutes;
+
+    const resolvedHourlyRates: Record<number, number> = {};
+    for (let i = 1; i <= baseHours; i++) {
+      resolvedHourlyRates[i] = baseHourlyRate;
+    }
+
+    const maxHourToResolve = baseHours + excessHoursComplete + (excessMinutesRem > 0 ? 1 : 0);
+    for (let hourIdx = baseHours + 1; hourIdx <= maxHourToResolve; hourIdx++) {
+      const specificRate = getProgRate(hourIdx);
+      if (specificRate !== undefined && !isNaN(specificRate) && specificRate > 0) {
+        resolvedHourlyRates[hourIdx] = specificRate;
+      } else {
+        const prevRate = resolvedHourlyRates[hourIdx - 1];
+        let rateToUse = prevRate;
+        const confNext = enabled ? Number(config?.next_hourly_rate) : NaN;
+        if (!isNaN(confNext) && confNext > 0) {
+          rateToUse = confNext;
+        }
+        resolvedHourlyRates[hourIdx] = rateToUse || 0;
+      }
+    }
+
+    let totalAmount = basePrice;
+    for (let hourIdx = baseHours + 1; hourIdx <= baseHours + excessHoursComplete; hourIdx++) {
+      totalAmount += resolvedHourlyRates[hourIdx];
+    }
+
+    if (excessMinutesRem > 0 && !graceApplied) {
+      const partialHourIdx = baseHours + excessHoursComplete + 1;
+      const partialHourRate = resolvedHourlyRates[partialHourIdx] ?? baseHourlyRate;
+      totalAmount += (partialHourRate / 60) * excessMinutesRem;
+    }
+
+    const finalDurationLabel = durationLabel + (graceApplied ? ' (không tính quá giờ)' : '');
+    return {
+      billableQty: 1,
+      totalAmount: Math.round(totalAmount),
+      durationLabel: finalDurationLabel,
+      detailsLabel: `${totalMinutes} phút (tính theo phút)`
+    };
+  }
 
   // 1. Within the base block
   if (totalMinutes <= baseMinutes) {

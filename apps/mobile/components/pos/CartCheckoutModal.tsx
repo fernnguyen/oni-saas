@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Dialog } from '../ui/Dialog';
+import { Switch } from '../ui/Switch';
 import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -33,7 +34,7 @@ interface CartCheckoutModalProps {
   paymentFundsList: any[];
   productsList: any[];
   getCartCount: () => number;
-  onCheckout: (opts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date; rentalType?: 'hourly' | 'overnight' | 'daily' }) => void; // Called to trigger final payment or show QR
+  onCheckout: (opts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date; rentalType?: 'hourly' | 'overnight' | 'daily'; chargeByMinute?: boolean }) => void; // Called to trigger final payment or show QR
   // Tích hợp realtime khách hàng
   shopId?: string;
   isOnline?: boolean;
@@ -174,6 +175,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   const [currentTime, setCurrentTime] = useState(() => new Date());
 
   const [localRentalType, setLocalRentalType] = useState<'hourly' | 'overnight' | 'daily'>('hourly');
+  const [localChargeByMinute, setLocalChargeByMinute] = useState<boolean>(false);
   const [editingItemInfo, setEditingItemInfo] = useState<{ cartItemId: string, item: any } | null>(null);
 
   React.useEffect(() => {
@@ -183,6 +185,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
         rmd = typeof cartOwnerTable.metadata === 'string' ? JSON.parse(cartOwnerTable.metadata) : (cartOwnerTable.metadata || {});
       } catch (e) {}
       setLocalRentalType(rmd.rental_type || 'hourly');
+      setLocalChargeByMinute(Boolean(rmd.advanced_pricing?.charge_by_minute));
     }
   }, [visible, cartOwnerTable]);
 
@@ -278,7 +281,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       checkIn: checkInDate,
       checkOut: checkOutDate,
       standardRate: hourlyRate,
-      config: rmd.advanced_pricing
+      config: {
+        ...(rmd.advanced_pricing || {}),
+        charge_by_minute: localChargeByMinute
+      }
     });
 
     const diffMs = Math.max(0, checkOutDate.getTime() - checkInDate.getTime());
@@ -293,7 +299,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       label: pricingResult.durationLabel,
       details: pricingResult.detailsLabel
     };
-  }, []);
+  }, [localChargeByMinute]);
 
   const localCartTotal = React.useMemo(() => {
     return Object.entries(cart).reduce((sum, [key, item]) => {
@@ -1131,6 +1137,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       <Text className="text-xs text-slate-500">Tổng thời gian:</Text>
                       <Text className="text-xs font-bold text-emerald-600">{billingInfo?.duration || '0'}</Text>
                     </View>
+                    {localRentalType === 'hourly' && (Number(cartOwnerTable?.hourly_rate) > 0 || parsedRoomMeta?.advanced_pricing?.enabled) && (
+                      <View className="flex-row justify-between items-center border-t border-slate-200 pt-2.5 mt-1">
+                        <Text className="text-xs font-medium text-slate-700">Tính tiền theo từng phút thực tế:</Text>
+                        <Switch value={localChargeByMinute} onValueChange={setLocalChargeByMinute} />
+                      </View>
+                    )}
                   </View>
                 </View>
               )}
@@ -1879,7 +1891,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               const checkoutOpts = {
                 ...debtOpts,
                 customCheckoutTime: customCheckoutTime || undefined,
-                rentalType: localRentalType
+                rentalType: localRentalType,
+                chargeByMinute: localChargeByMinute
               };
               setIsConfirmVisible(false);
               setTimeout(async () => {

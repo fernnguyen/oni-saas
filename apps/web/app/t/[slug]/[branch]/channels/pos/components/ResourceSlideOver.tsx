@@ -464,7 +464,7 @@ export function ResourceSlideOver({
       timeCharge = overnightRate
       durationLabel = 'Qua đêm'
       detailsLabel = 'Trọn gói qua đêm'
-    } else if (hourlyRate > 0 || orderMeta?.advanced_pricing?.enabled || safeParse(resource.metadata).advanced_pricing?.enabled) {
+    } else if (hourlyRate > 0 || orderMeta?.advanced_pricing?.enabled || safeParse(resource.metadata).advanced_pricing?.enabled || orderMeta?.advanced_pricing?.charge_by_minute || safeParse(resource.metadata).advanced_pricing?.charge_by_minute) {
       let checkInDate = new Date(order.created_at)
       if (orderMeta?.check_in) {
         checkInDate = new Date(orderMeta.check_in)
@@ -473,11 +473,17 @@ export function ResourceSlideOver({
         checkInDate.setHours(hh, mm, 0, 0)
       }
 
+      const resAdvPricing = safeParse(resource.metadata).advanced_pricing
+      const ordAdvPricing = orderMeta?.advanced_pricing
+      const mergedAdvPricing = (resAdvPricing || ordAdvPricing)
+        ? { ...(resAdvPricing || {}), ...(ordAdvPricing || {}) }
+        : undefined
+
       const pricingResult = calculateHourlyBilling({
         checkIn: checkInDate,
         checkOut: customCheckoutTime ? new Date(customCheckoutTime) : new Date(),
         standardRate: hourlyRate,
-        config: orderMeta?.advanced_pricing || safeParse(resource.metadata).advanced_pricing
+        config: mergedAdvPricing
       })
 
       billableHours = pricingResult.billableQty

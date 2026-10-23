@@ -125,13 +125,14 @@ function parseSubTypes(
 function getRateSummary(resource: LocationResource): string | null {
   const metadata = parseResourceMetadata(resource.metadata);
   const advanced = metadata.advanced_pricing;
+  const suffix = advanced?.charge_by_minute ? ' • Theo phút' : '';
   if (advanced?.enabled) {
     const baseHours = advanced.base_hours || 1;
     const basePrice = advanced.base_price || 0;
-    return `Block ${baseHours}h: ${formatCurrency(basePrice)}`;
+    return `Block ${baseHours}h: ${formatCurrency(basePrice)}${suffix}`;
   }
   const rate = Number(resource.hourly_rate || 0);
-  return rate > 0 ? `${formatCurrency(rate)}/giờ` : null;
+  return rate > 0 ? `${formatCurrency(rate)}/giờ${suffix}` : null;
 }
 
 function ResourceCard({

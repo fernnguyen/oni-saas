@@ -102,7 +102,7 @@ export function usePosData() {
 }
 
  // C. Tải sơ đồ phòng bàn
- const tableRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources?limit=500`, {headers});
+ const tableRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources?limit=500&t=${Date.now()}`, {headers});
  if (tableRes.ok) {
  const tableData = await tableRes.json();
  resources = (tableData.data || []).map((table: any) => {

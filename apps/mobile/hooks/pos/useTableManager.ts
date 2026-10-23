@@ -192,7 +192,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
 
   // Tính tiền giờ bàn bi-a
-  const calculateBilling = (table: any, customCheckoutTime?: Date, rentalTypeOverride?: 'hourly' | 'overnight' | 'daily') => {
+  const calculateBilling = (table: any, customCheckoutTime?: Date, rentalTypeOverride?: 'hourly' | 'overnight' | 'daily', chargeByMinuteOverride?: boolean) => {
     if (!table.startTime) return { hours: 0, minutes: 0, cost: 0, label: '0h 0p', details: '' };
 
     // Phân tích cấu hình metadata nâng cao
@@ -271,7 +271,9 @@ export function useTableManager(props: UseTableManagerProps) {
       checkIn: checkInDate,
       checkOut: checkOutDate,
       standardRate: hourlyRate,
-      config: rmd.advanced_pricing
+      config: chargeByMinuteOverride !== undefined
+        ? { ...(rmd.advanced_pricing || {}), charge_by_minute: chargeByMinuteOverride }
+        : rmd.advanced_pricing
     });
 
     const diffMs = Math.max(0, checkOutDate.getTime() - checkInDate.getTime());
@@ -1506,7 +1508,8 @@ export function useTableManager(props: UseTableManagerProps) {
     payments: { id: string; method: string; fund_id: string; amount: number }[],
     customCheckoutTime?: Date,
     selectedRentalType?: 'hourly' | 'overnight' | 'daily',
-    overrideCartItems?: { [cartItemId: string]: any }
+    overrideCartItems?: { [cartItemId: string]: any },
+    chargeByMinuteOverride?: boolean
   ) => {
     if (!cartOwnerTable) return;
     setIsPayingTableLoading(true);
@@ -1537,7 +1540,7 @@ export function useTableManager(props: UseTableManagerProps) {
         }
       }
 
-      const billing = calculateBilling(selectedTableForPay, customCheckoutTime, rentalType);
+      const billing = calculateBilling(selectedTableForPay, customCheckoutTime, rentalType, chargeByMinuteOverride);
       const rawTableCartItems = overrideCartItems || tableCarts[selectedTableForPay.id] || {};
       // TIME_CHARGE chỉ là dòng ảo để hiển thị trong modal checkout. Phần tiền phòng/giờ
       // được tạo riêng bằng system product bên dưới, nên tuyệt đối không tính/gửi dòng ảo này.

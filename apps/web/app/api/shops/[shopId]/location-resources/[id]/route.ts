@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { resourceUpdateSchema } from '@/lib/validators/resources'
@@ -16,7 +17,13 @@ export async function GET(
     if (!row || row.branch_id !== shopId) {
       return NextResponse.json({ error: 'Không tìm thấy bàn/phòng trong chi nhánh này.' }, { status: 404 })
     }
-    return NextResponse.json(row)
+    return NextResponse.json(row, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        Pragma: 'no-cache',
+        Expires: '0',
+      },
+    })
   } catch (e) {
     return handleApiError(e, 'GET location-resource')
   }

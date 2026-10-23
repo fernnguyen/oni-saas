@@ -766,9 +766,25 @@ export default function PosScreen() {
   // Tự động đồng bộ dữ liệu khi có tín hiệu từ thiết bị khác
   useEffect(() => {
     if (syncTriggerTick > 0) {
-      loadPosData(true);
-      if (activeTable) {
-        syncActiveTableSession(activeTable);
+      if (Platform.OS !== 'web' && isOnline) {
+        (async () => {
+          try {
+            const shopId = activeShopId || await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+            await SyncManager.pullTableLayoutAndActiveOrders(shopId);
+          } catch (err) {
+            console.warn('Lỗi đồng bộ sơ đồ phòng bàn tự động:', err);
+          } finally {
+            loadPosData(true);
+            if (activeTable) {
+              syncActiveTableSession(activeTable);
+            }
+          }
+        })();
+      } else {
+        loadPosData(true);
+        if (activeTable) {
+          syncActiveTableSession(activeTable);
+        }
       }
     }
   }, [syncTriggerTick]);
@@ -833,6 +849,23 @@ export default function PosScreen() {
       loadPosData(isMounted);
       fetchPendingQrCount();
 
+      if (Platform.OS !== 'web' && isOnline) {
+        (async () => {
+          try {
+            const industry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
+            if (industry !== 'retail') {
+              const shopId = activeShopId || await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+              await SyncManager.pullTableLayoutAndActiveOrders(shopId);
+              if (isMounted) {
+                await loadPosData(isMounted);
+              }
+            }
+          } catch (err) {
+            console.warn('Lỗi đồng bộ nền sơ đồ phòng bàn khi mở POS:', err);
+          }
+        })();
+      }
+
       let channel: any = null;
       if (isOnline && activeShopId) {
         const channelName = `pos-qr-badge-${activeShopId}-${Math.random().toString(36).slice(2, 9)}`;
@@ -889,7 +922,7 @@ export default function PosScreen() {
     discount: number,
     note: string,
     payments: { id: string; method: string; fund_id: string; amount: number }[],
-    debtRepayOpts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date; rentalType?: 'hourly' | 'overnight' | 'daily' }
+    debtRepayOpts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date; rentalType?: 'hourly' | 'overnight' | 'daily'; chargeByMinute?: boolean }
   ) => {
     const originalTotal = getCartTotal();
     let finalTotal = Math.max(0, originalTotal - discount);
@@ -899,7 +932,7 @@ export default function PosScreen() {
     if (cartOwnerTable) {
       // Pass cart directly as overrideCartItems since triggerPayTable copies tableCarts→cart
       // and all edits in CartCheckoutModal go to cart (activeTable is null at this point)
-      await handlePayTableConfirmUnified(customer, discount, note, payments, debtRepayOpts?.customCheckoutTime, debtRepayOpts?.rentalType, cart);
+      await handlePayTableConfirmUnified(customer, discount, note, payments, debtRepayOpts?.customCheckoutTime, debtRepayOpts?.rentalType, cart, debtRepayOpts?.chargeByMinute);
       return;
     }
     setIsPayingCartLoading(true);

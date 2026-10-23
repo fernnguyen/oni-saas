@@ -33,8 +33,10 @@ const BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 const CACHE_TTL = 30_000
 interface CacheEntry { headers: string[]; rows: Record<string, string>[]; expiresAt: number }
 const tabCache = new Map<string, CacheEntry>()
+const UNCACHEABLE_TABS = new Set(['LocationResources', 'Orders', 'OrderItems', 'Payments', 'Cashbook'])
 
-function cacheGet(key: string): CacheEntry | null {
+function cacheGet(key: string, tabName?: string): CacheEntry | null {
+  if (tabName && UNCACHEABLE_TABS.has(tabName)) return null
   const entry = tabCache.get(key)
   if (!entry) return null
   if (Date.now() > entry.expiresAt) {
@@ -44,7 +46,8 @@ function cacheGet(key: string): CacheEntry | null {
   return entry
 }
 
-function cacheSet(key: string, headers: string[], rows: Record<string, string>[]): void {
+function cacheSet(key: string, headers: string[], rows: Record<string, string>[], tabName?: string): void {
+  if (tabName && UNCACHEABLE_TABS.has(tabName)) return
   tabCache.set(key, { headers, rows, expiresAt: Date.now() + CACHE_TTL })
 }
 
@@ -118,7 +121,7 @@ async function readTab(
   tabName: string,
 ): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
   const cacheKey = `${sheetId}:${tabName}`
-  const cached = cacheGet(cacheKey)
+  const cached = cacheGet(cacheKey, tabName)
   if (cached) return { headers: cached.headers, rows: cached.rows }
 
   // UNFORMATTED_VALUE + FORMATTED_STRING: date cells return as ISO strings instead of
@@ -153,7 +156,7 @@ async function readTab(
     rows.push(row)
   }
 
-  cacheSet(cacheKey, headers, rows)
+  cacheSet(cacheKey, headers, rows, tabName)
   return { headers, rows }
 }
 

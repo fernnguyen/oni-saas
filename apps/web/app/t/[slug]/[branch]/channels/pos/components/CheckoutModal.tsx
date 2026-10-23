@@ -245,6 +245,14 @@ export function CheckoutModal({
   const [localRentalType, setLocalRentalType] = useState<'hourly' | 'overnight' | 'daily'>(() => {
     return metadata?.rental_type || 'hourly'
   })
+  const [localChargeByMinute, setLocalChargeByMinute] = useState<boolean>(() => {
+    return Boolean(metadata?.advanced_pricing?.charge_by_minute || roomMetadata?.advanced_pricing?.charge_by_minute)
+  })
+  useEffect(() => {
+    if (open) {
+      setLocalChargeByMinute(Boolean(metadata?.advanced_pricing?.charge_by_minute || roomMetadata?.advanced_pricing?.charge_by_minute))
+    }
+  }, [open, metadata, roomMetadata])
   const [timeChargeTax, setTimeChargeTax] = useState<{ tax_rate: string; tax_group: string }>({ tax_rate: '0', tax_group: '' })
 
   // Load system time charge product from localDb to get its tax rate & tax group
@@ -460,17 +468,23 @@ export function CheckoutModal({
         }
         return item
       })
-    } else if (metadata?.check_in && (hourlyRate > 0 || metadata?.advanced_pricing?.enabled)) {
+    } else if (metadata?.check_in && (hourlyRate > 0 || metadata?.advanced_pricing?.enabled || roomMetadata?.advanced_pricing?.enabled)) {
       const checkInDate = new Date(metadata.check_in)
       const effectiveCheckout = metadata?.actual_checkout_requested_at 
         ? new Date(metadata.actual_checkout_requested_at)
         : (localCheckoutTime ? new Date(localCheckoutTime) : (customCheckoutTime ? new Date(customCheckoutTime) : new Date()))
 
+      const effectiveAdvPricing = {
+        ...(roomMetadata?.advanced_pricing || {}),
+        ...(metadata?.advanced_pricing || {}),
+        charge_by_minute: localChargeByMinute,
+      }
+
       const pricingResult = calculateHourlyBilling({
         checkIn: checkInDate,
         checkOut: effectiveCheckout,
         standardRate: hourlyRate,
-        config: metadata.advanced_pricing
+        config: effectiveAdvPricing
       })
 
       const newTimeCharge = pricingResult.totalAmount
@@ -495,7 +509,7 @@ export function CheckoutModal({
       if (b.product_id === 'TIME_CHARGE') return 1
       return 0
     })
-  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType, timeTicker, roomMetadata, existingOrder])
+  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType, localChargeByMinute, timeTicker, roomMetadata, existingOrder])
 
   const computedSubtotal = computedItems.reduce((s, it) => s + (it.line_total || 0), 0)
 
@@ -592,10 +606,14 @@ export function CheckoutModal({
       checkIn: checkInDate,
       checkOut: effectiveCheckout,
       standardRate: hourlyRate,
-      config: metadata?.advanced_pricing
+      config: {
+        ...(roomMetadata?.advanced_pricing || {}),
+        ...(metadata?.advanced_pricing || {}),
+        charge_by_minute: localChargeByMinute,
+      }
     })
     return pricingResult.durationLabel
-  }, [metadata, roomMetadata, localRentalType, localCheckoutTime, customCheckoutTime, hourlyRate, timeTicker])
+  }, [metadata, roomMetadata, localRentalType, localChargeByMinute, localCheckoutTime, customCheckoutTime, hourlyRate, timeTicker])
 
 
   const maxDebtDays = Number(settings?.default_max_debt_days ?? 30)
@@ -2793,6 +2811,20 @@ export function CheckoutModal({
                       <span className="text-slate-600">Tổng thời gian:</span>
                       <span className="font-bold text-emerald-600">{webBillingDuration}</span>
                     </div>
+                  )}
+                  {localRentalType === 'hourly' && (hourlyRate > 0 || metadata?.advanced_pricing?.enabled || roomMetadata?.advanced_pricing?.enabled) && (
+                    <label className="flex items-center justify-between mt-1.5 border-t border-slate-200/60 pt-2 cursor-pointer select-none">
+                      <span className="text-slate-700 font-medium">Tính tiền theo từng phút thực tế:</span>
+                      <span className="relative inline-flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={localChargeByMinute}
+                          onChange={(e) => setLocalChargeByMinute(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-8 h-4.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3.5 after:w-3.5 after:transition-all after:shadow-xs peer-checked:bg-emerald-600"></div>
+                      </span>
+                    </label>
                   )}
                 </div>
               )}

@@ -12,6 +12,7 @@ export type ResourceStatus =
 
 export interface AdvancedPricing {
   enabled?: boolean;
+  charge_by_minute?: boolean;
   base_hours?: number;
   base_price?: number;
   next_hourly_rate?: number;
@@ -113,7 +114,7 @@ export async function listLocationResources(
   shopId: string,
 ): Promise<LocationResource[]> {
   const result = await requestJson<ResourceListResponse>(
-    `/api/shops/${shopId}/location-resources?limit=500`,
+    `/api/shops/${shopId}/location-resources?limit=500&t=${Date.now()}`,
   );
   return result.data || [];
 }
