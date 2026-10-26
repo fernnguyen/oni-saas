@@ -551,6 +551,7 @@ export function ResourceSlideOver({
           subtotal: '0',
           total_amount: '0',
           paid_amount: '0',
+          resource_id: resource.id,
           metadata: JSON.stringify(checkInMeta)
         }),
       })
@@ -885,14 +886,26 @@ export function ResourceSlideOver({
 
       if (!resource.id.startsWith('takeaway')) {
         try {
+          const currentMeta = safeParse(resource.metadata)
+          const cleanedMeta = { ...currentMeta, last_checkout_time: new Date().toISOString() }
+          delete cleanedMeta.check_in
+          delete cleanedMeta.temp_checkout_time
+          delete cleanedMeta.original_start_time
+          delete cleanedMeta.original_temp_checkout_time
+          delete cleanedMeta.guests
+          delete cleanedMeta.guests_list
           await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'available', current_order_id: '' }),
+            body: JSON.stringify({ status: 'available', current_order_id: '', metadata: JSON.stringify(cleanedMeta) }),
           })
         } catch (err) {
           console.error('Lỗi khi giải phóng bàn:', err)
         }
+      }
+
+      if (broadcastSyncEvent) {
+        broadcastSyncEvent('TABLE_CANCELLED', { tableId: resource.id })
       }
 
       toast.success(`Đã hủy ${tpl.label.toLowerCase()}`)
@@ -973,10 +986,19 @@ export function ResourceSlideOver({
   async function handleCheckoutSuccess() {
     if (!resource.id.startsWith('takeaway')) {
       try {
+        const releaseStatus = (isAccommodation && !settings?.skip_cleaning_process) ? 'cleaning' : 'available'
+        const currentMeta = safeParse(resource.metadata)
+        const cleanedMeta = { ...currentMeta, last_checkout_time: new Date().toISOString() }
+        delete cleanedMeta.check_in
+        delete cleanedMeta.temp_checkout_time
+        delete cleanedMeta.original_start_time
+        delete cleanedMeta.original_temp_checkout_time
+        delete cleanedMeta.guests
+        delete cleanedMeta.guests_list
         await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
+          body: JSON.stringify({ status: releaseStatus, current_order_id: '', metadata: JSON.stringify(cleanedMeta) }),
         })
       } catch {
         // ignore
@@ -1032,27 +1054,71 @@ export function ResourceSlideOver({
 
     setTransferring(true)
     try {
-      // 1. Release current resource
+      const releaseStatus = (isAccommodation && !settings?.skip_cleaning_process) ? 'cleaning' : 'available'
+      const sourceResMeta = safeParse(resource.metadata)
+      const cleanedSourceMeta = { ...sourceResMeta }
+      delete cleanedSourceMeta.check_in
+      delete cleanedSourceMeta.temp_checkout_time
+      delete cleanedSourceMeta.original_start_time
+      delete cleanedSourceMeta.original_temp_checkout_time
+      delete cleanedSourceMeta.guests
+      delete cleanedSourceMeta.guests_list
+
+      const currentOrderMeta = safeParse(order.metadata)
+      const effectiveCheckIn = currentOrderMeta.check_in || sourceResMeta.check_in || order.created_at || new Date().toISOString()
+      const targetResMeta = safeParse(targetResource?.metadata)
+      const updatedTargetResMeta = {
+        ...targetResMeta,
+        check_in: effectiveCheckIn,
+        rental_type: currentOrderMeta.rental_type || sourceResMeta.rental_type || 'hourly',
+        num_guests: currentOrderMeta.num_guests || sourceResMeta.num_guests || 1,
+        guests: currentOrderMeta.guests || sourceResMeta.guests,
+        guests_list: currentOrderMeta.guests_list || sourceResMeta.guests_list,
+      }
+
+      // 1. Release current resource while preserving its static pricing/layout metadata
       await fetch(`/api/shops/${shopId}/location-resources/${resource.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
+        body: JSON.stringify({
+          status: releaseStatus,
+          current_order_id: '',
+          metadata: JSON.stringify(cleanedSourceMeta),
+        }),
       })
-      // 2. Occupy target resource
+      // 2. Occupy target resource with session check-in merged into target's static metadata
       await fetch(`/api/shops/${shopId}/location-resources/${targetId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'occupied', current_order_id: order.id }),
+        body: JSON.stringify({
+          status: 'occupied',
+          current_order_id: order.id,
+          metadata: JSON.stringify(updatedTargetResMeta),
+        }),
       })
-      // 3. Update order metadata
-      const newOrderMeta = { ...(safeParse(order.metadata)), resource_id: targetId, resource_name: targetResource?.name }
+      // 3. Update order resource_id & metadata (preserving target resource's own pricing config)
+      const newOrderMeta = {
+        ...currentOrderMeta,
+        resource_id: targetId,
+        resource_name: targetResource?.name,
+        resource_type: targetResource?.type || resource.type,
+        check_in: effectiveCheckIn,
+        advanced_pricing: targetResMeta.advanced_pricing ?? currentOrderMeta.advanced_pricing,
+        charge_by_minute: targetResMeta.charge_by_minute ?? targetResMeta.advanced_pricing?.charge_by_minute,
+      }
       const res = await fetch(`/api/shops/${shopId}/orders/${order.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ metadata: JSON.stringify(newOrderMeta) }),
+        body: JSON.stringify({
+          resource_id: targetId,
+          metadata: JSON.stringify(newOrderMeta),
+        }),
       })
       if (!res.ok) throw new Error()
 
+      if (broadcastSyncEvent) {
+        broadcastSyncEvent('TABLE_TRANSFERRED', { sourceTableId: resource.id, targetTableId: targetId, tableId: targetId })
+      }
       toast.success(`Đã chuyển sang ${targetResource?.name}`)
       setTransferModalOpen(false)
       fetchingRef.current = ''
@@ -1089,10 +1155,14 @@ export function ResourceSlideOver({
       })
 
       // 2. Create new order
+      const nowIso = new Date().toISOString()
+      const targetResMeta = safeParse(targetResource?.metadata)
       const newOrderMeta = {
+        ...targetResMeta,
         resource_id: targetId,
         resource_name: targetResource?.name,
-        check_in: new Date().toISOString()
+        resource_type: targetResource?.type || resource.type,
+        check_in: nowIso
       }
       const newSubtotal = itemsToMove.reduce((acc, it) => acc + Number(it.line_total), 0)
 
@@ -1107,6 +1177,7 @@ export function ResourceSlideOver({
           subtotal: String(newSubtotal),
           total_amount: String(newSubtotal),
           paid_amount: '0',
+          resource_id: targetId,
           metadata: JSON.stringify(newOrderMeta)
         })
       })
@@ -1134,9 +1205,16 @@ export function ResourceSlideOver({
       await fetch(`/api/shops/${shopId}/location-resources/${targetId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'occupied', current_order_id: newOrder.id }),
+        body: JSON.stringify({
+          status: 'occupied',
+          current_order_id: newOrder.id,
+          metadata: JSON.stringify({ ...targetResMeta, check_in: nowIso }),
+        }),
       })
 
+      if (broadcastSyncEvent) {
+        broadcastSyncEvent('TABLE_SPLIT', { sourceTableId: resource.id, targetTableId: targetId, tableId: targetId })
+      }
       toast.success(`Đã tách sang ${targetResource?.name}`)
       setSplitModalOpen(false)
       setSplitSelectedItems(new Set())
@@ -1157,15 +1235,59 @@ export function ResourceSlideOver({
     if (!sourceResource?.current_order_id) return
 
     try {
-      // 1. Fetch source order items
-      const itemsRes = await fetch(`/api/shops/${shopId}/order-items?order_id=${sourceResource.current_order_id}&limit=200&t=${Date.now()}`)
+      // 1. Fetch source order & its items
+      const [sourceOrderRes, itemsRes] = await Promise.all([
+        fetch(`/api/shops/${shopId}/orders/${sourceResource.current_order_id}?t=${Date.now()}`),
+        fetch(`/api/shops/${shopId}/order-items?order_id=${sourceResource.current_order_id}&limit=200&t=${Date.now()}`)
+      ])
       if (!itemsRes.ok) throw new Error()
       const itemsJson = await itemsRes.json()
       const sourceItems = itemsJson.data || []
+      const sourceOrderData = sourceOrderRes.ok ? await sourceOrderRes.json() : null
+      const sourceOrderMeta = safeParse(sourceOrderData?.metadata)
+      const sourceResMeta = safeParse(sourceResource.metadata)
+
+      const combinedItems = [...existingItems]
+
+      // 1b. Freeze source table/room time fee if hourly billing is active
+      const sourceRate = Number(sourceResource.hourly_rate) || 0
+      const sourceCheckInStr = sourceOrderMeta.check_in || sourceResMeta.check_in || sourceOrderData?.created_at
+      if (sourceRate > 0 && sourceCheckInStr) {
+        const resolvedSourceChargeByMinute = sourceResMeta.advanced_pricing?.charge_by_minute ?? sourceResMeta.charge_by_minute ?? sourceOrderMeta.advanced_pricing?.charge_by_minute
+        const sourcePricingConfig = resolvedSourceChargeByMinute !== undefined
+          ? { ...(sourceResMeta.advanced_pricing || sourceOrderMeta.advanced_pricing || {}), charge_by_minute: Boolean(resolvedSourceChargeByMinute) }
+          : (sourceResMeta.advanced_pricing || sourceOrderMeta.advanced_pricing)
+        const sourcePricing = calculateHourlyBilling({
+          checkIn: new Date(sourceCheckInStr),
+          checkOut: new Date(),
+          standardRate: sourceRate,
+          config: sourcePricingConfig,
+        })
+        if (sourcePricing.totalAmount > 0) {
+          const prefixLabel = isAccommodation ? 'Tiền phòng' : 'Tiền giờ'
+          const stayPayload = {
+            order_id: order.id,
+            order_no: order.order_no || '',
+            line_no: '999',
+            product_id: `TIME_CHARGE_MERGED_${sourceId}`,
+            sku: 'TIME_CHARGE_MERGED',
+            product_name: `${prefixLabel} ${sourceResource.name} (Đã gộp - ${sourcePricing.durationLabel})`,
+            qty: '1',
+            unit_price: String(sourcePricing.totalAmount),
+            line_total: String(sourcePricing.totalAmount),
+          }
+          await fetch(`/api/shops/${shopId}/order-items`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(stayPayload),
+          })
+          combinedItems.push(stayPayload as any)
+        }
+      }
 
       // 2. Add source items to current order
-      const combinedItems = [...existingItems]
       for (const item of sourceItems) {
+        if (item.product_id === 'TIME_CHARGE') continue
         const payload = {
           order_id: order.id,
           order_no: order.order_no || '',
@@ -1194,13 +1316,28 @@ export function ResourceSlideOver({
       // 4. Cancel source order
       await fetch(`/api/shops/${shopId}/orders/${sourceResource.current_order_id}/cancel`, { method: 'POST' })
 
-      // 5. Release source resource
+      // 5. Release source resource while preserving its static pricing metadata
+      const releaseStatus = (isAccommodation && !settings?.skip_cleaning_process) ? 'cleaning' : 'available'
+      const cleanedSourceMeta = { ...sourceResMeta }
+      delete cleanedSourceMeta.check_in
+      delete cleanedSourceMeta.temp_checkout_time
+      delete cleanedSourceMeta.original_start_time
+      delete cleanedSourceMeta.original_temp_checkout_time
+      delete cleanedSourceMeta.guests
+      delete cleanedSourceMeta.guests_list
       await fetch(`/api/shops/${shopId}/location-resources/${sourceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: settings?.skip_cleaning_process ? 'available' : 'cleaning', current_order_id: '' }),
+        body: JSON.stringify({
+          status: releaseStatus,
+          current_order_id: '',
+          metadata: JSON.stringify(cleanedSourceMeta),
+        }),
       })
 
+      if (broadcastSyncEvent) {
+        broadcastSyncEvent('TABLE_MERGED', { sourceTableId: sourceId, targetTableId: resource.id, tableId: resource.id })
+      }
       toast.success(`Đã gộp từ ${sourceResource.name}`)
       setMergeModalOpen(false)
       fetchingRef.current = ''

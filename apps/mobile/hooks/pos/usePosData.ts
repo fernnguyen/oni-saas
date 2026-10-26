@@ -117,7 +117,7 @@ export function usePosData() {
  checkInTime = new Date(metaObj.check_in).getTime();
 }
 } catch (e) {}
- if (!checkInTime) checkInTime = Date.now() - 3600000;
+ if (!checkInTime) checkInTime = Date.now();
 }
 
  return {

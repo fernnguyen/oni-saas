@@ -36,37 +36,70 @@ export async function saveApiBaseUrl(newUrl: string): Promise<void> {
 // Khởi chạy ngầm tải URL đã lưu khi nạp module
 loadApiBaseUrl();
 
-// 3.5 Global Fetch Middleware Interceptor to catch 401 Unauthorized (Lost Session)
+// 3.5 Global Fetch Middleware Interceptor to catch 401 Unauthorized & Auto-Refresh JWT
 const originalFetch = global.fetch;
+let activeRefreshPromise: Promise<string | null> | null = null;
+
 global.fetch = async (input, init) => {
-  try {
-    const response = await originalFetch(input, init);
-    
-    // Bắt mã lỗi 401 Unauthorized từ REST API Next.js hoặc các dịch vụ khác
-    if (response.status === 401) {
-      console.warn('[API Middleware] Bắt được phản hồi 401 Unauthorized - Hết hạn phiên!');
-      
-      // Chỉ xử lý đăng xuất nếu hiện tại đang có session (tránh lặp lại khi đã đăng xuất hoặc đang ở màn login)
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        try {
+  const response = await originalFetch(input, init);
+  const requestUrl = typeof input === 'string' ? input : (input as any)?.url || '';
+
+  // Chỉ can thiệp 401 từ REST API của hệ thống (bỏ qua request nội bộ tới supabase.co để tránh vòng lặp)
+  if (response.status === 401 && !requestUrl.includes('supabase.co')) {
+    console.warn('[API Middleware] Bắt được phản hồi 401 Unauthorized - Thử làm mới phiên (refreshSession)...');
+
+    try {
+      if (!activeRefreshPromise) {
+        activeRefreshPromise = (async () => {
+          const { data, error } = await supabase.auth.refreshSession();
+          if (error) {
+            const errMsg = (error.message || '').toLowerCase();
+            const isFatalAuthError =
+              errMsg.includes('invalid refresh token') ||
+              errMsg.includes('refresh_token_not_found') ||
+              errMsg.includes('invalid_grant') ||
+              error.status === 400;
+            if (isFatalAuthError) {
+              return '__FATAL_AUTH__';
+            }
+            return null;
+          }
+          return data.session?.access_token ?? null;
+        })().finally(() => {
+          activeRefreshPromise = null;
+        });
+      }
+
+      const refreshResult = await activeRefreshPromise;
+
+      // Nếu refresh thành công -> tự động gắn token mới và gọi lại request vừa bị 401
+      if (refreshResult && refreshResult !== '__FATAL_AUTH__') {
+        const nextHeaders = new Headers(init?.headers || {});
+        nextHeaders.set('Authorization', `Bearer ${refreshResult}`);
+        return await originalFetch(input, {
+          ...init,
+          headers: nextHeaders,
+        });
+      }
+
+      // Chỉ đăng xuất khi Refresh Token thực sự không còn hợp lệ (tránh văng tài khoản khi mạng chập chờn)
+      if (refreshResult === '__FATAL_AUTH__') {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
           await supabase.auth.signOut();
           if (Platform.OS === 'android') {
             const { ToastAndroid } = require('react-native');
             ToastAndroid.show('Phiên làm việc hết hạn. Vui lòng đăng nhập lại.', ToastAndroid.LONG);
           }
           router.replace('/(auth)/login');
-        } catch (err) {
-          console.error('Lỗi khi đăng xuất từ middleware:', err);
-          router.replace('/(auth)/login');
         }
       }
+    } catch (err) {
+      console.warn('[API Middleware] Không thể làm mới token khi gặp 401:', err);
     }
-    
-    return response;
-  } catch (error) {
-    throw error;
   }
+
+  return response;
 };
 
 // Hàm tiện ích tạo Headers chuẩn hóa chứa Supabase JWT Token 

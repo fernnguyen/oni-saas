@@ -141,8 +141,9 @@ export class SyncManager {
         ];
       }
 
-      // Bản đồ hóa các active order theo resource_id để tra cứu nhanh
+      // Bản đồ hóa các active order theo order.id và resource_id để tra cứu chính xác
       const activeOrdersMap = new Map<string, any>();
+      const activeOrdersByIdMap = new Map<string, any>();
       for (const order of activeOrders) {
         let meta: Record<string, any> = {};
         try {
@@ -152,11 +153,46 @@ export class SyncManager {
           }
         } catch (e) {}
 
-        const rId = order.resource_id || meta.resource_id;
-        if (rId) {
+        const orderId = order.id || order.order_id;
+        if (orderId) {
+          activeOrdersByIdMap.set(orderId, { order, meta });
+        }
+
+        // Ưu tiên meta.resource_id (luôn cập nhật khi chuyển bàn trên Web/Mobile) hoặc order.resource_id
+        const rId = meta.resource_id || order.resource_id;
+        if (rId && !activeOrdersMap.has(rId)) {
           activeOrdersMap.set(rId, { order, meta });
         }
       }
+
+      // Bảo vệ các bàn vừa mở ngoại tuyến/đang đồng bộ dở (sync_status = 'pending' hoặc ORD-T-INPROG-)
+      // VÀ bảo vệ các bàn vừa thanh toán xong đang chờ đồng bộ completed order (không để cloud cũ ghi đè lại thành occupied)
+      const localPendingTableMap = new Map<string, any>();
+      const localPendingPaidTableMap = new Map<string, any>();
+      try {
+        const existingLocalResources = await db.select().from(schema.location_resources);
+        const pendingOrders = await db.select().from(schema.orders).where(eq(schema.orders.sync_status, 'pending'));
+        const pendingByResId = new Map<string, any>();
+        const pendingCompletedByResId = new Map<string, any>();
+        for (const po of pendingOrders) {
+          if (po.status === 'in_progress' && po.resource_id) {
+            pendingByResId.set(po.resource_id, po);
+          } else if (po.status === 'completed' && po.resource_id) {
+            pendingCompletedByResId.set(po.resource_id, po);
+          }
+        }
+        for (const lr of existingLocalResources) {
+          const isOccupiedLocal = lr.status === 'occupied' || lr.status === 'playing';
+          const hasLocalInprogOrder =
+            (lr.current_order_id && String(lr.current_order_id).startsWith('ORD-T-INPROG-')) ||
+            pendingByResId.has(lr.id);
+          if (isOccupiedLocal && hasLocalInprogOrder) {
+            localPendingTableMap.set(lr.id, lr);
+          } else if (!isOccupiedLocal && pendingCompletedByResId.has(lr.id)) {
+            localPendingPaidTableMap.set(lr.id, lr);
+          }
+        }
+      } catch (e) {}
 
       // --- BƯỚC E: LƯU TRỮ VÀO SQLITE NỘI ĐỊA CỦA ĐIỆN THOẠI (Drizzle Transaction) ---
       console.log('Đang ghi dữ liệu đồng bộ vào SQLite nội địa...');
@@ -274,25 +310,37 @@ export class SyncManager {
         if (rawTables.length > 0) {
           for (const table of rawTables) {
             const rate = parseInt(table.hourly_rate || '0', 10);
-            const isOccupied = table.status === 'occupied' || table.status === 'playing';
+            const tId = table.id || table.resource_id;
+            const localPendingTable = localPendingTableMap.get(tId);
+            const localPendingPaidTable = localPendingPaidTableMap.get(tId);
+            const cloudOccupied = !localPendingPaidTable && (table.status === 'occupied' || table.status === 'playing');
+            const isOccupied = cloudOccupied || Boolean(localPendingTable);
             const resolvedStatus = isOccupied
               ? 'occupied'
-              : ['available', 'reserved', 'dirty', 'cleaning', 'maintenance'].includes(table.status)
-                ? table.status
-                : 'available';
-            const tId = table.id || table.resource_id;
-            const activeOrderSession = activeOrdersMap.get(tId);
+              : localPendingPaidTable?.status
+                ? localPendingPaidTable.status
+                : ['available', 'reserved', 'dirty', 'cleaning', 'maintenance'].includes(table.status)
+                  ? table.status
+                  : 'available';
+            const activeOrderSession =
+              isOccupied
+                ? ((table.current_order_id ? activeOrdersByIdMap.get(table.current_order_id) : undefined) ||
+                   (cloudOccupied ? activeOrdersMap.get(tId) : undefined))
+                : undefined;
             
             let resolvedStartTime: number | null = null;
             let mergedMetadata = typeof table.metadata === 'object' ? JSON.stringify(table.metadata) : (table.metadata || '{}');
+            let tableMetaObj: Record<string, any> = {};
+            try {
+              tableMetaObj = JSON.parse(mergedMetadata);
+            } catch (e) {}
             
-            if (isOccupied && activeOrderSession) {
-              const checkInStr = activeOrderSession.meta.check_in;
+            if (cloudOccupied && activeOrderSession) {
+              const checkInStr = activeOrderSession.meta.check_in || tableMetaObj.check_in || activeOrderSession.order.created_at;
               if (checkInStr) {
                 resolvedStartTime = new Date(checkInStr).getTime();
               }
               try {
-                const tableMetaObj = JSON.parse(mergedMetadata);
                 const cloudGuests = activeOrderSession.meta.guests_list || tableMetaObj.guests_list || [];
                 mergedMetadata = JSON.stringify({
                   ...tableMetaObj,
@@ -302,18 +350,46 @@ export class SyncManager {
                   guests_list: cloudGuests
                 });
               } catch (e) {}
+            } else if (cloudOccupied && tableMetaObj.check_in) {
+              resolvedStartTime = new Date(tableMetaObj.check_in).getTime();
+            } else if (!cloudOccupied && localPendingTable) {
+              resolvedStartTime = localPendingTable.startTime ? Number(localPendingTable.startTime) : Date.now();
+              mergedMetadata = localPendingTable.metadata || mergedMetadata;
+            } else if (!isOccupied) {
+              resolvedStartTime = null;
+              if (localPendingPaidTable?.metadata) {
+                mergedMetadata = localPendingPaidTable.metadata;
+              } else if (tableMetaObj.check_in || tableMetaObj.check_in_time) {
+                const cleanedMeta = { ...tableMetaObj };
+                delete cleanedMeta.check_in;
+                delete cleanedMeta.check_in_time;
+                delete cleanedMeta.temp_checkout_time;
+                delete cleanedMeta.actual_checkout_requested_at;
+                delete cleanedMeta.original_start_time;
+                delete cleanedMeta.original_temp_checkout_time;
+                delete cleanedMeta.guests;
+                delete cleanedMeta.guests_list;
+                delete cleanedMeta.num_guests;
+                mergedMetadata = JSON.stringify(cleanedMeta);
+              }
             }
             
-            if (isOccupied && !resolvedStartTime) {
-              resolvedStartTime = Date.now() - 3600000;
+            if (isOccupied && (!resolvedStartTime || isNaN(resolvedStartTime))) {
+              resolvedStartTime = Date.now();
             }
+
+            const resolvedCurrentOrderId = isOccupied
+              ? (table.current_order_id ||
+                 (activeOrderSession ? (activeOrderSession.order.id || activeOrderSession.order.order_id) : null) ||
+                 (localPendingTable ? localPendingTable.current_order_id : null))
+              : null;
 
             await tx.insert(schema.location_resources).values({
               id: tId,
               name: table.name || '',
               type: table.type || 'table',
               status: resolvedStatus,
-              current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
+              current_order_id: resolvedCurrentOrderId,
               hourly_rate: isNaN(rate) ? 0 : rate,
               zone: table.zone || null,
               startTime: resolvedStartTime,
@@ -324,7 +400,7 @@ export class SyncManager {
                 name: table.name || '',
                 type: table.type || 'table',
                 status: resolvedStatus,
-                current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
+                current_order_id: resolvedCurrentOrderId,
                 hourly_rate: isNaN(rate) ? 0 : rate,
                 zone: table.zone || null,
                 startTime: resolvedStartTime,
@@ -1380,6 +1456,9 @@ export class SyncManager {
   static async pullTableLayoutAndActiveOrders(shopId: string): Promise<boolean> {
     try {
       console.log(`[Sync] Bắt đầu đồng bộ riêng Sơ đồ bàn & Đơn hàng đang chạy cho: ${shopId}...`);
+      // Đẩy các đơn hàng ngoại tuyến/đang chờ đồng bộ lên trước khi kéo sơ đồ bàn về
+      await SyncManager.pushOfflineOrders(shopId).catch(() => {});
+
       const headers = await getApiHeaders();
       const baseUrl = getApiBaseUrl();
 
@@ -1392,8 +1471,9 @@ export class SyncManager {
       const rawTables = (tableData.data || []).filter((table: any) => table.status !== 'deleted');
       const activeOrders = activeOrdersData.data || [];
 
-      // Bản đồ hóa các active order theo resource_id để tra cứu nhanh
+      // Bản đồ hóa các active order theo order.id và resource_id để tra cứu chính xác
       const activeOrdersMap = new Map<string, any>();
+      const activeOrdersByIdMap = new Map<string, any>();
       for (const order of activeOrders) {
         let meta: Record<string, any> = {};
         try {
@@ -1403,11 +1483,46 @@ export class SyncManager {
           }
         } catch (e) {}
 
-        const rId = order.resource_id || meta.resource_id;
-        if (rId) {
+        const orderId = order.id || order.order_id;
+        if (orderId) {
+          activeOrdersByIdMap.set(orderId, { order, meta });
+        }
+
+        // Ưu tiên meta.resource_id (luôn cập nhật khi chuyển bàn trên Web/Mobile) hoặc order.resource_id
+        const rId = meta.resource_id || order.resource_id;
+        if (rId && !activeOrdersMap.has(rId)) {
           activeOrdersMap.set(rId, { order, meta });
         }
       }
+
+      // Bảo vệ các bàn vừa mở ngoại tuyến/đang đồng bộ dở (sync_status = 'pending' hoặc ORD-T-INPROG-)
+      // VÀ bảo vệ các bàn vừa thanh toán xong đang chờ đồng bộ completed order (không để cloud cũ ghi đè lại thành occupied)
+      const localPendingTableMap = new Map<string, any>();
+      const localPendingPaidTableMap = new Map<string, any>();
+      try {
+        const existingLocalResources = await db.select().from(schema.location_resources);
+        const pendingOrders = await db.select().from(schema.orders).where(eq(schema.orders.sync_status, 'pending'));
+        const pendingByResId = new Map<string, any>();
+        const pendingCompletedByResId = new Map<string, any>();
+        for (const po of pendingOrders) {
+          if (po.status === 'in_progress' && po.resource_id) {
+            pendingByResId.set(po.resource_id, po);
+          } else if (po.status === 'completed' && po.resource_id) {
+            pendingCompletedByResId.set(po.resource_id, po);
+          }
+        }
+        for (const lr of existingLocalResources) {
+          const isOccupiedLocal = lr.status === 'occupied' || lr.status === 'playing';
+          const hasLocalInprogOrder =
+            (lr.current_order_id && String(lr.current_order_id).startsWith('ORD-T-INPROG-')) ||
+            pendingByResId.has(lr.id);
+          if (isOccupiedLocal && hasLocalInprogOrder) {
+            localPendingTableMap.set(lr.id, lr);
+          } else if (!isOccupiedLocal && pendingCompletedByResId.has(lr.id)) {
+            localPendingPaidTableMap.set(lr.id, lr);
+          }
+        }
+      } catch (e) {}
 
       // Ghi dữ liệu vào SQLite sử dụng duy nhất một Transaction để tối ưu hiệu năng
       await db.transaction(async (tx: any) => {
@@ -1416,25 +1531,37 @@ export class SyncManager {
         if (rawTables.length > 0) {
           for (const table of rawTables) {
             const rate = parseInt(table.hourly_rate || '0', 10);
-            const isOccupied = table.status === 'occupied' || table.status === 'playing';
+            const tId = table.id || table.resource_id;
+            const localPendingTable = localPendingTableMap.get(tId);
+            const localPendingPaidTable = localPendingPaidTableMap.get(tId);
+            const cloudOccupied = !localPendingPaidTable && (table.status === 'occupied' || table.status === 'playing');
+            const isOccupied = cloudOccupied || Boolean(localPendingTable);
             const resolvedStatus = isOccupied
               ? 'occupied'
-              : ['available', 'reserved', 'dirty', 'cleaning', 'maintenance'].includes(table.status)
-                ? table.status
-                : 'available';
-            const tId = table.id || table.resource_id;
-            const activeOrderSession = activeOrdersMap.get(tId);
+              : localPendingPaidTable?.status
+                ? localPendingPaidTable.status
+                : ['available', 'reserved', 'dirty', 'cleaning', 'maintenance'].includes(table.status)
+                  ? table.status
+                  : 'available';
+            const activeOrderSession =
+              isOccupied
+                ? ((table.current_order_id ? activeOrdersByIdMap.get(table.current_order_id) : undefined) ||
+                   (cloudOccupied ? activeOrdersMap.get(tId) : undefined))
+                : undefined;
             
             let resolvedStartTime: number | null = null;
             let mergedMetadata = typeof table.metadata === 'object' ? JSON.stringify(table.metadata) : (table.metadata || '{}');
+            let tableMetaObj: Record<string, any> = {};
+            try {
+              tableMetaObj = JSON.parse(mergedMetadata);
+            } catch (e) {}
             
-            if (isOccupied && activeOrderSession) {
-              const checkInStr = activeOrderSession.meta.check_in;
+            if (cloudOccupied && activeOrderSession) {
+              const checkInStr = activeOrderSession.meta.check_in || tableMetaObj.check_in || activeOrderSession.order.created_at;
               if (checkInStr) {
                 resolvedStartTime = new Date(checkInStr).getTime();
               }
               try {
-                const tableMetaObj = JSON.parse(mergedMetadata);
                 const cloudGuests = activeOrderSession.meta.guests_list || tableMetaObj.guests_list || [];
                 mergedMetadata = JSON.stringify({
                   ...tableMetaObj,
@@ -1444,18 +1571,46 @@ export class SyncManager {
                   guests_list: cloudGuests
                 });
               } catch (e) {}
+            } else if (cloudOccupied && tableMetaObj.check_in) {
+              resolvedStartTime = new Date(tableMetaObj.check_in).getTime();
+            } else if (!cloudOccupied && localPendingTable) {
+              resolvedStartTime = localPendingTable.startTime ? Number(localPendingTable.startTime) : Date.now();
+              mergedMetadata = localPendingTable.metadata || mergedMetadata;
+            } else if (!isOccupied) {
+              resolvedStartTime = null;
+              if (localPendingPaidTable?.metadata) {
+                mergedMetadata = localPendingPaidTable.metadata;
+              } else if (tableMetaObj.check_in || tableMetaObj.check_in_time) {
+                const cleanedMeta = { ...tableMetaObj };
+                delete cleanedMeta.check_in;
+                delete cleanedMeta.check_in_time;
+                delete cleanedMeta.temp_checkout_time;
+                delete cleanedMeta.actual_checkout_requested_at;
+                delete cleanedMeta.original_start_time;
+                delete cleanedMeta.original_temp_checkout_time;
+                delete cleanedMeta.guests;
+                delete cleanedMeta.guests_list;
+                delete cleanedMeta.num_guests;
+                mergedMetadata = JSON.stringify(cleanedMeta);
+              }
             }
             
-            if (isOccupied && !resolvedStartTime) {
-              resolvedStartTime = Date.now() - 3600000;
+            if (isOccupied && (!resolvedStartTime || isNaN(resolvedStartTime))) {
+              resolvedStartTime = Date.now();
             }
+
+            const resolvedCurrentOrderId = isOccupied
+              ? (table.current_order_id ||
+                 (activeOrderSession ? (activeOrderSession.order.id || activeOrderSession.order.order_id) : null) ||
+                 (localPendingTable ? localPendingTable.current_order_id : null))
+              : null;
 
             await tx.insert(schema.location_resources).values({
               id: tId,
               name: table.name || '',
               type: table.type || 'table',
               status: resolvedStatus,
-              current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
+              current_order_id: resolvedCurrentOrderId,
               hourly_rate: isNaN(rate) ? 0 : rate,
               zone: table.zone || null,
               startTime: resolvedStartTime,
@@ -1466,7 +1621,7 @@ export class SyncManager {
                 name: table.name || '',
                 type: table.type || 'table',
                 status: resolvedStatus,
-                current_order_id: table.current_order_id || (activeOrderSession ? activeOrderSession.order.id : null),
+                current_order_id: resolvedCurrentOrderId,
                 hourly_rate: isNaN(rate) ? 0 : rate,
                 zone: table.zone || null,
                 startTime: resolvedStartTime,

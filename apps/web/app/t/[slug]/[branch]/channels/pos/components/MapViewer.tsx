@@ -122,7 +122,7 @@ export default function MapViewer({
     return activeZoneResources.filter(r => tableLayouts[r.id] !== undefined)
   }, [activeZoneResources, tableLayouts])
 
-  // Map orders for fast lookup
+  // Map orders for fast lookup (inProgressOrders is sorted newest-first; never overwrite newer session with older orphan)
   const ordersMap = useMemo(() => {
     const map = new Map<string, OrderData>()
     for (const order of inProgressOrders) {
@@ -130,8 +130,9 @@ export default function MapViewer({
       // Also index by resource_id inside metadata if present
       try {
         const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {})
-        if (meta.resource_id) {
-          map.set(`res-${meta.resource_id}`, order)
+        const rId = meta.resource_id || (order as any).resource_id
+        if (rId && !map.has(`res-${rId}`)) {
+          map.set(`res-${rId}`, order)
         }
       } catch {}
     }

@@ -4,7 +4,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 
 type RealtimePayload = {
-  event: 'TABLE_UPDATED' | 'ORDER_COMPLETED' | 'NEW_ORDER';
+  event:
+    | 'TABLE_UPDATED'
+    | 'TABLE_OPENED'
+    | 'TABLE_PAID'
+    | 'TABLE_CANCELLED'
+    | 'TABLE_TRANSFERRED'
+    | 'TABLE_MERGED'
+    | 'TABLE_CLEANED'
+    | 'ORDER_COMPLETED'
+    | 'NEW_ORDER'
+    | string;
   tableId?: string;
   orderId?: string;
   source: string;
@@ -12,8 +22,9 @@ type RealtimePayload = {
 
 export function useRealtimeSync(activeShopId: string, isOnline: boolean, onSyncRequired: (payload?: any) => void) {
   const channelRef = useRef<any>(null);
-  const [isEnabled, setIsEnabled] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(true);
   const syncCallbackRef = useRef(onSyncRequired);
+  const deviceSourceIdRef = useRef(`mobile_app_${Math.random().toString(36).slice(2, 10)}`);
 
   useEffect(() => {
     syncCallbackRef.current = onSyncRequired;
@@ -26,13 +37,15 @@ export function useRealtimeSync(activeShopId: string, isOnline: boolean, onSyncR
       if (!isOnline || !activeShopId) return;
 
       try {
-        // Fetch settings from API to check if realtime sync is enabled globally
+        // Fetch settings from API; default to enabled unless explicitly set to false
         const currentUrl = getApiBaseUrl();
         const headers = await getApiHeaders();
         const res = await fetch(`${currentUrl}/api/shops/${activeShopId}/settings`, { headers });
         if (res.ok) {
           const settings = await res.json();
-          if (isMounted) setIsEnabled(!!settings.enable_realtime_sync);
+          const explicitlyDisabled =
+            settings.enable_realtime_sync === false || settings.enable_realtime_sync === 'false';
+          if (isMounted) setIsEnabled(!explicitlyDisabled);
         }
       } catch (e) {
         console.warn('Cannot fetch shop settings for realtime sync', e);
@@ -55,8 +68,8 @@ export function useRealtimeSync(activeShopId: string, isOnline: boolean, onSyncR
       channelRef.current
         .on('broadcast', { event: 'sync_event' }, (payload: any) => {
           console.log('[RealtimeSync] Received sync event:', payload);
-          // Only trigger if source is not this device
-          if (payload?.payload?.source !== 'mobile_app') {
+          // Only trigger if source is not this exact device instance
+          if (payload?.payload?.source !== deviceSourceIdRef.current) {
             syncCallbackRef.current(payload?.payload);
           }
         })
@@ -82,7 +95,7 @@ export function useRealtimeSync(activeShopId: string, isOnline: boolean, onSyncR
         event: 'sync_event',
         payload: {
           ...payload,
-          source: 'mobile_app'
+          source: deviceSourceIdRef.current
         }
       });
       console.log('[RealtimeSync] Broadcasted sync event:', payload);

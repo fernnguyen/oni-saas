@@ -4,6 +4,11 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import { resourceUpdateSchema } from '@/lib/validators/resources'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
+import {
+  cleanResourceSessionMetadata,
+  cancelOrphanedInProgressOrdersForResource,
+  parseMetadataSafe,
+} from '@/lib/server/tableSessionReconciler'
 
 export async function GET(
   req: NextRequest,
@@ -49,10 +54,35 @@ export async function PATCH(
     // Force strict branch scoping on write
     data.branch_id = shopId
 
+    // Self-healing metadata & session cleanup when releasing or occupying a table/room
+    const isReleasing = data.status === 'available' || data.status === 'dirty' || data.status === 'cleaning'
+    const isOccupying = data.status === 'occupied' || data.status === 'playing'
+
+    if (isReleasing) {
+      data.current_order_id = ''
+      data.metadata = cleanResourceSessionMetadata(data.metadata ?? current.metadata, {
+        last_checkout_time: new Date().toISOString(),
+      })
+    } else if (isOccupying && current.status !== 'occupied' && current.status !== 'playing') {
+      const incomingMeta = parseMetadataSafe(data.metadata ?? current.metadata)
+      if (!data.metadata || !incomingMeta.check_in) {
+        const cleanedBase = parseMetadataSafe(cleanResourceSessionMetadata(current.metadata))
+        data.metadata = JSON.stringify({
+          ...cleanedBase,
+          ...incomingMeta,
+          check_in: incomingMeta.check_in || new Date().toISOString(),
+        })
+      }
+    }
+
     const updated = await connector.update('location-resources', id, data)
 
+    if (isReleasing) {
+      await cancelOrphanedInProgressOrdersForResource(connector, shopId, id)
+    }
+
     // Automatically complete active/pending QR sessions when table becomes available or enters cleaning
-    if (data.status === 'available' || data.status === 'cleaning') {
+    if (data.status === 'available' || data.status === 'cleaning' || data.status === 'dirty') {
       try {
         const { getSupabaseAdminClient } = await import('@/lib/server/supabaseAdmin')
         const admin = getSupabaseAdminClient()

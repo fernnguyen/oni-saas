@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { SyncManager } from '../../lib/sync/SyncManager';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import { getSystemTaxGroups } from '../../lib/utils/tax';
@@ -3401,17 +3401,64 @@ export default function PosScreen() {
                             const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
                             let syncSucceeded = false;
 
+                            let cleanedCancelledMeta = '{}';
+                            try {
+                              const parsedMeta = typeof activeTable.metadata === 'string'
+                                ? JSON.parse(activeTable.metadata || '{}')
+                                : (activeTable.metadata || {});
+                              if (parsedMeta && typeof parsedMeta === 'object' && !Array.isArray(parsedMeta)) {
+                                const copy = { ...parsedMeta };
+                                delete copy.check_in;
+                                delete copy.check_in_time;
+                                delete copy.temp_checkout_time;
+                                delete copy.actual_checkout_requested_at;
+                                delete copy.original_start_time;
+                                delete copy.original_temp_checkout_time;
+                                delete copy.guests;
+                                delete copy.guests_list;
+                                delete copy.num_guests;
+                                delete copy.expected_checkout;
+                                delete copy.customer_phone;
+                                delete copy.customer_address;
+                                delete copy.note;
+                                cleanedCancelledMeta = JSON.stringify(copy);
+                              }
+                            } catch (e) {}
+
+                            const latestTableOrderId =
+                              tables.find(t => t.id === activeTable.id)?.current_order_id ||
+                              activeTable.current_order_id ||
+                              '';
+
                             // 1. Đồng bộ cục bộ (Offline-First)
                             if (Platform.OS === 'web') {
-                              setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, status: 'available', startTime: null } : t));
+                              setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, status: 'available', startTime: null, current_order_id: null, metadata: cleanedCancelledMeta } : t));
                             } else {
-                              if (activeTable.current_order_id) {
-                                await db.delete(schema.orders).where(eq(schema.orders.id, activeTable.current_order_id));
-                                await db.delete(schema.order_items).where(eq(schema.order_items.order_id, activeTable.current_order_id));
+                              const orderIdsToRemove = new Set<string>();
+                              if (activeTable.current_order_id) orderIdsToRemove.add(activeTable.current_order_id);
+                              if (latestTableOrderId) orderIdsToRemove.add(latestTableOrderId);
+                              try {
+                                const localInProg = await db
+                                  .select()
+                                  .from(schema.orders)
+                                  .where(
+                                    and(
+                                      eq(schema.orders.resource_id, activeTable.id),
+                                      eq(schema.orders.status, 'in_progress')
+                                    )
+                                  );
+                                for (const o of localInProg) {
+                                  if (o.id) orderIdsToRemove.add(o.id);
+                                }
+                              } catch (e) {}
+
+                              for (const oid of orderIdsToRemove) {
+                                await db.delete(schema.orders).where(eq(schema.orders.id, oid));
+                                await db.delete(schema.order_items).where(eq(schema.order_items.order_id, oid));
                               }
                               await db
                                 .update(schema.location_resources)
-                                .set({ status: 'available', startTime: null, current_order_id: null })
+                                .set({ status: 'available', startTime: null, current_order_id: null, metadata: cleanedCancelledMeta })
                                 .where(eq(schema.location_resources.id, activeTable.id));
                               const updated = await db.select().from(schema.location_resources);
                               setTables(updated);
@@ -3423,27 +3470,29 @@ export default function PosScreen() {
                               const headers = await getApiHeaders();
 
                               // A. Hủy order in_progress trên Next.js Server
-                              if (activeTable.current_order_id) {
-                                await fetch(`${currentUrl}/api/shops/${shopId}/orders/${activeTable.current_order_id}/cancel`, {
+                              if (latestTableOrderId && !String(latestTableOrderId).startsWith('ORD-T-INPROG-')) {
+                                await fetch(`${currentUrl}/api/shops/${shopId}/orders/${latestTableOrderId}/cancel`, {
                                   method: 'POST',
                                   headers: { ...headers, 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ reason: 'Hủy từ di động' })
                                 });
                               }
 
-                              // B. Patch trạng thái bàn về available
+                              // B. Patch trạng thái bàn về available (trên Server cũng sẽ tự động hủy mọi đơn in_progress mồ côi của bàn này)
                               const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${activeTable.id}`, {
                                 method: 'PATCH',
                                 headers: { ...headers, 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
                                   status: 'available',
                                   current_order_id: '',
-                                  startTime: null
+                                  startTime: null,
+                                  metadata: cleanedCancelledMeta,
                                 }),
                               });
                               if (patchRes.ok) {
                                 syncSucceeded = true;
                               }
+                              broadcastSync?.({ event: 'TABLE_UPDATED', tableId: activeTable.id });
                             } catch (syncErr) {
                               console.log('Mất mạng hoặc lỗi server, bỏ qua hủy trực tiếp:', syncErr);
                             }

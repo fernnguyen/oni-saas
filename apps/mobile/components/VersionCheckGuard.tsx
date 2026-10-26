@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, Modal, TouchableOpacity, Linking, Platform, ActivityIndicator, Image, Alert } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, Modal, TouchableOpacity, Linking, Platform, ActivityIndicator, Image, Alert, AppState } from 'react-native';
 import * as Application from 'expo-application';
 import * as Updates from 'expo-updates';
 import { Feather, Ionicons } from '@expo/vector-icons';
@@ -34,12 +34,20 @@ export function VersionCheckGuard({ children }: { children: React.ReactNode }) {
   const [otaDownloading, setOtaDownloading] = useState(false);
   const [otaMinimized, setOtaMinimized] = useState(false);
   const [otaReady, setOtaReady] = useState(false);
+  const lastCheckAtRef = useRef<number>(0);
 
   useEffect(() => {
     checkVersions();
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && Date.now() - lastCheckAtRef.current > 3 * 60 * 1000) {
+        checkVersions();
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   const checkVersions = async () => {
+    lastCheckAtRef.current = Date.now();
     try {
       // 1. Get remote config from API endpoint
       const apiUrl = `${getApiBaseUrl()}/api/mobile/version`;
@@ -67,8 +75,8 @@ export function VersionCheckGuard({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // 3. Check OTA Update if enabled
-      if (config.ota_enabled && !__DEV__) {
+      // 3. Check OTA Update if enabled (default true unless explicitly disabled)
+      if (config.ota_enabled !== false && !__DEV__) {
         try {
           const updateCheck = await Updates.checkForUpdateAsync();
           if (updateCheck.isAvailable) {

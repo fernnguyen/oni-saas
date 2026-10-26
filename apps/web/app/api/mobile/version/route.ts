@@ -14,10 +14,12 @@ export async function GET() {
       .single()
 
     const config = data?.config || {}
-    const mobileVersion = config.mobile_version || {
-      ios: { min_version: '1.0.0', latest_version: '1.0.0', store_url: '' },
-      android: { min_version: '1.0.0', latest_version: '1.0.0', store_url: '' },
-      ota_enabled: true
+    const rawMobileVersion = config.mobile_version || {}
+    const mobileVersion = {
+      ios: { min_version: '1.0.0', latest_version: '1.0.0', store_url: '', ...(rawMobileVersion.ios || {}) },
+      android: { min_version: '1.0.0', latest_version: '1.0.0', store_url: '', ...(rawMobileVersion.android || {}) },
+      ...rawMobileVersion,
+      ota_enabled: rawMobileVersion.ota_enabled !== false,
     }
 
     // Configure CORS so mobile app can fetch without issues

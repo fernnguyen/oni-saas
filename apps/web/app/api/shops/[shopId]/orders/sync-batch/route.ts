@@ -13,6 +13,12 @@ const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
 
 import { getGMT7Time, isTimeChargeProduct } from '@oni/core'
+import {
+  cleanResourceSessionMetadata,
+  cancelOrphanedInProgressOrdersForResource,
+  parseMetadataSafe,
+  resolveOrderResourceId,
+} from '@/lib/server/tableSessionReconciler'
 
 function calcDelta(type: string, qty: number): number {
   if (INBOUND_TYPES.includes(type)) return Math.abs(qty)
@@ -292,6 +298,39 @@ export async function POST(
         return ''
       }
     })()
+
+    // Self-healing table order resolution:
+    // If the client paid or updated a physical table using a temporary local ID (e.g. ORD-T-INPROG-...)
+    // while the server already has an active `in_progress` order on that table, reuse that server order
+    // instead of creating a duplicate order and leaving a zombie `in_progress` session behind!
+    if (!serverId && resolvedResourceId && !resolvedResourceId.startsWith('takeaway')) {
+      try {
+        const resourceRow = await connector.findById('location-resources', resolvedResourceId)
+        if (resourceRow?.current_order_id) {
+          const currentOrd = await connector.findById('orders', String(resourceRow.current_order_id)).catch(() => null)
+          if (currentOrd && currentOrd.status === 'in_progress') {
+            serverId = String((currentOrd as Record<string, string>).order_id || (currentOrd as Record<string, string>).id || resourceRow.current_order_id)
+            orderNo = String((currentOrd as Record<string, string>).order_no || '')
+          }
+        }
+        if (!serverId) {
+          const inProgList = await connector.list('orders', {
+            page: 1,
+            limit: 50,
+            filters: { status: 'in_progress' },
+          })
+          const matchedInProg = ((inProgList.data || []) as Record<string, any>[]).find(
+            (o) => resolveOrderResourceId(o) === resolvedResourceId
+          )
+          if (matchedInProg) {
+            serverId = String(matchedInProg.order_id || matchedInProg.id || '')
+            orderNo = String(matchedInProg.order_no || '')
+          }
+        }
+      } catch (err) {
+        console.warn('[sync-batch] Table in_progress order lookup warning:', err)
+      }
+    }
 
     if (!serverId) {
       isNewOrder = true
@@ -1159,19 +1198,22 @@ export async function POST(
       try {
         const resourceId = resolvedResourceId
         if (resourceId && !resourceId.startsWith('takeaway')) {
+          // Cancel any other lingering in_progress orders on this table so zero zombie sessions remain
+          await cancelOrphanedInProgressOrdersForResource(connector, shopId, resourceId, serverId)
+
           const resource = await connector.findById('location-resources', resourceId)
           if (resource) {
-            const currentOrderId = resource.current_order_id
-            if (!currentOrderId || currentOrderId === serverId || currentOrderId === local_order_id) {
-              const releaseStatus = settings?.skip_cleaning_process ? 'available' : 'dirty'
-              const currentMeta = typeof resource.metadata === 'string' ? JSON.parse(resource.metadata) : (resource.metadata || {})
-              await connector.update('location-resources', resourceId, {
-                status: releaseStatus,
-                current_order_id: '',
-                metadata: JSON.stringify({ ...currentMeta, last_checkout_time: new Date().toISOString() })
-              })
-              invalidate(shopId, 'location-resources')
-            }
+            const isRoomResource = resource.type === 'room' || settings?.industry_type === 'lodging'
+            const releaseStatus = (!isRoomResource || settings?.skip_cleaning_process) ? 'available' : 'dirty'
+            const cleanedMeta = cleanResourceSessionMetadata(resource.metadata, {
+              last_checkout_time: new Date().toISOString(),
+            })
+            await connector.update('location-resources', resourceId, {
+              status: releaseStatus,
+              current_order_id: '',
+              metadata: cleanedMeta,
+            })
+            invalidate(shopId, 'location-resources')
           }
         }
       } catch (err) {
@@ -1182,30 +1224,26 @@ export async function POST(
     // --- Auto Occupy Table Logic ---
     if (order.status === 'in_progress' && resolvedResourceId) {
       try {
-        let metaObj: Record<string, any> = {}
-        if (order.metadata) {
-          try {
-            const parsed = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : order.metadata
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-              metaObj = parsed
-            }
-          } catch {}
-        }
+        const metaObj = parseMetadataSafe(order.metadata)
         const resourceId = resolvedResourceId
         if (resourceId && !resourceId.startsWith('takeaway')) {
+          await cancelOrphanedInProgressOrdersForResource(connector, shopId, resourceId, serverId)
+
           const resource = await connector.findById('location-resources', resourceId)
           if (resource) {
             const checkInVal = metaObj.check_in || getGMT7Time()
+            const cleanedResBase = parseMetadataSafe(cleanResourceSessionMetadata(resource.metadata))
             await connector.update('location-resources', resourceId, {
               status: 'occupied',
               current_order_id: serverId,
               metadata: JSON.stringify({
-                ...typeof resource.metadata === 'string' ? JSON.parse(resource.metadata) : (resource.metadata || {}),
+                ...cleanedResBase,
+                ...metaObj,
                 check_in: checkInVal,
                 guests_list: metaObj.guests_list || [],
                 num_guests: metaObj.num_guests || 1,
                 rental_type: metaObj.rental_type || 'hourly',
-              })
+              }),
             })
             invalidate(shopId, 'location-resources')
           }

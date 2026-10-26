@@ -68,16 +68,24 @@ export const resourceCreateSchema = z.object({
 export const resourceUpdateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   type: z.enum(['table', 'court', 'room']).optional(),
-  status: z.enum(['available', 'occupied', 'cleaning', 'reserved', 'maintenance', 'deleted']).optional(),
-  current_order_id: z.string().optional(),
+  status: z.enum(['available', 'occupied', 'playing', 'cleaning', 'dirty', 'checking_out', 'inspected', 'reserved', 'maintenance', 'deleted']).optional(),
+  current_order_id: z.string().nullable().optional(),
   zone: z.string().max(100).optional(),
-  capacity: z.string().optional(),
-  hourly_rate: z.string().optional(),
-  sort_order: z.string().optional(),
-  metadata: z.string().optional(),
+  capacity: z.union([z.string(), z.number()]).optional(),
+  hourly_rate: z.union([z.string(), z.number()]).optional(),
+  sort_order: z.union([z.string(), z.number()]).optional(),
+  metadata: z.union([z.string(), z.record(z.string(), z.any())]).nullable().optional(),
 }).transform((data) => {
   const result: Record<string, string> = {}
   for (const [key, value] of Object.entries(data)) {
+    if (key === 'current_order_id' && value === null) {
+      result[key] = ''
+      continue
+    }
+    if (key === 'metadata' && value !== undefined && value !== null) {
+      result[key] = typeof value === 'string' ? value : JSON.stringify(value)
+      continue
+    }
     if (value !== undefined && value !== null) {
       result[key] = String(value)
     }

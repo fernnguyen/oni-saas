@@ -179,11 +179,15 @@ function LiveOccupiedDetails({ resource, activeOrder, hasHourlyBilling, shopSett
       // hourly
       import('@oni/core').then(({ calculateHourlyBilling }) => {
         const hourlyRate = Number(resource.hourly_rate) || 0
+        const resolvedChargeByMinute = rmd.advanced_pricing?.charge_by_minute ?? rmd.charge_by_minute
+        const effectiveConfig = resolvedChargeByMinute !== undefined
+          ? { ...(rmd.advanced_pricing || {}), charge_by_minute: Boolean(resolvedChargeByMinute) }
+          : rmd.advanced_pricing
         const pricingResult = calculateHourlyBilling({
           checkIn: checkInDate,
           checkOut: new Date(now),
           standardRate: hourlyRate,
-          config: rmd.advanced_pricing
+          config: effectiveConfig
         })
         const totalMins = Math.ceil(diffMs / 60000)
         setBillingDetails({
@@ -332,24 +336,27 @@ export function TableMapPOS({
   const activeShift = openShiftData?.data?.[0] || null
   const hasActiveShift = !!activeShift
   const syncChannelRef = useRef<any>(null)
+  const webClientSourceRef = useRef(`web_app_${Math.random().toString(36).slice(2, 10)}`)
   const [syncTick, setSyncTick] = useState(0)
+  const isRealtimeSyncEnabled =
+    shopSettings?.enable_realtime_sync !== false && shopSettings?.enable_realtime_sync !== 'false'
 
   // Broadcast helper
   const broadcastSyncEvent = useCallback(async (eventAction: string = 'ORDER_UPDATED', payloadOverrides: any = {}) => {
-    console.log('[TableMapPOS] Attempting broadcastSyncEvent:', eventAction, payloadOverrides, 'Realtime enabled:', shopSettings?.enable_realtime_sync, 'Channel exists:', !!syncChannelRef.current);
-    if (shopSettings?.enable_realtime_sync && syncChannelRef.current) {
+    console.log('[TableMapPOS] Attempting broadcastSyncEvent:', eventAction, payloadOverrides, 'Realtime enabled:', isRealtimeSyncEnabled, 'Channel exists:', !!syncChannelRef.current);
+    if (isRealtimeSyncEnabled && syncChannelRef.current) {
       try {
         const resp = await syncChannelRef.current.send({
           type: 'broadcast',
           event: 'sync_event',
-          payload: { source: 'web_app', event: eventAction, ...payloadOverrides }
+          payload: { source: webClientSourceRef.current, event: eventAction, ...payloadOverrides }
         });
         console.log('[TableMapPOS] Broadcast successful:', resp);
       } catch (err) {
         console.error('[TableMapPOS] Broadcast failed:', err);
       }
     }
-  }, [shopSettings?.enable_realtime_sync])
+  }, [isRealtimeSyncEnabled])
 
 
   // Auto-open Shift Open Modal if enabled but no active shift
@@ -434,15 +441,16 @@ export function TableMapPOS({
   
   const [inProgressOrders, setInProgressOrders] = useState<OrderData[]>([])
 
-  // Map orders for fast lookup
+  // Map orders for fast lookup (inProgressOrders is sorted newest-first; never overwrite newer session with older orphan)
   const ordersMap = useMemo(() => {
     const map = new Map<string, OrderData>()
     for (const order of inProgressOrders) {
       map.set(order.id, order)
       try {
         const meta = typeof order.metadata === 'string' ? JSON.parse(order.metadata) : (order.metadata || {})
-        if (meta.resource_id) {
-          map.set(`res-${meta.resource_id}`, order)
+        const rId = meta.resource_id || (order as any).resource_id
+        if (rId && !map.has(`res-${rId}`)) {
+          map.set(`res-${rId}`, order)
         }
       } catch {}
     }
@@ -600,9 +608,9 @@ export function TableMapPOS({
     }
   }, [shopId, fetchResources])
 
-  // Real-time synchronization via Supabase Broadcast (Cross-device Web <-> Mobile)
+  // Real-time synchronization via Supabase Broadcast (Cross-device Web <-> Mobile & Multi-tab)
   useEffect(() => {
-    if (typeof window === 'undefined' || !shopSettings?.enable_realtime_sync) return
+    if (typeof window === 'undefined' || !isRealtimeSyncEnabled) return
     const supabase = getSupabaseBrowserClient()
     const channelName = `pos_sync_${slug}_${shopId}`
     const channel = supabase.channel(channelName, { config: { broadcast: { ack: true } } })
@@ -610,7 +618,7 @@ export function TableMapPOS({
     
     channel.on('broadcast', { event: 'sync_event' }, (payload: any) => {
       console.log('[TableMapPOS] Received Supabase Realtime sync_event:', payload)
-      if (payload?.payload?.source !== 'web_app') {
+      if (payload?.payload?.source !== webClientSourceRef.current) {
         void fetchResources()
         setSyncTick(prev => prev + 1)
       }
@@ -622,7 +630,7 @@ export function TableMapPOS({
       void supabase.removeChannel(channel)
       syncChannelRef.current = null
     }
-  }, [shopSettings?.enable_realtime_sync, slug, shopId, fetchResources])
+  }, [isRealtimeSyncEnabled, slug, shopId, fetchResources])
 
   // Timer for occupied resources
   useEffect(() => {

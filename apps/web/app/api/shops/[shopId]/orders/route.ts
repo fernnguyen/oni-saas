@@ -9,6 +9,13 @@ import { dispatchNotification } from '@/lib/server/notifications'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { getGMT7Time } from '@oni/core'
 import { withOrderEmployeeNames } from '@/lib/server/orderEmployees'
+import {
+  reconcileShopTableSessions,
+  cancelOrphanedInProgressOrdersForResource,
+  cleanResourceSessionMetadata,
+  parseMetadataSafe,
+  resolveOrderResourceId,
+} from '@/lib/server/tableSessionReconciler'
 
 
 export async function GET(
@@ -66,6 +73,10 @@ export async function GET(
     // Default to 'created_at' (newest first). Allow whitelisted fields if requested.
     const allowedSortFields = ['created_at', 'updated_at', 'total_amount', 'debt_amount', 'order_no']
     const sortBy = sortByParam && allowedSortFields.includes(sortByParam) ? sortByParam : 'created_at'
+
+    if (status === 'in_progress') {
+      await reconcileShopTableSessions(connector, shopId)
+    }
 
     const result = await connector.list('orders', { page, limit, search: search || undefined, filters, date_range, sortBy, sortDesc })
     result.data = await withOrderEmployeeNames(connector, shop.tenant_id, result.data)
@@ -158,6 +169,38 @@ export async function POST(
       customer_id: finalCustomerId,
       created_at: getGMT7Time()
     })
+
+    // Atomic Table Check-in: When creating an in_progress session for a physical resource,
+    // automatically cancel any older orphaned in_progress orders on that resource and occupy the resource in 1 atomic server step.
+    const createdOrderId = String((created as Record<string, string>).order_id || (created as Record<string, string>).id || '')
+    const resolvedResourceId = resolveOrderResourceId(data as Record<string, any>)
+    if (data.status === 'in_progress' && resolvedResourceId && !resolvedResourceId.startsWith('takeaway') && createdOrderId) {
+      await cancelOrphanedInProgressOrdersForResource(connector, shopId, resolvedResourceId, createdOrderId)
+      try {
+        const resource = await connector.findById('location-resources', resolvedResourceId)
+        if (resource && resource.branch_id === shopId) {
+          const orderMetaObj = parseMetadataSafe(data.metadata)
+          const cleanedResBase = parseMetadataSafe(cleanResourceSessionMetadata(resource.metadata))
+          const checkInIso = orderMetaObj.check_in || getGMT7Time()
+          const updatedResMeta = JSON.stringify({
+            ...cleanedResBase,
+            ...orderMetaObj,
+            resource_id: resolvedResourceId,
+            resource_name: resource.name || orderMetaObj.resource_name,
+            check_in: checkInIso,
+            rental_type: orderMetaObj.rental_type || 'hourly',
+          })
+          await connector.update('location-resources', resolvedResourceId, {
+            status: 'occupied',
+            current_order_id: createdOrderId,
+            metadata: updatedResMeta,
+          })
+          invalidate(shopId, 'location-resources')
+        }
+      } catch (occErr) {
+        console.warn('[POST /orders] Failed to auto-occupy resource:', occErr)
+      }
+    }
 
     // Cập nhật expected_closing_cash của ca nếu thanh toán bằng tiền mặt
     if (isShiftEnabled && activeShift && (data.payment_method === 'cash' || data.payment_method?.startsWith('cash-'))) {

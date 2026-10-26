@@ -7,6 +7,11 @@ import { RollbackContext } from '@oni/adapters'
 import { resolveAndRecordPayment } from '@/lib/server/paymentFunds'
 import crypto from 'crypto'
 import { updateCustomerStats } from '@/lib/server/customerStats'
+import {
+  cleanResourceSessionMetadata,
+  cancelOrphanedInProgressOrdersForResource,
+  resolveOrderResourceId,
+} from '@/lib/server/tableSessionReconciler'
 
 const INBOUND_TYPES = ['purchase_in', 'p2p_purchase_in', 'return_in', 'transfer_in']
 const OUTBOUND_TYPES = ['sale_out', 'transfer_out']
@@ -24,7 +29,7 @@ export async function POST(
   let tx: RollbackContext | undefined;
   try {
     const { shopId, id } = await params
-    const { connector, user, shop } = await requireShopAccess(shopId, 'orders.delete')
+    const { connector, user, shop, permissions } = await requireShopAccess(shopId, 'pos.use')
     tx = new RollbackContext()
 
     const body = await req.json().catch(() => ({}))
@@ -40,9 +45,14 @@ export async function POST(
       return NextResponse.json({ success: true, message: 'Đơn hàng đã được hủy trước đó' }, { status: 200 })
     }
 
+    const paidAmount = parseFloat((order as Record<string, string>).paid_amount || '0')
+    const isUnpaidTableSession = order.status === 'in_progress' && paidAmount <= 0
+    if (!isUnpaidTableSession && !permissions.includes('orders.delete') && !permissions.includes('owner') && !permissions.includes('admin')) {
+      return NextResponse.json({ error: 'Bạn không có quyền hủy đơn hàng đã thanh toán.' }, { status: 403 })
+    }
+
     const orderNo = (order as Record<string, string>).order_no ?? id
     // 1. Process Cashbook refund (Idempotent)
-    const paidAmount = parseFloat((order as Record<string, string>).paid_amount || '0')
     const finalRefundAmount = refundAmountBody !== undefined ? refundAmountBody : paidAmount
 
     if (finalRefundAmount > 0) {
@@ -221,6 +231,28 @@ export async function POST(
         total_amount: oldTotalAmountStr
       }).catch(() => {})
     })
+
+    // 4. Auto-release physical resource if this cancelled order was occupying a table/room
+    const cancelledResId = resolveOrderResourceId(order as Record<string, any>)
+    if (cancelledResId && !cancelledResId.startsWith('takeaway')) {
+      try {
+        await cancelOrphanedInProgressOrdersForResource(connector, shopId, cancelledResId, id)
+        const resource = await connector.findById('location-resources', cancelledResId)
+        if (resource && (!resource.current_order_id || resource.current_order_id === id)) {
+          const cleanedMeta = cleanResourceSessionMetadata(resource.metadata, {
+            last_checkout_time: new Date().toISOString(),
+          })
+          await connector.update('location-resources', cancelledResId, {
+            status: 'available',
+            current_order_id: '',
+            metadata: cleanedMeta,
+          })
+          invalidate(shopId, 'location-resources')
+        }
+      } catch (resErr) {
+        console.warn('[CANCEL order] Failed to auto-release resource:', resErr)
+      }
+    }
 
     const domainName = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'oni.vn'
     const cancelledBy = user.user_metadata?.display_name || user.user_metadata?.full_name || user.email || 'Hệ thống'

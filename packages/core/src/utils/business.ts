@@ -43,6 +43,10 @@ export function isTimeChargeProduct(
 ): boolean {
   if (productId) {
     const idLower = productId.toLowerCase();
+    // Frozen stay/time fees from merged tables/rooms must be preserved as regular billable items
+    if (idLower.startsWith('time_charge_merged')) {
+      return false;
+    }
     if (
       idLower.startsWith('time_charge') || 
       idLower.includes('time_charge') || 

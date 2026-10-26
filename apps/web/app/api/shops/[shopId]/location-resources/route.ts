@@ -5,6 +5,7 @@ import { resourceCreateSchema } from '@/lib/validators/resources'
 import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
+import { reconcileShopTableSessions } from '@/lib/server/tableSessionReconciler'
 
 export async function GET(
   req: NextRequest,
@@ -25,6 +26,12 @@ export async function GET(
       filters: { branch_id: shopId },
       sortDesc: false 
     })
+
+    result.data = (await reconcileShopTableSessions(
+      connector,
+      shopId,
+      result.data as Record<string, any>[]
+    )) as any
 
     return NextResponse.json(result, {
       headers: {

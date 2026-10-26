@@ -4,7 +4,7 @@ import { Platform, Alert } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import { SyncManager } from '../../lib/sync/SyncManager';
 import { getSystemTaxGroups } from '../../lib/utils/tax';
@@ -76,6 +76,24 @@ export function useTableManager(props: UseTableManagerProps) {
   const [lodgingGuests, setLodgingGuests] = useState<LodgingGuest[]>([{ name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' }]);
   const [isSyncingTableSession, setIsSyncingTableSession] = useState<boolean>(false);
   const [isOpeningTable, setIsOpeningTable] = useState<boolean>(false);
+  // Theo dõi các bàn đang trong quá trình mở/chuyển để chống race condition thoát bàn khi Cloud chưa kịp cập nhật
+  const openingTableIdsRef = React.useRef<Set<string>>(new Set());
+
+  const cleanStaticResourceMeta = useCallback((rawMeta: any, extraFields: Record<string, any> = {}) => {
+    let parsed: Record<string, any> = {};
+    try {
+      parsed = typeof rawMeta === 'string' ? JSON.parse(rawMeta || '{}') : (rawMeta || {});
+    } catch (e) {}
+    const cleaned: Record<string, any> = { ...parsed, ...extraFields };
+    delete cleaned.check_in;
+    delete cleaned.temp_checkout_time;
+    delete cleaned.original_start_time;
+    delete cleaned.original_temp_checkout_time;
+    delete cleaned.guests;
+    delete cleaned.guests_list;
+    delete cleaned.num_guests;
+    return JSON.stringify(cleaned);
+  }, []);
 
   // Tự động thay đổi kích thước danh sách khách lưu trú khi thay đổi số khách
   useEffect(() => {
@@ -128,15 +146,15 @@ export function useTableManager(props: UseTableManagerProps) {
     saveTableCarts();
   }, [tableCarts, isNavReady, isLoading]);
 
-  // Ticker đếm giờ cho bi-a
+  // Ticker đếm giờ cho bi-a / phòng bàn (cập nhật mỗi 15 giây thay vì 1 giây để tránh re-render toàn màn hình POS gây văng app)
   const [timeTicker, setTimeTicker] = useState(0);
   useEffect(() => {
-    if (!isNavReady) return;
+    if (!isNavReady || shopVertical === 'retail') return;
     const timer = setInterval(() => {
       setTimeTicker(prev => prev + 1);
-    }, 1000);
+    }, 15000);
     return () => clearInterval(timer);
-  }, [isNavReady]);
+  }, [isNavReady, shopVertical]);
 
   // Tự động cập nhật tiền giờ trong giỏ hàng theo thời gian thực mỗi 10 giây khi đang mở modal thanh toán
   useEffect(() => {
@@ -267,12 +285,16 @@ export function useTableManager(props: UseTableManagerProps) {
     const checkInDate = new Date(table.startTime);
     const checkOutDate = customCheckoutTime || (table.checkoutTime ? new Date(table.checkoutTime) : new Date());
 
+    const resolvedChargeByMinute = chargeByMinuteOverride !== undefined
+      ? chargeByMinuteOverride
+      : (rmd.advanced_pricing?.charge_by_minute ?? rmd.charge_by_minute);
+
     const pricingResult = calculateHourlyBilling({
       checkIn: checkInDate,
       checkOut: checkOutDate,
       standardRate: hourlyRate,
-      config: chargeByMinuteOverride !== undefined
-        ? { ...(rmd.advanced_pricing || {}), charge_by_minute: chargeByMinuteOverride }
+      config: resolvedChargeByMinute !== undefined
+        ? { ...(rmd.advanced_pricing || {}), charge_by_minute: Boolean(resolvedChargeByMinute) }
         : rmd.advanced_pricing
     });
 
@@ -332,8 +354,77 @@ export function useTableManager(props: UseTableManagerProps) {
       // Quan trọng: Phải luôn ưu tiên ID từ Cloud thay vì ID cũ từ SQLite
       let resolvedOrderId = latestResource?.current_order_id || orderId;
 
-      // Nếu Cloud trả về available hoặc dirty/cleaning và không có order, nghĩa là bàn đã được giải phóng
+      // Nếu Cloud trả về available hoặc dirty/cleaning và không có order:
+      // KIỂM TRA BẢO VỆ: Nếu bàn đang trong quá trình mở hoặc có đơn in_progress cục bộ chưa đồng bộ xong (ORD-T-INPROG- / pending),
+      // tuyệt đối KHÔNG được đánh dấu isFinished = true (tránh lỗi đang dùng bị tự động thoát bàn!).
       if (latestResource && (latestResource.status === 'available' || latestResource.status === 'dirty' || latestResource.status === 'cleaning') && !latestResource.current_order_id) {
+        if (openingTableIdsRef.current.has(tableId)) {
+          return null;
+        }
+
+        if (Platform.OS !== 'web') {
+          try {
+            let localPendingOrder: any = null;
+            if (orderId) {
+              const found = await db.select().from(schema.orders).where(eq(schema.orders.id, orderId)).limit(1);
+              if (found[0] && found[0].status === 'in_progress' && (found[0].sync_status === 'pending' || String(found[0].id).startsWith('ORD-T-INPROG-'))) {
+                localPendingOrder = found[0];
+              }
+            }
+            if (!localPendingOrder) {
+              const byRes = await db.select().from(schema.orders).where(and(eq(schema.orders.resource_id, tableId), eq(schema.orders.status, 'in_progress'))).limit(1);
+              if (byRes[0] && (byRes[0].sync_status === 'pending' || String(byRes[0].id).startsWith('ORD-T-INPROG-'))) {
+                localPendingOrder = byRes[0];
+              }
+            }
+
+            if (localPendingOrder) {
+              // Tự động đẩy đơn in_progress cục bộ lên Cloud qua sync-batch để đồng bộ trạng thái bàn
+              (async () => {
+                try {
+                  const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
+                    method: 'POST',
+                    headers: { ...headers, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      local_order_id: localPendingOrder.id,
+                      order: {
+                        status: 'in_progress',
+                        channel: 'pos-mobile',
+                        customer_id: localPendingOrder.customer_id || 'C-DEFAULT-RETAIL',
+                        customer_name: localPendingOrder.customer_name || 'Khách lẻ',
+                        branch_id: shopId,
+                        employee_id: currentUserEmail,
+                        subtotal: localPendingOrder.total_amount || 0,
+                        total_amount: localPendingOrder.total_amount || 0,
+                        paid_amount: 0,
+                        resource_id: tableId,
+                        created_at: localPendingOrder.created_at || new Date().toISOString(),
+                        metadata: localPendingOrder.metadata || '{}',
+                      },
+                      items: [],
+                      payments: [],
+                    }),
+                  });
+                  if (syncRes.ok) {
+                    const syncData = await syncRes.json().catch(() => ({}));
+                    const serverOrderId = syncData.order_id;
+                    if (serverOrderId) {
+                      await db.update(schema.location_resources).set({ current_order_id: serverOrderId, status: 'occupied' }).where(eq(schema.location_resources.id, tableId));
+                      await db.update(schema.orders).set({ id: serverOrderId, sync_status: 'synced', updated_at: new Date().toISOString() }).where(eq(schema.orders.id, localPendingOrder.id));
+                      await db.update(schema.order_items).set({ order_id: serverOrderId }).where(eq(schema.order_items.order_id, localPendingOrder.id));
+                    }
+                  }
+                } catch (healErr) {
+                  console.warn('[Self-heal Pending Table] Lỗi đồng bộ lại bàn:', healErr);
+                }
+              })();
+              return null;
+            }
+          } catch (checkErr) {}
+        } else if (orderId && String(orderId).startsWith('ORD-T-INPROG-')) {
+          return null;
+        }
+
         return { isFinished: true, resourceStatus: latestResource.status };
       }
 
@@ -567,26 +658,27 @@ export function useTableManager(props: UseTableManagerProps) {
           }); // Chỉ đóng modal nếu đang xem đúng bàn này
 
           const newStatus = onlineSession.resourceStatus || 'available';
+          const cleanedMeta = cleanStaticResourceMeta(table.metadata);
 
-          // A. Cập nhật SQLite nội địa sang trống
+          // A. Cập nhật SQLite nội địa sang trống (bảo toàn cấu hình giá nâng cao / tính theo phút trong metadata)
           if (Platform.OS !== 'web') {
             try {
               await db
                 .update(schema.location_resources)
-                .set({ status: newStatus, current_order_id: null, startTime: null })
+                .set({ status: newStatus, current_order_id: null, startTime: null, metadata: cleanedMeta })
                 .where(eq(schema.location_resources.id, table.id));
             } catch (e) { }
           }
 
           // B. Cập nhật state cục bộ sang trống
-          setTables(prev => prev.map(t => t.id === table.id ? { ...t, status: newStatus, current_order_id: null, startTime: null } : t));
+          setTables(prev => prev.map(t => t.id === table.id ? { ...t, status: newStatus, current_order_id: null, startTime: null, metadata: cleanedMeta } : t));
           setTableCarts(prev => {
             const copy = { ...prev };
             delete copy[table.id];
             return copy;
           });
 
-          showToast("Phòng đã được thanh toán và trả trên hệ thống!", "info");
+          showToast("Phòng/bàn đã được thanh toán và trả trên hệ thống!", "info");
           return { isFinished: true };
         }
 
@@ -630,9 +722,10 @@ export function useTableManager(props: UseTableManagerProps) {
           startTime: checkInTime,
           metadata: JSON.stringify({
             ...tableMetaObj,
+            ...resourceMeta,
             rental_type: rentalType,
             num_guests: numGuests,
-            check_in: checkInVal,
+            check_in: checkInVal || new Date(checkInTime).toISOString(),
             guests_list: onlineGuests,
             guests: onlineGuests
           })
@@ -671,42 +764,53 @@ export function useTableManager(props: UseTableManagerProps) {
           } catch (e) { }
         }
 
-        // Đồng bộ món ăn của bàn về state cục bộ
-        const mappedCart: any = {};
-        if (items) {
+        // Chỉ đồng bộ giỏ hàng về state cục bộ khi đã tải được order hợp lệ từ Server
+        if (order && Array.isArray(items)) {
+          const mappedCart: any = {};
           for (const item of items) {
+            if (isTimeChargeProduct(item.product_id, item.product_name)) continue;
             const originalProd = productsList.find(p => p.id === item.product_id);
             const unitPrice = parseInt(item.unit_price || '0', 10);
             const origPrice = parseInt(item.original_price || '0', 10) || (originalProd ? Number(originalProd.sell_price) || unitPrice : unitPrice);
             const discountAmt = parseInt(item.discount_amount || '0', 10) || Math.max(0, origPrice - unitPrice);
-            mappedCart[item.product_id] = {
-              productId: item.product_id,
-              name: item.product_name,
-              price: unitPrice,
-              original_price: origPrice,
-              discount_amount: discountAmt,
-              discount_pct: parseInt(item.discount_pct || '0', 10) || 0,
-              quantity: parseInt(item.qty || '1', 10),
-              tax_rate: item.tax_rate || originalProd?.tax_rate || '0',
-              input_tax_rate: item.input_tax_rate || originalProd?.input_tax_rate || '0',
-              tax_group: item.tax_group || originalProd?.tax_group || '',
-              variant_label: item.variant_label || '',
-              modifier_total: parseInt(item.modifier_total || '0', 10) || 0,
-            };
-            // Restore modifiers if available
+            const parsedQty = parseInt(item.qty || '1', 10);
+            let parsedModifiers: any = undefined;
             if (item.modifiers) {
               try {
                 const parsed = typeof item.modifiers === 'string' ? JSON.parse(item.modifiers) : item.modifiers;
-                if (Array.isArray(parsed)) mappedCart[item.product_id].modifiers = parsed;
-              } catch(e) {}
+                if (Array.isArray(parsed)) parsedModifiers = parsed;
+              } catch (e) {}
+            }
+            const modKey = parsedModifiers && parsedModifiers.length > 0
+              ? `_${parsedModifiers.map((m: any) => m.option || m.name || '').join(',')}`
+              : '';
+            const cartKey = `${item.product_id}${item.variant_label ? `_${item.variant_label}` : ''}${modKey}`;
+            if (mappedCart[cartKey]) {
+              mappedCart[cartKey].quantity += parsedQty;
+            } else {
+              mappedCart[cartKey] = {
+                productId: item.product_id,
+                name: item.product_name,
+                price: unitPrice,
+                original_price: origPrice,
+                discount_amount: discountAmt,
+                discount_pct: parseInt(item.discount_pct || '0', 10) || 0,
+                quantity: parsedQty,
+                tax_rate: item.tax_rate || originalProd?.tax_rate || '0',
+                input_tax_rate: item.input_tax_rate || originalProd?.input_tax_rate || '0',
+                tax_group: item.tax_group || originalProd?.tax_group || '',
+                variant_label: item.variant_label || '',
+                modifier_total: parseInt(item.modifier_total || '0', 10) || 0,
+                ...(parsedModifiers ? { modifiers: parsedModifiers } : {}),
+              };
             }
           }
-        }
 
-        setTableCarts(prev => ({
-          ...prev,
-          [table.id]: mappedCart
-        }));
+          setTableCarts(prev => ({
+            ...prev,
+            [table.id]: mappedCart
+          }));
+        }
 
         // Khôi phục thông tin khách lưu trú từ Cloud
         setRoomGuestCount(numGuests);
@@ -1071,56 +1175,42 @@ export function useTableManager(props: UseTableManagerProps) {
 
     try {
       const nowTime = Date.now();
-      const orderId = `ORD-T-INPROG-${Date.now()}`;
+      const nowIso = new Date(nowTime).toISOString();
+      const orderId = `ORD-T-INPROG-${nowTime}`;
+      openingTableIdsRef.current.add(targetTableForOpen.id);
 
       let tMeta: any = {};
       try {
-        tMeta = targetTableForOpen.metadata ? JSON.parse(targetTableForOpen.metadata) : {};
+        tMeta = targetTableForOpen.metadata ? (typeof targetTableForOpen.metadata === 'string' ? JSON.parse(targetTableForOpen.metadata) : targetTableForOpen.metadata) : {};
       } catch (e) { }
 
-      // 1. Chuẩn hóa metadata nhận phòng để dùng chung cho cả Server và SQLite
+      const normalizedGuests = targetLodgingGuests
+        .filter(g => g.name || g.id_number || g.idCard)
+        .map(g => ({
+          id: g.id || undefined,
+          name: g.name || '',
+          id_type: g.id_type || 'CCCD',
+          id_number: g.id_number || g.idCard || '',
+          idCard: g.id_number || g.idCard || '',
+          expiry_date: g.expiry_date || '',
+          nationality: g.nationality || 'Việt Nam',
+          dob: g.dob || '',
+          gender: g.gender || '',
+          address: g.address || '',
+          note: g.note || ''
+        }));
+
+      // 1. Chuẩn hóa metadata nhận phòng: BẮT BUỘC giữ nguyên toàn bộ cấu hình tĩnh (...tMeta như charge_by_minute, advanced_pricing, layout)
       const openTableMeta = JSON.stringify({
+        ...tMeta,
         resource_id: targetTableForOpen.id,
         resource_name: targetTableForOpen.name,
         resource_type: targetTableForOpen.type,
-        check_in: new Date(nowTime).toISOString(),
+        check_in: nowIso,
         num_guests: targetGuestCount,
         rental_type: targetRoomRentalType,
-        advanced_pricing: tMeta.advanced_pricing,
-        overnight_rate: tMeta.overnight_rate,
-        weekend_rate: tMeta.weekend_rate,
-        room_class: tMeta.room_class,
-        bed_type: tMeta.bed_type,
-        guests_list: targetLodgingGuests
-          .filter(g => g.name || g.id_number || g.idCard)
-          .map(g => ({
-            id: g.id || undefined,
-            name: g.name || '',
-            id_type: g.id_type || 'CCCD',
-            id_number: g.id_number || g.idCard || '',
-            idCard: g.id_number || g.idCard || '',
-            expiry_date: g.expiry_date || '',
-            nationality: g.nationality || 'Việt Nam',
-            dob: g.dob || '',
-            gender: g.gender || '',
-            address: g.address || '',
-            note: g.note || ''
-          })),
-        guests: targetLodgingGuests
-          .filter(g => g.name || g.id_number || g.idCard)
-          .map(g => ({
-            id: g.id || undefined,
-            name: g.name || '',
-            id_type: g.id_type || 'CCCD',
-            id_number: g.id_number || g.idCard || '',
-            idCard: g.id_number || g.idCard || '',
-            expiry_date: g.expiry_date || '',
-            nationality: g.nationality || 'Việt Nam',
-            dob: g.dob || '',
-            gender: g.gender || '',
-            address: g.address || '',
-            note: g.note || ''
-          })),
+        guests_list: normalizedGuests,
+        guests: normalizedGuests,
       });
 
       // 2. Ghi đè vào DB Cục bộ hoặc State cục bộ lập tức (Offline-First)
@@ -1147,15 +1237,15 @@ export function useTableManager(props: UseTableManagerProps) {
         const activeShiftId = await AsyncStorage.getItem('active_shift_id') || 'default-shift';
         await db.insert(schema.orders).values({
           id: orderId,
-          order_no: `HD-BAN-${Date.now().toString().substring(9)}`,
+          order_no: `HD-BAN-${nowTime.toString().substring(9)}`,
           status: 'in_progress',
           customer_id: targetCustomer?.id || 'C-DEFAULT-RETAIL',
           customer_name: targetCustomer?.name || 'Khách lẻ',
           total_amount: 0,
           paid_amount: 0,
           payment_method: '',
-          created_at: new Date(nowTime).toISOString(),
-          updated_at: new Date(nowTime).toISOString(),
+          created_at: nowIso,
+          updated_at: nowIso,
           shift_id: activeShiftId,
           sync_status: 'pending',
           note: '',
@@ -1178,7 +1268,6 @@ export function useTableManager(props: UseTableManagerProps) {
 
       setIsTableOpenDialogVisible(false);
       setSelectedTableForOpen(null);
-      // Reset các tab check-in
       setCheckInTab('info');
 
       const roomLabel = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn';
@@ -1192,6 +1281,8 @@ export function useTableManager(props: UseTableManagerProps) {
             const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
             const headers = await getApiHeaders();
 
+            let serverOrderId: string | null = null;
+
             // A. Tạo order in_progress trên Next.js Server
             const orderRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders`, {
               method: 'POST',
@@ -1199,6 +1290,7 @@ export function useTableManager(props: UseTableManagerProps) {
               body: JSON.stringify({
                 status: 'in_progress',
                 channel: 'pos-mobile',
+                reference_no: orderId,
                 customer_id: targetCustomer?.id || 'C-DEFAULT-RETAIL',
                 customer_name: targetCustomer?.name || 'Khách lẻ',
                 branch_id: shopId,
@@ -1213,50 +1305,94 @@ export function useTableManager(props: UseTableManagerProps) {
 
             if (orderRes.ok) {
               const createdOrder = await orderRes.json();
-              const serverOrderId = createdOrder.id || createdOrder.order_id;
+              serverOrderId = createdOrder.id || createdOrder.order_id;
+            } else {
+              // Dự phòng qua sync-batch (tự động xử lý ca làm việc & tự động chiếm giữ phòng/bàn trên Server)
+              console.warn(`[Open Table POST Failed] Status ${orderRes.status}, falling back to sync-batch`);
+              const batchRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  local_order_id: orderId,
+                  order: {
+                    status: 'in_progress',
+                    channel: 'pos-mobile',
+                    customer_id: targetCustomer?.id || 'C-DEFAULT-RETAIL',
+                    customer_name: targetCustomer?.name || 'Khách lẻ',
+                    branch_id: shopId,
+                    employee_id: currentUserEmail,
+                    subtotal: 0,
+                    total_amount: 0,
+                    paid_amount: 0,
+                    resource_id: targetTableForOpen.id,
+                    created_at: nowIso,
+                    metadata: openTableMeta,
+                  },
+                  items: [],
+                  payments: [],
+                }),
+              });
+              if (batchRes.ok) {
+                const batchData = await batchRes.json().catch(() => ({}));
+                serverOrderId = batchData.order_id || null;
+              }
+            }
 
-              // B. Cập nhật vị trí sang occupied
+            if (serverOrderId) {
+              // B. Cập nhật vị trí sang occupied kèm đầy đủ metadata (chứa check_in)
               const patchRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${targetTableForOpen.id}`, {
                 method: 'PATCH',
                 headers: { ...headers, 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   status: 'occupied',
                   current_order_id: serverOrderId,
-                  startTime: nowTime
+                  metadata: openTableMeta
                 }),
               });
-              if (patchRes.ok) {
-                // Đồng bộ thành công, cập nhật SQLite để chuyển sang synced và khớp orderId của Server
-                if (Platform.OS !== 'web') {
-                  await db
-                    .update(schema.location_resources)
-                    .set({ current_order_id: serverOrderId })
-                    .where(eq(schema.location_resources.id, targetTableForOpen.id));
 
-                   await db.update(schema.orders)
-                    .set({ id: serverOrderId, sync_status: 'synced', updated_at: new Date().toISOString() })
-                    .where(eq(schema.orders.id, orderId));
+              if (Platform.OS !== 'web') {
+                await db
+                  .update(schema.location_resources)
+                  .set({ current_order_id: serverOrderId, status: 'occupied', metadata: openTableMeta })
+                  .where(eq(schema.location_resources.id, targetTableForOpen.id));
 
-                  const updated = await db.select().from(schema.location_resources);
-                  setTables(updated);
-                } else {
-                  setTables(prev => prev.map(t => t.id === targetTableForOpen.id ? { ...t, current_order_id: serverOrderId } : t));
-                }
-                
-                showToast(`Đồng bộ thành công ${roomLabel} ${targetTableForOpen.name}!`, 'success');
-                broadcastSync?.({ event: 'TABLE_OPENED', tableId: targetTableForOpen.id, orderId: serverOrderId });
+                await db.update(schema.orders)
+                  .set({ id: serverOrderId, sync_status: 'synced', updated_at: new Date().toISOString() })
+                  .where(eq(schema.orders.id, orderId));
+
+                await db.update(schema.order_items)
+                  .set({ order_id: serverOrderId })
+                  .where(eq(schema.order_items.order_id, orderId));
+
+                const updated = await db.select().from(schema.location_resources);
+                setTables(updated);
               } else {
-                console.warn(`[Open Table PATCH Failed] Status ${patchRes.status}`);
+                setTables(prev => prev.map(t => t.id === targetTableForOpen.id ? { ...t, current_order_id: serverOrderId, metadata: openTableMeta } : t));
               }
-            } else {
-              console.warn(`[Open Table POST Failed] Status ${orderRes.status}`);
+
+              setActiveTable((prev: any) => prev && prev.id === targetTableForOpen.id ? { ...prev, current_order_id: serverOrderId, metadata: openTableMeta } : prev);
+              setCartOwnerTable((prev: any) => prev && prev.id === targetTableForOpen.id ? { ...prev, current_order_id: serverOrderId, metadata: openTableMeta } : prev);
+
+              if (patchRes.ok) {
+                showToast(`Đồng bộ thành công ${roomLabel} ${targetTableForOpen.name}!`, 'success');
+              }
+              broadcastSync?.({ event: 'TABLE_OPENED', tableId: targetTableForOpen.id, orderId: serverOrderId });
             }
           } catch (syncErr) {
             console.log('Mất mạng hoặc lỗi server, bỏ qua sync check-in trực tiếp:', syncErr);
+          } finally {
+            setTimeout(() => {
+              openingTableIdsRef.current.delete(targetTableForOpen.id);
+            }, 4000);
           }
         })();
+      } else {
+        setTimeout(() => {
+          openingTableIdsRef.current.delete(targetTableForOpen.id);
+        }, 4000);
       }
     } catch (err) {
+      openingTableIdsRef.current.delete(targetTableForOpen.id);
       console.error('Không thể mở bàn bi-a:', err);
       showToast('Có lỗi xảy ra khi nhận phòng!', 'error');
     }
@@ -1596,8 +1732,23 @@ export function useTableManager(props: UseTableManagerProps) {
         console.warn('Failed to query system product in handlePayTableConfirmUnified:', e);
       }
 
-      // FIX DUPLICATE: Reuse existing order ID to prevent duplicates!
-      const orderId = selectedTableForPay.current_order_id || `ORD-T-${Date.now()}`;
+      // FIX DUPLICATE: Resolve latest current_order_id from state/SQLite in case serverOrderId arrived while modal was open
+      let resolvedCurrentOrderId =
+        tables.find((t: any) => t.id === selectedTableForPay.id)?.current_order_id ||
+        selectedTableForPay.current_order_id ||
+        '';
+      if (Platform.OS !== 'web') {
+        try {
+          const [latestLocalRes] = await db
+            .select()
+            .from(schema.location_resources)
+            .where(eq(schema.location_resources.id, selectedTableForPay.id));
+          if (latestLocalRes?.current_order_id) {
+            resolvedCurrentOrderId = latestLocalRes.current_order_id;
+          }
+        } catch (e) {}
+      }
+      const orderId = resolvedCurrentOrderId || `ORD-T-${Date.now()}`;
       const orderNoType = shopVertical === 'lodging' ? 'KS' : (shopVertical === 'sports_court' ? 'SAN' : 'POS');
       const orderNo = `HD-${orderNoType}-${Date.now().toString().substring(9)}`;
       const nowStr = new Date().toISOString();
@@ -1689,13 +1840,34 @@ export function useTableManager(props: UseTableManagerProps) {
         };
       }));
 
+      const releaseStatusAfterPay = shopVertical === 'lodging' ? 'dirty' : 'available';
+      const cleanedPaidTableMeta = cleanStaticResourceMeta(selectedTableForPay.metadata, { last_checkout_time: checkoutTimeStr });
+
       // A. Lưu vào cơ sở dữ liệu SQLite cục bộ (Offline-First)
       if (Platform.OS === 'web') {
-        setTables(prev => prev.map(t => t.id === selectedTableForPay.id ? { ...t, status: 'dirty', startTime: null } : t));
+        setTables(prev => prev.map(t => t.id === selectedTableForPay.id ? { ...t, status: releaseStatusAfterPay, startTime: null, current_order_id: null, metadata: cleanedPaidTableMeta } : t));
       } else {
-        if (selectedTableForPay.current_order_id) {
-          await db.delete(schema.orders).where(eq(schema.orders.id, selectedTableForPay.current_order_id));
-          await db.delete(schema.order_items).where(eq(schema.order_items.order_id, selectedTableForPay.current_order_id));
+        const oldOrderIdsToClean = new Set<string>();
+        if (selectedTableForPay.current_order_id) oldOrderIdsToClean.add(selectedTableForPay.current_order_id);
+        if (resolvedCurrentOrderId) oldOrderIdsToClean.add(resolvedCurrentOrderId);
+        try {
+          const localInProgForTable = await db
+            .select()
+            .from(schema.orders)
+            .where(
+              and(
+                eq(schema.orders.resource_id, selectedTableForPay.id),
+                eq(schema.orders.status, 'in_progress')
+              )
+            );
+          for (const o of localInProgForTable) {
+            if (o.id) oldOrderIdsToClean.add(o.id);
+          }
+        } catch (e) {}
+
+        for (const oldId of oldOrderIdsToClean) {
+          await db.delete(schema.orders).where(eq(schema.orders.id, oldId));
+          await db.delete(schema.order_items).where(eq(schema.order_items.order_id, oldId));
         }
 
         await db.insert(schema.orders).values({
@@ -1729,7 +1901,7 @@ export function useTableManager(props: UseTableManagerProps) {
             check_out: checkoutTimeStr,
             original_check_out: parsedTableMeta?.original_temp_checkout_time,
             rental_type: rentalType,
-            server_order_id: selectedTableForPay.current_order_id || ''
+            server_order_id: resolvedCurrentOrderId || ''
           }),
         });
 
@@ -1761,7 +1933,7 @@ export function useTableManager(props: UseTableManagerProps) {
 
         await db
           .update(schema.location_resources)
-          .set({ status: 'dirty', startTime: null, current_order_id: null })
+          .set({ status: releaseStatusAfterPay, startTime: null, current_order_id: null, metadata: cleanedPaidTableMeta })
           .where(eq(schema.location_resources.id, selectedTableForPay.id));
 
         const updated = await db.select().from(schema.location_resources);
@@ -1828,8 +2000,8 @@ export function useTableManager(props: UseTableManagerProps) {
         try {
           const headers = await getApiHeaders();
           const payload = {
-            local_order_id: selectedTableForPay.current_order_id || orderId,
-            server_order_id: selectedTableForPay.current_order_id || '',
+            local_order_id: resolvedCurrentOrderId || orderId,
+            server_order_id: resolvedCurrentOrderId || '',
             order: {
               status: 'completed',
               channel: 'pos-mobile',
@@ -1858,7 +2030,7 @@ export function useTableManager(props: UseTableManagerProps) {
                 check_out: checkoutTimeStr,
                 original_check_out: parsedTableMeta?.original_temp_checkout_time,
                 rental_type: rentalType,
-                server_order_id: selectedTableForPay.current_order_id || ''
+                server_order_id: resolvedCurrentOrderId || ''
               }),
               shift_id: shiftId,
             },
@@ -1925,23 +2097,39 @@ export function useTableManager(props: UseTableManagerProps) {
             const resolvedServerOrderNo = syncData.order_no || orderNo;
 
             // sync-batch đã tự hoàn tất order và giải phóng resource theo cấu hình
-            // skip_cleaning_process; không PATCH resource lần hai để tránh ghi đè trạng thái.
-            if (Platform.OS !== 'web' && syncData.order_id) {
-              const serverId = syncData.order_id;
-              if (serverId !== orderId) {
-                await db.update(schema.order_items)
-                  .set({ order_id: serverId })
-                  .where(eq(schema.order_items.order_id, orderId));
+            // skip_cleaning_process; đảm bảo trạng thái SQLite & UI của bàn vừa thanh toán luôn được giải phóng
+            // (phòng trường hợp có 1 lệnh pull chạy xen kẽ trong lúc sync-batch đang bay trên mạng).
+            if (Platform.OS !== 'web') {
+              if (syncData.order_id) {
+                const serverId = syncData.order_id;
+                if (serverId !== orderId) {
+                  await db.update(schema.order_items)
+                    .set({ order_id: serverId })
+                    .where(eq(schema.order_items.order_id, orderId));
+                }
+                await db.update(schema.orders)
+                  .set({
+                    id: serverId,
+                    order_no: resolvedServerOrderNo,
+                    sync_status: 'synced',
+                    reference_no: orderId,
+                    updated_at: new Date().toISOString()
+                  })
+                  .where(eq(schema.orders.id, orderId));
               }
-              await db.update(schema.orders)
+              await db
+                .update(schema.location_resources)
                 .set({
-                  id: serverId,
-                  order_no: resolvedServerOrderNo,
-                  sync_status: 'synced',
-                  reference_no: orderId,
-                  updated_at: new Date().toISOString()
+                  status: releaseStatusAfterPay,
+                  startTime: null,
+                  current_order_id: null,
+                  metadata: cleanedPaidTableMeta,
                 })
-                .where(eq(schema.orders.id, orderId));
+                .where(eq(schema.location_resources.id, selectedTableForPay.id));
+              const updatedAfterSync = await db.select().from(schema.location_resources);
+              setTables(updatedAfterSync);
+            } else {
+              setTables(prev => prev.map(t => t.id === selectedTableForPay.id ? { ...t, status: releaseStatusAfterPay, startTime: null, current_order_id: null, metadata: cleanedPaidTableMeta } : t));
             }
             broadcastSync?.({ event: 'TABLE_PAID', tableId: selectedTableForPay.id, orderId: syncData.order_id || orderId });
             showToast(`Đã đồng bộ hóa đơn ${resolvedServerOrderNo} lên server.`, 'success');
@@ -1989,8 +2177,10 @@ export function useTableManager(props: UseTableManagerProps) {
       const orderId = sourceTable.current_order_id;
       if (!orderId) return;
 
+      openingTableIdsRef.current.add(targetTableId);
+
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-      const currentUrl = await getApiBaseUrl();
+      const currentUrl = getApiBaseUrl();
       const headers = await getApiHeaders();
 
       let sourceMeta: any = {};
@@ -1998,60 +2188,72 @@ export function useTableManager(props: UseTableManagerProps) {
         sourceMeta = sourceTable.metadata ? (typeof sourceTable.metadata === 'string' ? JSON.parse(sourceTable.metadata) : sourceTable.metadata) : {};
       } catch (e) {}
 
+      let targetMeta: any = {};
+      try {
+        targetMeta = targetTable.metadata ? (typeof targetTable.metadata === 'string' ? JSON.parse(targetTable.metadata) : targetTable.metadata) : {};
+      } catch (e) {}
+
+      const nowIso = new Date().toISOString();
+      const sourceCheckInIso =
+        sourceMeta.check_in ||
+        (sourceTable.startTime ? new Date(sourceTable.startTime).toISOString() : nowIso);
+      const effectiveCheckInIso = includeSourceStayCost ? sourceCheckInIso : nowIso;
+      const targetStartTimeMs = new Date(effectiveCheckInIso).getTime();
+
+      const releaseStatus = shopVertical === 'lodging' ? 'dirty' : 'available';
+      const cleanedSourceMeta = cleanStaticResourceMeta(sourceTable.metadata);
+
+      // Bảo toàn cấu hình giá tĩnh của bàn đích (...targetMeta) và ghép thông tin phiên chơi đang chạy sang
+      const newTargetMeta = JSON.stringify({
+        ...targetMeta,
+        resource_id: targetTable.id,
+        resource_name: targetTable.name,
+        resource_type: targetTable.type,
+        check_in: effectiveCheckInIso,
+        num_guests: sourceMeta.num_guests || 1,
+        rental_type: sourceMeta.rental_type || 'hourly',
+        guests_list: sourceMeta.guests_list || [],
+        guests: sourceMeta.guests || [],
+        customer_phone: sourceMeta.customer_phone || '',
+      });
+
       const newOrderMeta = JSON.stringify({
         ...sourceMeta,
         resource_id: targetTable.id,
         resource_name: targetTable.name,
-        resource_type: targetTable.type
+        resource_type: targetTable.type,
+        check_in: effectiveCheckInIso,
+        advanced_pricing: targetMeta.advanced_pricing ?? sourceMeta.advanced_pricing,
+        charge_by_minute: targetMeta.charge_by_minute ?? targetMeta.advanced_pricing?.charge_by_minute ?? sourceMeta.charge_by_minute,
       });
 
-      const targetStartTime = includeSourceStayCost ? sourceTable.startTime : new Date().toISOString();
-
-      if (isOnline) {
-        // 1. Release source resource
-        await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${sourceTableId}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ status: 'dirty', current_order_id: '' }),
-        });
-        // 2. Occupy target resource
-        await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${targetTableId}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ status: 'occupied', current_order_id: orderId, startTime: targetStartTime }),
-        });
-        // 3. Update order metadata
-        await fetch(`${currentUrl}/api/shops/${shopId}/orders/${orderId}`, {
-          method: 'PUT',
-          headers,
-          body: JSON.stringify({ resource_id: targetTable.id, metadata: newOrderMeta }),
-        });
-      }
-
-      // SQLite offline-first updates
+      // 1. SQLite & State offline-first updates (Zero-Lag)
       if (Platform.OS === 'web') {
         setTables(prev => prev.map(t => {
-          if (t.id === sourceTableId) return { ...t, status: 'dirty', current_order_id: null, startTime: null, metadata: null };
-          if (t.id === targetTableId) return { ...t, status: 'occupied', current_order_id: orderId, startTime: targetStartTime, metadata: newOrderMeta };
+          if (t.id === sourceTableId) return { ...t, status: releaseStatus, current_order_id: null, startTime: null, metadata: cleanedSourceMeta };
+          if (t.id === targetTableId) return { ...t, status: 'occupied', current_order_id: orderId, startTime: targetStartTimeMs, metadata: newTargetMeta };
           return t;
         }));
       } else {
-        // Update source resource
         await db
           .update(schema.location_resources)
-          .set({ status: 'dirty', current_order_id: null, startTime: null, metadata: null })
+          .set({ status: releaseStatus, current_order_id: null, startTime: null, metadata: cleanedSourceMeta })
           .where(eq(schema.location_resources.id, sourceTableId));
 
-        // Update target resource
         await db
           .update(schema.location_resources)
-          .set({ status: 'occupied', current_order_id: orderId, startTime: targetStartTime, metadata: newOrderMeta })
+          .set({ status: 'occupied', current_order_id: orderId, startTime: targetStartTimeMs, metadata: newTargetMeta })
           .where(eq(schema.location_resources.id, targetTableId));
 
-        // Update order
         await db
           .update(schema.orders)
-          .set({ resource_id: targetTable.id, metadata: newOrderMeta, sync_status: 'pending' })
+          .set({
+            resource_id: targetTable.id,
+            metadata: newOrderMeta,
+            ...(includeSourceStayCost ? {} : { created_at: effectiveCheckInIso }),
+            updated_at: nowIso,
+            sync_status: 'pending'
+          })
           .where(eq(schema.orders.id, orderId));
 
         const updated = await db.select().from(schema.location_resources);
@@ -2077,8 +2279,55 @@ export function useTableManager(props: UseTableManagerProps) {
         return copy;
       });
 
+      // 2. Đồng bộ lên Cloud
+      if (isOnline) {
+        try {
+          const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
+          await Promise.all([
+            fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${sourceTableId}`, {
+              method: 'PATCH',
+              headers: jsonHeaders,
+              body: JSON.stringify({ status: releaseStatus, current_order_id: '', metadata: cleanedSourceMeta }),
+            }),
+            fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${targetTableId}`, {
+              method: 'PATCH',
+              headers: jsonHeaders,
+              body: JSON.stringify({ status: 'occupied', current_order_id: orderId, metadata: newTargetMeta }),
+            }),
+            fetch(`${currentUrl}/api/shops/${shopId}/orders/${orderId}`, {
+              method: 'PUT',
+              headers: jsonHeaders,
+              body: JSON.stringify({
+                resource_id: targetTable.id,
+                metadata: newOrderMeta,
+                ...(includeSourceStayCost ? {} : { created_at: effectiveCheckInIso }),
+              }),
+            }),
+          ]);
+
+          if (Platform.OS !== 'web') {
+            await db
+              .update(schema.orders)
+              .set({ sync_status: 'synced' })
+              .where(eq(schema.orders.id, orderId));
+          }
+          broadcastSync?.({ event: 'TABLE_TRANSFERRED', tableId: targetTableId, sourceTableId });
+        } catch (syncErr) {
+          console.warn('Lỗi đồng bộ chuyển bàn lên Cloud:', syncErr);
+        } finally {
+          setTimeout(() => {
+            openingTableIdsRef.current.delete(targetTableId);
+          }, 4000);
+        }
+      } else {
+        setTimeout(() => {
+          openingTableIdsRef.current.delete(targetTableId);
+        }, 4000);
+      }
+
       showToast(`Đã chuyển sang ${targetTable.name}`, "success");
     } catch (err) {
+      openingTableIdsRef.current.delete(targetTableId);
       console.error('Lỗi chuyển phòng bàn:', err);
       showToast("Có lỗi xảy ra khi chuyển phòng bàn", "error");
     }
@@ -2101,221 +2350,131 @@ export function useTableManager(props: UseTableManagerProps) {
       // Calculate frozen stay fee for source room/table up to now
       const sourceBilling = calculateBilling(sourceTable);
       const sourceStayCost = includeSourceStayCost ? (sourceBilling ? sourceBilling.cost : 0) : 0;
+      const stayPrefix = shopVertical === 'lodging' ? 'Tiền phòng' : 'Tiền giờ';
+      const frozenProductId = `TIME_CHARGE_MERGED_${sourceTableId}`;
+      const frozenProductName = `${stayPrefix} ${sourceTable.name} (Đã gộp - ${sourceBilling.label})`;
+
+      const releaseStatus = shopVertical === 'lodging' ? 'dirty' : 'available';
+      const cleanedSourceMeta = cleanStaticResourceMeta(sourceTable.metadata);
 
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
-      const currentUrl = await getApiBaseUrl();
+      const currentUrl = getApiBaseUrl();
       const headers = await getApiHeaders();
 
-      let sourceItems: any[] = [];
-      let targetItems: any[] = [];
+      const activeIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
+      const systemProdId = getTimeChargeProductId(activeIndustry);
 
-      if (Platform.OS === 'web') {
-        sourceItems = Object.values(tableCarts[sourceTableId] || {});
-        targetItems = Object.values(tableCarts[targetTableId] || {});
-      } else {
-        sourceItems = await db.select().from(schema.order_items).where(eq(schema.order_items.order_id, sourceOrderId));
-        targetItems = await db.select().from(schema.order_items).where(eq(schema.order_items.order_id, targetOrderId));
+      let timeChargeTaxRate = '0';
+      let timeChargeTaxGroup = '';
+      let timeChargeVatRate = '0';
+      let timeChargePitRate = '0';
+      try {
+        const prod = await db.select()
+          .from(schema.products)
+          .where(eq(schema.products.id, systemProdId))
+          .limit(1)
+          .then((res: any[]) => res[0]);
+        if (prod) {
+          timeChargeTaxRate = prod.tax_rate || '0';
+          timeChargeTaxGroup = prod.tax_group || '';
+
+          const systemTaxGroups = await getSystemTaxGroups();
+          if (timeChargeTaxGroup) {
+            const matchedGroup = systemTaxGroups.find(
+              (g) =>
+                g.code === timeChargeTaxGroup ||
+                g.name === timeChargeTaxGroup ||
+                (timeChargeTaxGroup === 'Phân phối, cung cấp hàng hóa' && g.code === 'phan_phoi') ||
+                (timeChargeTaxGroup === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu' && g.code === 'dich_vu') ||
+                (timeChargeTaxGroup === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu' && g.code === 'san_xuat') ||
+                (timeChargeTaxGroup === 'Hoạt động kinh doanh khác' && g.code === 'khac')
+            );
+            if (matchedGroup) {
+              timeChargeTaxGroup = matchedGroup.code;
+              timeChargeVatRate = String(matchedGroup.vat_rate);
+              timeChargePitRate = String(matchedGroup.pit_rate);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to query system product in handleMergeTable:', e);
       }
 
-      if (isOnline) {
-        // 1. Add frozen source stay fee to the target order on Cloud
-        if (sourceStayCost > 0) {
-          const activeIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
-          const systemProdId = getTimeChargeProductId(activeIndustry);
-          
-          let timeChargeTaxRate = '0';
-          let timeChargeTaxGroup = '';
-          let timeChargeVatRate = '0';
-          let timeChargePitRate = '0';
-          try {
-            const prod = await db.select()
-              .from(schema.products)
-              .where(eq(schema.products.id, systemProdId))
-              .limit(1)
-              .then((res: any[]) => res[0]);
-            if (prod) {
-              timeChargeTaxRate = prod.tax_rate || '0';
-              timeChargeTaxGroup = prod.tax_group || '';
-              
-              const systemTaxGroups = await getSystemTaxGroups();
-              if (timeChargeTaxGroup) {
-                const matchedGroup = systemTaxGroups.find(
-                  (g) =>
-                    g.code === timeChargeTaxGroup ||
-                    g.name === timeChargeTaxGroup ||
-                    (timeChargeTaxGroup === 'Phân phối, cung cấp hàng hóa' && g.code === 'phan_phoi') ||
-                    (timeChargeTaxGroup === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu' && g.code === 'dich_vu') ||
-                    (timeChargeTaxGroup === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu' && g.code === 'san_xuat') ||
-                    (timeChargeTaxGroup === 'Hoạt động kinh doanh khác' && g.code === 'khac')
-                );
-                if (matchedGroup) {
-                  timeChargeTaxGroup = matchedGroup.code;
-                  timeChargeVatRate = String(matchedGroup.vat_rate);
-                  timeChargePitRate = String(matchedGroup.pit_rate);
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('Failed to query system product in handleMergeTable:', e);
+      // 1. Xây dựng giỏ hàng gộp chuẩn xác từ cả tableCarts cục bộ và SQLite/Server
+      const sourceCartState: Record<string, any> = { ...(tableCarts[sourceTableId] || {}) };
+      if (Platform.OS !== 'web' && Object.keys(sourceCartState).length === 0) {
+        try {
+          const dbSourceItems = await db.select().from(schema.order_items).where(eq(schema.order_items.order_id, sourceOrderId));
+          for (const it of dbSourceItems) {
+            if (it.product_id === 'TIME_CHARGE') continue;
+            sourceCartState[it.product_id] = {
+              productId: it.product_id,
+              name: it.product_name,
+              price: Number(it.unit_price) || 0,
+              quantity: Number(it.qty) || 1,
+              tax_rate: it.tax_rate || '0',
+              tax_group: it.tax_group || '',
+            };
           }
+        } catch (e) {}
+      }
 
-          const rateVal = parseFloat(timeChargeTaxRate);
-          const taxAmt = Math.round(sourceStayCost * (rateVal / 105)); // 105 is used for internal calculation or wait, actually (sourceStayCost * rateVal) / 100
-          const taxAmtVal = Math.round(sourceStayCost * (rateVal / 100));
-          const stayFeePayload = {
-            order_id: targetOrderId,
-            order_no: targetTable.current_order_id || '',
-            line_no: '999',
-            product_id: `TIME_CHARGE_MERGED_${sourceTableId}`,
-            sku: 'TIME_CHARGE_MERGED',
-            product_name: `Tiền phòng ${sourceTable.name} (Đã gộp - ${sourceBilling.label})`,
-            qty: '1',
-            unit_price: String(sourceStayCost),
-            line_total: String(sourceStayCost),
-            line_discount: '0',
-            tax_rate: timeChargeTaxRate,
-            tax_amount: String(taxAmtVal),
-            tax_group: timeChargeTaxGroup,
+      const mergedTargetCart: Record<string, any> = { ...(tableCarts[targetTableId] || {}) };
+      if (sourceStayCost > 0) {
+        mergedTargetCart[frozenProductId] = {
+          productId: frozenProductId,
+          name: frozenProductName,
+          price: sourceStayCost,
+          quantity: 1,
+          tax_rate: timeChargeTaxRate,
+          tax_group: timeChargeTaxGroup,
+        };
+      }
+
+      Object.entries(sourceCartState).forEach(([itemId, item]: [string, any]) => {
+        if (itemId === 'TIME_CHARGE' || item.productId === 'TIME_CHARGE') return;
+        if (mergedTargetCart[itemId]) {
+          mergedTargetCart[itemId] = {
+            ...mergedTargetCart[itemId],
+            quantity: Number(mergedTargetCart[itemId].quantity || 0) + Number(item.quantity || 1),
           };
-          await fetch(`${currentUrl}/api/shops/${shopId}/order-items`, {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/json' },
-            body: JSON.stringify(stayFeePayload)
-          });
+        } else {
+          mergedTargetCart[itemId] = { ...item };
         }
+      });
 
-        // 2. Transfer other items
-        const itemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${sourceOrderId}&limit=200&t=${Date.now()}`, { headers });
-        if (itemsRes.ok) {
-          const json = await itemsRes.json();
-          const cloudSourceItems = json.data || [];
-          
-          let index = 1;
-          for (const item of cloudSourceItems) {
-            // Skip the dynamic stay charge of the source room
-            if (item.product_id === 'TIME_CHARGE') continue;
+      // 2. Cập nhật State & SQLite cục bộ ngay lập tức (Offline-First)
+      setTableCarts(prev => {
+        const copy = { ...prev };
+        copy[targetTableId] = mergedTargetCart;
+        delete copy[sourceTableId];
+        return copy;
+      });
 
-            const payload = {
-              order_id: targetOrderId,
-              order_no: targetTable.current_order_id || '',
-              line_no: String(100 + index++),
-              product_id: item.product_id,
-              sku: item.sku || '',
-              product_name: item.product_name,
-              qty: String(item.qty),
-              unit_price: String(item.unit_price),
-              line_total: String(item.line_total),
-              line_discount: String(item.line_discount || '0'),
-              variant_id: item.variant_id || '',
-              variant_label: item.variant_label || '',
-              modifiers: item.modifiers || '',
-              modifier_total: String(item.modifier_total || '0')
-            };
-            await fetch(`${currentUrl}/api/shops/${shopId}/order-items`, {
-              method: 'POST',
-              headers: { ...headers, 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-          }
+      setTableCustomers(prev => {
+        const copy = { ...prev };
+        if (!copy[targetTableId] && copy[sourceTableId]) {
+          copy[targetTableId] = copy[sourceTableId];
         }
-
-        await fetch(`${currentUrl}/api/shops/${shopId}/orders/${sourceOrderId}/cancel`, { method: 'POST', headers });
-
-        await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${sourceTableId}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ status: 'dirty', current_order_id: '' }),
-        });
-      }
+        delete copy[sourceTableId];
+        return copy;
+      });
 
       if (Platform.OS === 'web') {
-        const sourceCart = tableCarts[sourceTableId] || {};
-        setTableCarts(prev => {
-          const copy = { ...prev };
-          const targetCart = { ...(copy[targetTableId] || {}) };
-          
-          if (sourceStayCost > 0) {
-            const frozenProductId = `TIME_CHARGE_MERGED_${sourceTableId}`;
-            targetCart[frozenProductId] = {
-              productId: frozenProductId,
-              name: `Tiền phòng ${sourceTable.name} (Đã gộp - ${sourceBilling.label})`,
-              price: sourceStayCost,
-              quantity: 1,
-            };
-          }
-
-          Object.entries(sourceCart).forEach(([itemId, item]) => {
-            if (itemId === 'TIME_CHARGE' || item.productId === 'TIME_CHARGE') return;
-
-            if (targetCart[itemId]) {
-              targetCart[itemId] = {
-                ...targetCart[itemId],
-                quantity: targetCart[itemId].quantity + item.quantity
-              };
-            } else {
-              targetCart[itemId] = item;
-            }
-          });
-          
-          copy[targetTableId] = targetCart;
-          delete copy[sourceTableId];
-          return copy;
-        });
-
         setTables(prev => prev.map(t => {
-          if (t.id === sourceTableId) return { ...t, status: 'dirty', current_order_id: null, startTime: null, metadata: null };
+          if (t.id === sourceTableId) return { ...t, status: releaseStatus, current_order_id: null, startTime: null, metadata: cleanedSourceMeta };
           return t;
         }));
       } else {
-        // 1. Insert frozen stay fee to SQLite database
         if (sourceStayCost > 0) {
-          const activeIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
-          const systemProdId = getTimeChargeProductId(activeIndustry);
-          
-          let timeChargeTaxRate = '0';
-          let timeChargeTaxGroup = '';
-          let timeChargeVatRate = '0';
-          let timeChargePitRate = '0';
-          try {
-            const prod = await db.select()
-              .from(schema.products)
-              .where(eq(schema.products.id, systemProdId))
-              .limit(1)
-              .then((res: any[]) => res[0]);
-            if (prod) {
-              timeChargeTaxRate = prod.tax_rate || '0';
-              timeChargeTaxGroup = prod.tax_group || '';
-              
-              const systemTaxGroups = await getSystemTaxGroups();
-              if (timeChargeTaxGroup) {
-                const matchedGroup = systemTaxGroups.find(
-                  (g) =>
-                    g.code === timeChargeTaxGroup ||
-                    g.name === timeChargeTaxGroup ||
-                    (timeChargeTaxGroup === 'Phân phối, cung cấp hàng hóa' && g.code === 'phan_phoi') ||
-                    (timeChargeTaxGroup === 'Dịch vụ, xây dựng không bao thầu nguyên vật liệu' && g.code === 'dich_vu') ||
-                    (timeChargeTaxGroup === 'Sản xuất, vận tải, dịch vụ có gắn với hàng hóa, xây dựng có bao thầu nguyên vật liệu' && g.code === 'san_xuat') ||
-                    (timeChargeTaxGroup === 'Hoạt động kinh doanh khác' && g.code === 'khac')
-                );
-                if (matchedGroup) {
-                  timeChargeTaxGroup = matchedGroup.code;
-                  timeChargeVatRate = String(matchedGroup.vat_rate);
-                  timeChargePitRate = String(matchedGroup.pit_rate);
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('Failed to query system product in handleMergeTable:', e);
-          }
-
           const stayFeeItemId = `ORDI-FROZEN-${Date.now()}-${Math.random().toString(36).substring(7)}`;
           const rateVal = parseFloat(timeChargeTaxRate);
           const taxAmt = Math.round(sourceStayCost * (rateVal / 100));
           await db.insert(schema.order_items).values({
             id: stayFeeItemId,
             order_id: targetOrderId,
-            product_id: `TIME_CHARGE_MERGED_${sourceTableId}`,
-            product_name: `Tiền phòng ${sourceTable.name} (Đã gộp - ${sourceBilling.label})`,
+            product_id: frozenProductId,
+            product_name: frozenProductName,
             qty: 1,
             unit_price: sourceStayCost,
             line_total: sourceStayCost,
@@ -2327,37 +2486,40 @@ export function useTableManager(props: UseTableManagerProps) {
           });
         }
 
-        // 2. Transfer other items
-        for (const item of sourceItems) {
-          if (item.product_id === 'TIME_CHARGE') continue;
+        for (const item of Object.values(sourceCartState) as any[]) {
+          const prodId = item.productId || item.product_id;
+          if (!prodId || prodId === 'TIME_CHARGE') continue;
 
+          // SỬA LỖI DRIZZLE ORM: Phải dùng and(...) thay vì chuỗi .where().where() làm ghi đè điều kiện order_id!
           const existing = await db
             .select()
             .from(schema.order_items)
-            .where(eq(schema.order_items.order_id, targetOrderId))
-            .where(eq(schema.order_items.product_id, item.product_id));
+            .where(and(eq(schema.order_items.order_id, targetOrderId), eq(schema.order_items.product_id, prodId)));
+
+          const itemQty = Number(item.quantity ?? item.qty ?? 1);
+          const itemPrice = Number(item.price ?? item.unit_price ?? 0);
 
           if (existing.length > 0) {
-            const newQty = Number(existing[0].qty) + Number(item.qty);
-            const newTotal = newQty * Number(existing[0].unit_price);
+            const newQty = Number(existing[0].qty) + itemQty;
+            const newTotal = newQty * Number(existing[0].unit_price || itemPrice);
             await db
               .update(schema.order_items)
-              .set({ qty: String(newQty), line_total: String(newTotal) })
+              .set({ qty: newQty, line_total: newTotal })
               .where(eq(schema.order_items.id, existing[0].id));
           } else {
             await db.insert(schema.order_items).values({
               id: `ORDI-${Date.now()}-${Math.random().toString(36).substring(7)}`,
               order_id: targetOrderId,
-              product_id: item.product_id,
-              product_name: item.product_name,
-              qty: item.qty,
-              unit_price: item.unit_price,
-              line_total: item.line_total,
-              tax_rate: item.tax_rate,
-              tax_amount: item.tax_amount,
-              tax_group: item.tax_group,
-              tax_vat_rate: item.tax_vat_rate,
-              tax_pit_rate: item.tax_pit_rate,
+              product_id: prodId,
+              product_name: item.name || item.product_name || '',
+              qty: itemQty,
+              unit_price: itemPrice,
+              line_total: itemQty * itemPrice,
+              tax_rate: item.tax_rate || '0',
+              tax_amount: 0,
+              tax_group: item.tax_group || '',
+              tax_vat_rate: '0',
+              tax_pit_rate: '0',
             });
           }
         }
@@ -2376,53 +2538,40 @@ export function useTableManager(props: UseTableManagerProps) {
 
         await db
           .update(schema.location_resources)
-          .set({ status: 'dirty', current_order_id: null, startTime: null, metadata: null })
+          .set({ status: releaseStatus, current_order_id: null, startTime: null, metadata: cleanedSourceMeta })
           .where(eq(schema.location_resources.id, sourceTableId));
 
         const updated = await db.select().from(schema.location_resources);
         setTables(updated);
-
-        const sourceCart = tableCarts[sourceTableId] || {};
-        setTableCarts(prev => {
-          const copy = { ...prev };
-          const targetCart = { ...(copy[targetTableId] || {}) };
-          
-          if (sourceStayCost > 0) {
-            const frozenProductId = `TIME_CHARGE_MERGED_${sourceTableId}`;
-            targetCart[frozenProductId] = {
-              productId: frozenProductId,
-              name: `Tiền phòng ${sourceTable.name} (Đã gộp - ${sourceBilling.label})`,
-              price: sourceStayCost,
-              quantity: 1,
-            };
-          }
-
-          Object.entries(sourceCart).forEach(([itemId, item]) => {
-            if (itemId === 'TIME_CHARGE' || item.productId === 'TIME_CHARGE') return;
-
-            if (targetCart[itemId]) {
-              targetCart[itemId] = {
-                ...targetCart[itemId],
-                quantity: targetCart[itemId].quantity + item.quantity
-              };
-            } else {
-              targetCart[itemId] = item;
-            }
-          });
-          
-          copy[targetTableId] = targetCart;
-          delete copy[sourceTableId];
-          return copy;
-        });
       }
 
-      setTableCustomers(prev => {
-        const copy = { ...prev };
-        delete copy[sourceTableId];
-        return copy;
-      });
+      // 3. Đồng bộ lên Cloud
+      if (isOnline) {
+        try {
+          const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
+          // Đồng bộ toàn bộ giỏ hàng đích (bao gồm cả dòng TIME_CHARGE_MERGED_ và các món gộp) qua pipeline chuẩn
+          await syncOrderItemsOnline(targetOrderId, mergedTargetCart, targetTableId);
 
-      showToast(`Đã gộp thành công từ phòng/bàn ${sourceTable.name}`, "success");
+          await Promise.all([
+            fetch(`${currentUrl}/api/shops/${shopId}/orders/${sourceOrderId}/cancel`, {
+              method: 'POST',
+              headers: jsonHeaders,
+              body: JSON.stringify({ reason: `Gộp sang ${targetTable.name}` }),
+            }),
+            fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${sourceTableId}`, {
+              method: 'PATCH',
+              headers: jsonHeaders,
+              body: JSON.stringify({ status: releaseStatus, current_order_id: '', metadata: cleanedSourceMeta }),
+            }),
+          ]);
+
+          broadcastSync?.({ event: 'TABLE_MERGED', tableId: targetTableId, sourceTableId });
+        } catch (syncErr) {
+          console.warn('Lỗi đồng bộ gộp bàn lên Cloud:', syncErr);
+        }
+      }
+
+      showToast(`Đã gộp thành công từ ${sourceTable.name} sang ${targetTable.name}`, "success");
     } catch (err) {
       console.error('Lỗi gộp phòng bàn:', err);
       showToast("Có lỗi xảy ra khi gộp phòng bàn", "error");
