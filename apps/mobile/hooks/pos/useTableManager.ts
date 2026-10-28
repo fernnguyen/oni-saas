@@ -892,10 +892,28 @@ export function useTableManager(props: UseTableManagerProps) {
             }
           }
 
-          setTableCarts(prev => ({
-            ...prev,
-            [table.id]: mappedCart
-          }));
+          setTableCarts(prev => {
+            const existingLocalCart = prev[table.id] || {};
+            const hasLocalNonTimeItems = Object.keys(existingLocalCart).some(
+              k => !isTimeChargeProduct(existingLocalCart[k]?.productId || k, existingLocalCart[k]?.name)
+            );
+            // Bảo vệ dữ liệu cục bộ trên Máy A: Nếu Server đang trả về 0 món (do lỗi mạng/order_items_pkey trước đó chưa kịp đẩy lên)
+            // trong khi Máy A đang có món trong giỏ cục bộ và đơn chưa từng ghi nhận xóa món trên Server,
+            // giữ nguyên giỏ cục bộ của Máy A và tự động đẩy bù lên Server!
+            if (Object.keys(mappedCart).length === 0 && hasLocalNonTimeItems && !parsedMeta.items_updated_at) {
+              const targetOrderId = order.id || order.order_id || table.current_order_id || '';
+              if (targetOrderId) {
+                setTimeout(() => {
+                  void syncOrderItemsOnline(targetOrderId, existingLocalCart, table.id);
+                }, 100);
+              }
+              return prev;
+            }
+            return {
+              ...prev,
+              [table.id]: mappedCart
+            };
+          });
         }
 
         // Khôi phục thông tin khách lưu trú từ Cloud

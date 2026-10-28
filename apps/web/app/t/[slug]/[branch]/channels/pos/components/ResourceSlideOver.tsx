@@ -300,8 +300,8 @@ export function ResourceSlideOver({
       } catch (err: any) {
         console.error('Failed to sync action', action, err)
         const retries = Number(action._retries || 0) + 1
-        // Drop permanently invalid server-rejected actions after 3 retries so they don't block the queue forever
-        if (!err?.status || retries < 3) {
+        // Drop permanently invalid 4xx client-rejected actions after 3 retries; keep 5xx/network errors so they recover once server is healthy
+        if (!err?.status || err.status >= 500 || retries < 3) {
           remainingActions.push({ ...action, _retries: retries })
         }
       }
@@ -340,6 +340,15 @@ export function ResourceSlideOver({
         await syncOfflineActions(orderId)
       }
 
+      const cachedItemsBeforeFetch: OrderItem[] = (() => {
+        try {
+          const raw = localStorage.getItem(`table_order_items:${orderId}`)
+          return raw ? JSON.parse(raw) : []
+        } catch {
+          return []
+        }
+      })()
+
       const [orderRes, itemsRes, paymentsRes] = await Promise.all([
         fetch(`/api/shops/${shopId}/orders/${orderId}`),
         fetch(`/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200&t=${Date.now()}`),
@@ -353,6 +362,40 @@ export function ResourceSlideOver({
       if (itemsRes.ok) {
         const iData = await itemsRes.json()
         items = iData.data || []
+
+        // Self-heal: if localStorage still holds unsynced `temp-...` items (e.g. from an earlier 500 error before patch),
+        // push them to the server now instead of overwriting them with an empty server list.
+        const unsyncedTempItems = cachedItemsBeforeFetch.filter(it => String(it.id || '').startsWith('temp-'))
+        if (unsyncedTempItems.length > 0) {
+          let recoveredAny = false
+          for (const tempItem of unsyncedTempItems) {
+            const alreadyOnServer = items.some(
+              s => s.product_id === tempItem.product_id && String(s.variant_label || '') === String((tempItem as any).variant_label || '')
+            )
+            if (alreadyOnServer) continue
+            try {
+              const { id: _tempId, ...payload } = tempItem as any
+              const createRes = await fetch(`/api/shops/${shopId}/order-items`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...payload, order_id: orderId }),
+              })
+              if (createRes.ok) {
+                const created = await createRes.json()
+                items.push(created)
+                recoveredAny = true
+              } else {
+                items.push(tempItem)
+              }
+            } catch {
+              items.push(tempItem)
+            }
+          }
+          if (recoveredAny && broadcastSyncEvent) {
+            broadcastSyncEvent('ITEMS_UPDATED', { tableId: resource.id })
+          }
+        }
+
         localStorage.setItem(`table_order_items:${orderId}`, JSON.stringify(items))
       }
       if (paymentsRes.ok) {
