@@ -158,6 +158,7 @@ export async function POST(
     // ── Step 1: Find or create order ──
     let serverId = server_order_id ?? ''
     let orderNo = ''
+    let existingServerOrder: Record<string, any> | null = null
 
     if (serverId) {
       let actualOrder = null
@@ -169,7 +170,8 @@ export async function POST(
 
       if (actualOrder) {
         // It's a valid order_id!
-        orderNo = (actualOrder as Record<string, string>).order_no || ''
+        existingServerOrder = actualOrder as Record<string, any>
+        orderNo = existingServerOrder.order_no || ''
       } else {
         // It might be a local ID sent as server_order_id. Let's try to find it by reference_no.
         const matched = await connector.list('orders', {
@@ -177,8 +179,9 @@ export async function POST(
           filters: { reference_no: serverId },
         })
         if (matched.data.length > 0) {
-          serverId = (matched.data[0] as Record<string, string>).order_id
-          orderNo = (matched.data[0] as Record<string, string>).order_no || ''
+          existingServerOrder = matched.data[0] as Record<string, any>
+          serverId = existingServerOrder.order_id
+          orderNo = existingServerOrder.order_no || ''
         } else {
           // If neither order_id nor reference_no matched, it doesn't exist on server.
           serverId = ''
@@ -196,10 +199,27 @@ export async function POST(
         filters: { reference_no: local_order_id },
       })
       if (existing.data.length > 0) {
-        const row = existing.data[0] as Record<string, string>
+        const row = existing.data[0] as Record<string, any>
+        existingServerOrder = row
         serverId = row.order_id
         orderNo = row.order_no ?? ''
       }
+    }
+
+    // GUARD 1: Never allow a delayed/offline `in_progress` sync from another device
+    // to downgrade an order that was already `completed` or `cancelled` on the server!
+    if (
+      existingServerOrder &&
+      (existingServerOrder.status === 'completed' || existingServerOrder.status === 'cancelled') &&
+      order.status === 'in_progress'
+    ) {
+      return NextResponse.json({
+        ok: true,
+        order_id: serverId,
+        order_no: orderNo,
+        status: existingServerOrder.status,
+        skipped_stale_in_progress: true,
+      })
     }
 
     let isNewOrder = false
@@ -299,32 +319,57 @@ export async function POST(
       }
     })()
 
-    // Self-healing table order resolution:
-    // If the client paid or updated a physical table using a temporary local ID (e.g. ORD-T-INPROG-...)
-    // while the server already has an active `in_progress` order on that table, reuse that server order
-    // instead of creating a duplicate order and leaving a zombie `in_progress` session behind!
-    if (!serverId && resolvedResourceId && !resolvedResourceId.startsWith('takeaway')) {
+    // Self-healing table order resolution & stale `in_progress` resurrection guard:
+    if (resolvedResourceId && !resolvedResourceId.startsWith('takeaway')) {
       try {
         const resourceRow = await connector.findById('location-resources', resolvedResourceId)
-        if (resourceRow?.current_order_id) {
-          const currentOrd = await connector.findById('orders', String(resourceRow.current_order_id)).catch(() => null)
-          if (currentOrd && currentOrd.status === 'in_progress') {
-            serverId = String((currentOrd as Record<string, string>).order_id || (currentOrd as Record<string, string>).id || resourceRow.current_order_id)
-            orderNo = String((currentOrd as Record<string, string>).order_no || '')
+
+        // GUARD 2: Never allow a stale offline `in_progress` order (whose check_in time is BEFORE
+        // the table's last checkout/release time) to resurrect a closed table!
+        if (order.status === 'in_progress' && resourceRow) {
+          const resourceMeta = parseMetadataSafe(resourceRow.metadata)
+          const incomingMeta = parseMetadataSafe(order.metadata)
+          const lastCheckoutIso = resourceMeta.last_checkout_time || ''
+          const incomingCheckInIso = incomingMeta.check_in || order.created_at || ''
+          const lastCheckoutMs = lastCheckoutIso ? new Date(lastCheckoutIso).getTime() : 0
+          const incomingCheckInMs = incomingCheckInIso ? new Date(incomingCheckInIso).getTime() : 0
+
+          if (lastCheckoutMs > 0 && incomingCheckInMs > 0 && incomingCheckInMs < lastCheckoutMs - 5000) {
+            if (serverId) {
+              await connector.update('orders', serverId, { status: 'cancelled' }).catch(() => {})
+              invalidate(shopId, 'orders')
+            }
+            return NextResponse.json({
+              ok: true,
+              order_id: serverId || local_order_id || '',
+              order_no: orderNo,
+              status: 'cancelled',
+              skipped_stale_in_progress: true,
+            })
           }
         }
+
         if (!serverId) {
-          const inProgList = await connector.list('orders', {
-            page: 1,
-            limit: 50,
-            filters: { status: 'in_progress' },
-          })
-          const matchedInProg = ((inProgList.data || []) as Record<string, any>[]).find(
-            (o) => resolveOrderResourceId(o) === resolvedResourceId
-          )
-          if (matchedInProg) {
-            serverId = String(matchedInProg.order_id || matchedInProg.id || '')
-            orderNo = String(matchedInProg.order_no || '')
+          if (resourceRow?.current_order_id) {
+            const currentOrd = await connector.findById('orders', String(resourceRow.current_order_id)).catch(() => null)
+            if (currentOrd && currentOrd.status === 'in_progress') {
+              serverId = String((currentOrd as Record<string, string>).order_id || (currentOrd as Record<string, string>).id || resourceRow.current_order_id)
+              orderNo = String((currentOrd as Record<string, string>).order_no || '')
+            }
+          }
+          if (!serverId) {
+            const inProgList = await connector.list('orders', {
+              page: 1,
+              limit: 50,
+              filters: { status: 'in_progress' },
+            })
+            const matchedInProg = ((inProgList.data || []) as Record<string, any>[]).find(
+              (o) => resolveOrderResourceId(o) === resolvedResourceId
+            )
+            if (matchedInProg) {
+              serverId = String(matchedInProg.order_id || matchedInProg.id || '')
+              orderNo = String(matchedInProg.order_no || '')
+            }
           }
         }
       } catch (err) {

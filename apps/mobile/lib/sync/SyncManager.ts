@@ -165,27 +165,68 @@ export class SyncManager {
         }
       }
 
-      // Bảo vệ các bàn vừa mở ngoại tuyến/đang đồng bộ dở (sync_status = 'pending' hoặc ORD-T-INPROG-)
+      // Bảo vệ các bàn vừa mở ngoại tuyến/đang đồng bộ dở (ORD-T-INPROG- mới tạo < 3 phút)
       // VÀ bảo vệ các bàn vừa thanh toán xong đang chờ đồng bộ completed order (không để cloud cũ ghi đè lại thành occupied)
       const localPendingTableMap = new Map<string, any>();
       const localPendingPaidTableMap = new Map<string, any>();
       try {
+        const cloudTableById = new Map<string, any>(
+          rawTables.map((t: any) => [t.id || t.resource_id, t])
+        );
         const existingLocalResources = await db.select().from(schema.location_resources);
         const pendingOrders = await db.select().from(schema.orders).where(eq(schema.orders.sync_status, 'pending'));
         const pendingByResId = new Map<string, any>();
         const pendingCompletedByResId = new Map<string, any>();
         for (const po of pendingOrders) {
           if (po.status === 'in_progress' && po.resource_id) {
-            pendingByResId.set(po.resource_id, po);
+            const cloudTable = cloudTableById.get(po.resource_id);
+            let poMeta: any = {};
+            let cloudMeta: any = {};
+            try {
+              poMeta = po.metadata ? (typeof po.metadata === 'string' ? JSON.parse(po.metadata) : po.metadata) : {};
+            } catch {}
+            try {
+              cloudMeta = cloudTable?.metadata ? (typeof cloudTable.metadata === 'string' ? JSON.parse(cloudTable.metadata) : cloudTable.metadata) : {};
+            } catch {}
+            const lastCheckoutMs = cloudMeta?.last_checkout_time ? new Date(cloudMeta.last_checkout_time).getTime() : 0;
+            const poCheckInIso = poMeta?.check_in || po.created_at || '';
+            const poCheckInMs = poCheckInIso ? new Date(poCheckInIso).getTime() : 0;
+            const ageMs = poCheckInMs > 0 ? (Date.now() - poCheckInMs) : Infinity;
+            const isTempLocalInProg = String(po.id).startsWith('ORD-T-INPROG-');
+            const isBeforeLastCheckout = lastCheckoutMs > 0 && poCheckInMs > 0 && poCheckInMs < lastCheckoutMs - 5000;
+            const isStaleOfflineOpen = ageMs > 3 * 60 * 1000;
+            const isStillActiveOnCloud =
+              activeOrdersByIdMap.has(po.id) ||
+              activeOrdersMap.has(po.resource_id) ||
+              cloudTable?.status === 'occupied' ||
+              cloudTable?.status === 'playing';
+
+            if (!isStillActiveOnCloud && (!isTempLocalInProg || isBeforeLastCheckout || isStaleOfflineOpen)) {
+              await db.delete(schema.orders).where(eq(schema.orders.id, po.id));
+              await db.delete(schema.order_items).where(eq(schema.order_items.order_id, po.id));
+            } else {
+              pendingByResId.set(po.resource_id, po);
+            }
           } else if (po.status === 'completed' && po.resource_id) {
             pendingCompletedByResId.set(po.resource_id, po);
           }
         }
         for (const lr of existingLocalResources) {
           const isOccupiedLocal = lr.status === 'occupied' || lr.status === 'playing';
-          const hasLocalInprogOrder =
-            (lr.current_order_id && String(lr.current_order_id).startsWith('ORD-T-INPROG-')) ||
-            pendingByResId.has(lr.id);
+          const cloudTable = cloudTableById.get(lr.id);
+          let cloudMeta: any = {};
+          try {
+            cloudMeta = cloudTable?.metadata ? (typeof cloudTable.metadata === 'string' ? JSON.parse(cloudTable.metadata) : cloudTable.metadata) : {};
+          } catch {}
+          const lastCheckoutMs = cloudMeta?.last_checkout_time ? new Date(cloudMeta.last_checkout_time).getTime() : 0;
+          const lrStartTimeMs = lr.startTime ? Number(lr.startTime) : 0;
+          const isFreshTempInprog =
+            lr.current_order_id &&
+            String(lr.current_order_id).startsWith('ORD-T-INPROG-') &&
+            lrStartTimeMs > 0 &&
+            (Date.now() - lrStartTimeMs) <= 3 * 60 * 1000 &&
+            !(lastCheckoutMs > 0 && lrStartTimeMs < lastCheckoutMs - 5000);
+          const hasLocalInprogOrder = Boolean(isFreshTempInprog) || pendingByResId.has(lr.id);
           if (isOccupiedLocal && hasLocalInprogOrder) {
             localPendingTableMap.set(lr.id, lr);
           } else if (!isOccupiedLocal && pendingCompletedByResId.has(lr.id)) {
@@ -589,12 +630,6 @@ export class SyncManager {
 
       for (const order of pendingOrders) {
         try {
-          // Lấy chi tiết các dòng sản phẩm của hóa đơn này từ SQLite
-          const items = await db
-            .select()
-            .from(schema.order_items)
-            .where(eq(schema.order_items.order_id, order.id));
-
           let serverOrderId = '';
           let parsedOrderMetadata: any = {};
           if ((order as any).metadata) {
@@ -605,6 +640,34 @@ export class SyncManager {
               }
             } catch (e) {}
           }
+
+          // CHỐNG HỒI SINH BÀN ĐÃ ĐÓNG (Zombie Table Resurrection Guard):
+          // Nếu đơn trong hàng đợi có status = 'in_progress' gắn với bàn vật lý, nhưng bàn cục bộ đã về available
+          // (hoặc đang giữ current_order_id của ca mới khác), đây là đơn mồ côi cũ -> xóa ngay, tuyệt đối không đẩy lên sync-batch!
+          const orderResId = (order as any).resource_id || parsedOrderMetadata.resource_id || '';
+          if (order.status === 'in_progress' && orderResId && !String(orderResId).startsWith('takeaway')) {
+            const [localRes] = await db
+              .select()
+              .from(schema.location_resources)
+              .where(eq(schema.location_resources.id, orderResId))
+              .limit(1);
+            const isLocalResOccupied = localRes && (localRes.status === 'occupied' || localRes.status === 'playing');
+            const isAnotherOrderOnTable =
+              localRes?.current_order_id &&
+              localRes.current_order_id !== order.id &&
+              localRes.current_order_id !== serverOrderId;
+            if (!isLocalResOccupied || isAnotherOrderOnTable) {
+              await db.delete(schema.orders).where(eq(schema.orders.id, order.id));
+              await db.delete(schema.order_items).where(eq(schema.order_items.order_id, order.id));
+              continue;
+            }
+          }
+
+          // Lấy chi tiết các dòng sản phẩm của hóa đơn này từ SQLite
+          const items = await db
+            .select()
+            .from(schema.order_items)
+            .where(eq(schema.order_items.order_id, order.id));
           
           // Tự động chữa lành: Nếu ID cục bộ không bắt đầu bằng tiền tố local (ORD-T- hoặc ORD-R-) (tức là đã là ID từ server cấp),
           // Bắt buộc phải truyền nó làm server_order_id để Next.js cập nhật đơn hàng thay vì tạo mới (gây duplicate)
@@ -707,9 +770,22 @@ export class SyncManager {
             const resData = await response.json().catch(() => ({}))
             const serverId = resData.order_id
             const serverNo = resData.order_no
-
-            // Preserve the local order ID as reference_no so it's searchable
             const localId = order.id
+
+            if (resData.skipped_stale_in_progress) {
+              await db.delete(schema.orders).where(eq(schema.orders.id, localId))
+              await db.delete(schema.order_items).where(eq(schema.order_items.order_id, localId))
+              if (orderResId) {
+                const [resRow] = await db.select().from(schema.location_resources).where(eq(schema.location_resources.id, orderResId)).limit(1)
+                if (resRow && (!resRow.current_order_id || resRow.current_order_id === localId || resRow.current_order_id === serverId)) {
+                  await db.update(schema.location_resources)
+                    .set({ status: 'available', current_order_id: null, startTime: null })
+                    .where(eq(schema.location_resources.id, orderResId))
+                }
+              }
+              successCount++
+              continue
+            }
 
             if (serverId && serverId !== localId) {
               await db.update(schema.order_items)
@@ -1495,27 +1571,68 @@ export class SyncManager {
         }
       }
 
-      // Bảo vệ các bàn vừa mở ngoại tuyến/đang đồng bộ dở (sync_status = 'pending' hoặc ORD-T-INPROG-)
+      // Bảo vệ các bàn vừa mở ngoại tuyến/đang đồng bộ dở (ORD-T-INPROG- mới tạo < 3 phút)
       // VÀ bảo vệ các bàn vừa thanh toán xong đang chờ đồng bộ completed order (không để cloud cũ ghi đè lại thành occupied)
       const localPendingTableMap = new Map<string, any>();
       const localPendingPaidTableMap = new Map<string, any>();
       try {
+        const cloudTableById = new Map<string, any>(
+          rawTables.map((t: any) => [t.id || t.resource_id, t])
+        );
         const existingLocalResources = await db.select().from(schema.location_resources);
         const pendingOrders = await db.select().from(schema.orders).where(eq(schema.orders.sync_status, 'pending'));
         const pendingByResId = new Map<string, any>();
         const pendingCompletedByResId = new Map<string, any>();
         for (const po of pendingOrders) {
           if (po.status === 'in_progress' && po.resource_id) {
-            pendingByResId.set(po.resource_id, po);
+            const cloudTable = cloudTableById.get(po.resource_id);
+            let poMeta: any = {};
+            let cloudMeta: any = {};
+            try {
+              poMeta = po.metadata ? (typeof po.metadata === 'string' ? JSON.parse(po.metadata) : po.metadata) : {};
+            } catch {}
+            try {
+              cloudMeta = cloudTable?.metadata ? (typeof cloudTable.metadata === 'string' ? JSON.parse(cloudTable.metadata) : cloudTable.metadata) : {};
+            } catch {}
+            const lastCheckoutMs = cloudMeta?.last_checkout_time ? new Date(cloudMeta.last_checkout_time).getTime() : 0;
+            const poCheckInIso = poMeta?.check_in || po.created_at || '';
+            const poCheckInMs = poCheckInIso ? new Date(poCheckInIso).getTime() : 0;
+            const ageMs = poCheckInMs > 0 ? (Date.now() - poCheckInMs) : Infinity;
+            const isTempLocalInProg = String(po.id).startsWith('ORD-T-INPROG-');
+            const isBeforeLastCheckout = lastCheckoutMs > 0 && poCheckInMs > 0 && poCheckInMs < lastCheckoutMs - 5000;
+            const isStaleOfflineOpen = ageMs > 3 * 60 * 1000;
+            const isStillActiveOnCloud =
+              activeOrdersByIdMap.has(po.id) ||
+              activeOrdersMap.has(po.resource_id) ||
+              cloudTable?.status === 'occupied' ||
+              cloudTable?.status === 'playing';
+
+            if (!isStillActiveOnCloud && (!isTempLocalInProg || isBeforeLastCheckout || isStaleOfflineOpen)) {
+              await db.delete(schema.orders).where(eq(schema.orders.id, po.id));
+              await db.delete(schema.order_items).where(eq(schema.order_items.order_id, po.id));
+            } else {
+              pendingByResId.set(po.resource_id, po);
+            }
           } else if (po.status === 'completed' && po.resource_id) {
             pendingCompletedByResId.set(po.resource_id, po);
           }
         }
         for (const lr of existingLocalResources) {
           const isOccupiedLocal = lr.status === 'occupied' || lr.status === 'playing';
-          const hasLocalInprogOrder =
-            (lr.current_order_id && String(lr.current_order_id).startsWith('ORD-T-INPROG-')) ||
-            pendingByResId.has(lr.id);
+          const cloudTable = cloudTableById.get(lr.id);
+          let cloudMeta: any = {};
+          try {
+            cloudMeta = cloudTable?.metadata ? (typeof cloudTable.metadata === 'string' ? JSON.parse(cloudTable.metadata) : cloudTable.metadata) : {};
+          } catch {}
+          const lastCheckoutMs = cloudMeta?.last_checkout_time ? new Date(cloudMeta.last_checkout_time).getTime() : 0;
+          const lrStartTimeMs = lr.startTime ? Number(lr.startTime) : 0;
+          const isFreshTempInprog =
+            lr.current_order_id &&
+            String(lr.current_order_id).startsWith('ORD-T-INPROG-') &&
+            lrStartTimeMs > 0 &&
+            (Date.now() - lrStartTimeMs) <= 3 * 60 * 1000 &&
+            !(lastCheckoutMs > 0 && lrStartTimeMs < lastCheckoutMs - 5000);
+          const hasLocalInprogOrder = Boolean(isFreshTempInprog) || pendingByResId.has(lr.id);
           if (isOccupiedLocal && hasLocalInprogOrder) {
             localPendingTableMap.set(lr.id, lr);
           } else if (!isOccupiedLocal && pendingCompletedByResId.has(lr.id)) {

@@ -379,46 +379,81 @@ export function useTableManager(props: UseTableManagerProps) {
             }
 
             if (localPendingOrder) {
-              // Tự động đẩy đơn in_progress cục bộ lên Cloud qua sync-batch để đồng bộ trạng thái bàn
-              (async () => {
-                try {
-                  const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
-                    method: 'POST',
-                    headers: { ...headers, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      local_order_id: localPendingOrder.id,
-                      order: {
-                        status: 'in_progress',
-                        channel: 'pos-mobile',
-                        customer_id: localPendingOrder.customer_id || 'C-DEFAULT-RETAIL',
-                        customer_name: localPendingOrder.customer_name || 'Khách lẻ',
-                        branch_id: shopId,
-                        employee_id: currentUserEmail,
-                        subtotal: localPendingOrder.total_amount || 0,
-                        total_amount: localPendingOrder.total_amount || 0,
-                        paid_amount: 0,
-                        resource_id: tableId,
-                        created_at: localPendingOrder.created_at || new Date().toISOString(),
-                        metadata: localPendingOrder.metadata || '{}',
-                      },
-                      items: [],
-                      payments: [],
-                    }),
-                  });
-                  if (syncRes.ok) {
-                    const syncData = await syncRes.json().catch(() => ({}));
-                    const serverOrderId = syncData.order_id;
-                    if (serverOrderId) {
-                      await db.update(schema.location_resources).set({ current_order_id: serverOrderId, status: 'occupied' }).where(eq(schema.location_resources.id, tableId));
-                      await db.update(schema.orders).set({ id: serverOrderId, sync_status: 'synced', updated_at: new Date().toISOString() }).where(eq(schema.orders.id, localPendingOrder.id));
-                      await db.update(schema.order_items).set({ order_id: serverOrderId }).where(eq(schema.order_items.order_id, localPendingOrder.id));
+              let latestResMeta: any = {};
+              let localOrdMeta: any = {};
+              try {
+                latestResMeta = latestResource.metadata
+                  ? (typeof latestResource.metadata === 'string' ? JSON.parse(latestResource.metadata) : latestResource.metadata)
+                  : {};
+              } catch {}
+              try {
+                localOrdMeta = localPendingOrder.metadata
+                  ? (typeof localPendingOrder.metadata === 'string' ? JSON.parse(localPendingOrder.metadata) : localPendingOrder.metadata)
+                  : {};
+              } catch {}
+
+              const lastCheckoutMs = latestResMeta?.last_checkout_time ? new Date(latestResMeta.last_checkout_time).getTime() : 0;
+              const localCheckInIso = localOrdMeta?.check_in || localPendingOrder.created_at || '';
+              const localCheckInMs = localCheckInIso ? new Date(localCheckInIso).getTime() : 0;
+              const ageMs = localCheckInMs > 0 ? (Date.now() - localCheckInMs) : Infinity;
+
+              const isTempLocalInProg = String(localPendingOrder.id).startsWith('ORD-T-INPROG-');
+              const isBeforeLastCheckout = lastCheckoutMs > 0 && localCheckInMs > 0 && localCheckInMs < lastCheckoutMs - 5000;
+              const isStaleOfflineOpen = ageMs > 3 * 60 * 1000;
+
+              // Nếu đơn local đã từng có ID server (nhưng nay server đã giải phóng bàn),
+              // hoặc giờ vào cũ hơn lần trả bàn gần nhất trên Cloud, hoặc đơn tạm đã quá 3 phút:
+              // -> Đây là đơn mồ côi cũ trong SQLite, xóa sạch để không bao giờ hồi sinh bàn đã đóng!
+              if (!isTempLocalInProg || isBeforeLastCheckout || isStaleOfflineOpen) {
+                await db.delete(schema.orders).where(eq(schema.orders.id, localPendingOrder.id));
+                await db.delete(schema.order_items).where(eq(schema.order_items.order_id, localPendingOrder.id));
+              } else {
+                // Chỉ tự động đẩy đơn vừa mở ngoại tuyến (< 3 phút) lên Cloud
+                (async () => {
+                  try {
+                    const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
+                      method: 'POST',
+                      headers: { ...headers, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        local_order_id: localPendingOrder.id,
+                        order: {
+                          status: 'in_progress',
+                          channel: 'pos-mobile',
+                          customer_id: localPendingOrder.customer_id || 'C-DEFAULT-RETAIL',
+                          customer_name: localPendingOrder.customer_name || 'Khách lẻ',
+                          branch_id: shopId,
+                          employee_id: currentUserEmail,
+                          subtotal: localPendingOrder.total_amount || 0,
+                          total_amount: localPendingOrder.total_amount || 0,
+                          paid_amount: 0,
+                          resource_id: tableId,
+                          created_at: localPendingOrder.created_at || new Date().toISOString(),
+                          metadata: localPendingOrder.metadata || '{}',
+                        },
+                        items: [],
+                        payments: [],
+                      }),
+                    });
+                    if (syncRes.ok) {
+                      const syncData = await syncRes.json().catch(() => ({}));
+                      if (syncData.skipped_stale_in_progress) {
+                        await db.delete(schema.orders).where(eq(schema.orders.id, localPendingOrder.id));
+                        await db.delete(schema.order_items).where(eq(schema.order_items.order_id, localPendingOrder.id));
+                        return;
+                      }
+                      const serverOrderId = syncData.order_id;
+                      if (serverOrderId) {
+                        await db.update(schema.location_resources).set({ current_order_id: serverOrderId, status: 'occupied' }).where(eq(schema.location_resources.id, tableId));
+                        await db.update(schema.orders).set({ id: serverOrderId, sync_status: 'synced', updated_at: new Date().toISOString() }).where(eq(schema.orders.id, localPendingOrder.id));
+                        await db.update(schema.order_items).set({ order_id: serverOrderId }).where(eq(schema.order_items.order_id, localPendingOrder.id));
+                      }
                     }
+                  } catch (healErr) {
+                    console.warn('[Self-heal Pending Table] Lỗi đồng bộ lại bàn:', healErr);
                   }
-                } catch (healErr) {
-                  console.warn('[Self-heal Pending Table] Lỗi đồng bộ lại bàn:', healErr);
-                }
-              })();
-              return null;
+                })();
+                return null;
+              }
             }
           } catch (checkErr) {}
         } else if (orderId && String(orderId).startsWith('ORD-T-INPROG-')) {
