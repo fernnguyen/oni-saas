@@ -1653,22 +1653,24 @@ export default function PosScreen() {
                     // Thông báo lưu local thành công & đang sync
                     showToast(`Đã lưu món vào ${targetTable.name}! Đang đồng bộ...`, "info");
 
-                    // 2. Đồng bộ trực tuyến lên server ở chế độ nền
-                    if (targetTable.current_order_id) {
-                      (async () => {
-                        try {
-                          const success = await syncOrderItemsOnline(targetTable.current_order_id, targetCart, targetTable.id);
-                          if (success) {
-                            showToast(`Đã đồng bộ món ăn cho ${targetTable.name} thành công!`, "success");
-                          } else {
-                            showToast(`Lỗi đồng bộ trực tuyến, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
-                          }
-                        } catch (err) {
-                          console.error('Lỗi khi đồng bộ nền món phòng bàn:', err);
-                          showToast(`Mất kết nối, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
+                    // 2. Đồng bộ trực tuyến lên server ở chế độ nền (tự động phân giải current_order_id qua targetTable.id nếu cần)
+                    (async () => {
+                      try {
+                        const latestOrderId =
+                          tables.find(t => t.id === targetTable.id)?.current_order_id ||
+                          targetTable.current_order_id ||
+                          '';
+                        const success = await syncOrderItemsOnline(latestOrderId, targetCart, targetTable.id);
+                        if (success) {
+                          showToast(`Đã đồng bộ món ăn cho ${targetTable.name} thành công!`, "success");
+                        } else {
+                          showToast(`Lỗi đồng bộ trực tuyến, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
                         }
-                      })();
-                    }
+                      } catch (err) {
+                        console.error('Lỗi khi đồng bộ nền món phòng bàn:', err);
+                        showToast(`Mất kết nối, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
+                      }
+                    })();
                   }}
                 >
                   <Text className="text-xxs font-semibold text-white">Lưu món</Text>
@@ -2161,7 +2163,26 @@ export default function PosScreen() {
                           (tableBillingPresentation.rate > 0 && tableBillingPresentation.rateUnit
                             ? `${formatCurrency(tableBillingPresentation.rate)}/${tableBillingPresentation.rateUnit}`
                             : 'Chưa cấu hình đơn giá');
-                        const cartItemsCount = tableCarts[t.id] ? Object.values(tableCarts[t.id]).reduce((sum, item) => sum + item.quantity, 0) : 0;
+                        const cartItemsCount = tableCarts[t.id]
+                          ? Object.entries(tableCarts[t.id]).reduce(
+                              (sum, [cartItemId, item]: [string, any]) =>
+                                isTimeChargeProduct(item.productId || cartItemId, item.name)
+                                  ? sum
+                                  : sum + (Number(item.quantity) || 0),
+                              0
+                            )
+                          : 0;
+                        const cartItemsTotal = tableCarts[t.id]
+                          ? Object.entries(tableCarts[t.id]).reduce(
+                              (sum, [cartItemId, item]: [string, any]) =>
+                                isTimeChargeProduct(item.productId || cartItemId, item.name)
+                                  ? sum
+                                  : sum + ((Number(item.price) || 0) + (Number(item.modifier_total) || 0)) * (Number(item.quantity) || 0),
+                              0
+                            )
+                          : 0;
+                        const timeCost = tableBillingPresentation.showCost ? (Number(billing.cost) || 0) : 0;
+                        const totalEstimatedCost = timeCost + cartItemsTotal;
                         const guestName = tableCustomers[t.id]?.name || t.customerName || 'Khách lẻ';
 
                         if (tableViewMode === 'list') {
@@ -2175,14 +2196,19 @@ export default function PosScreen() {
                                 <View className={`w-1.5 h-10 rounded-full mr-3 ${isActive ? 'bg-rose-500' : isDirty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
                                 <View className="flex-1">
                                   <Text className="font-semibold text-sm text-slate-800">{t.name}</Text>
-                                  <View className="flex-row items-center mt-1">
+                                  <View className="flex-row items-center mt-1 flex-wrap">
                                     <Ionicons name="person-outline" size={12} color="#94a3b8" />
                                     <Text className="text-xs text-slate-500 ml-1 mr-3">{isActive ? guestName : `${t.capacity || '4'} người`}</Text>
                                     {isActive && (
-                                      <View className="flex-row items-center">
+                                      <View className="flex-row items-center mr-3">
                                         <Ionicons name="time-outline" size={12} color="#94a3b8" />
                                         <Text className="text-xs text-slate-500 ml-1">{billing.label}</Text>
                                       </View>
+                                    )}
+                                    {isActive && cartItemsCount > 0 && (
+                                      <Text className="text-xxs text-slate-600 font-semibold">
+                                        🍴 {cartItemsCount} món ({formatCurrency(cartItemsTotal)})
+                                      </Text>
                                     )}
                                   </View>
                                 </View>
@@ -2193,8 +2219,8 @@ export default function PosScreen() {
                                     {isActive ? 'Đang sử dụng' : isDirty ? 'Chưa dọn' : 'Trống'}
                                   </Text>
                                 </View>
-                                {isActive && tableBillingPresentation.showCost && (
-                                  <Text className="text-rose-600 font-semibold text-sm mt-1.5">{formatCurrency(billing.cost)}</Text>
+                                {isActive && (tableBillingPresentation.showCost || cartItemsTotal > 0) && (
+                                  <Text className="text-rose-600 font-bold text-sm mt-1.5">{formatCurrency(totalEstimatedCost)}</Text>
                                 )}
                               </View>
                             </Pressable>
@@ -2280,15 +2306,20 @@ export default function PosScreen() {
                                 </Text>
                                 {tableBillingPresentation.showCost && (
                                   <Text className="text-xxs text-rose-700 font-semibold mt-0.5">
-                                    💵 Tạm tính: {formatCurrency(billing.cost)}
+                                    💵 Tiền giờ: {formatCurrency(billing.cost)}
                                   </Text>
                                 )}
                                 {cartItemsCount > 0 && (
+                                  <Text className="text-xxs text-slate-600 font-semibold mt-0.5">
+                                    🍴 Tiền món ({cartItemsCount}): {formatCurrency(cartItemsTotal)}
+                                  </Text>
+                                )}
+                                {(tableBillingPresentation.showCost || cartItemsTotal > 0) && (
                                   <Text
-                                    className="text-xxs text-slate-550 font-semibold mt-0.5 pt-0.5 border-t"
-                                    style={{ borderTopColor: 'rgba(244, 63, 94, 0.15)' }}
+                                    className="text-xxs text-rose-800 font-bold mt-1 pt-1 border-t"
+                                    style={{ borderTopColor: 'rgba(244, 63, 94, 0.2)' }}
                                   >
-                                    🍴 Đã gọi: {cartItemsCount} món
+                                    💰 Tổng: {formatCurrency(totalEstimatedCost)}
                                   </Text>
                                 )}
                               </View>
@@ -3012,7 +3043,7 @@ export default function PosScreen() {
               <ScrollView className="flex-1 my-2" nestedScrollEnabled={true} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                 {activeTableTab === 'billing' || shopVertical !== 'lodging' ? (
                   <View>
-                    {/* Tình trạng tiền giờ */}
+                    {/* Tình trạng tiền giờ & Tổng tiền tạm tính */}
                     {(() => {
                       const billing = calculateBilling(activeTable);
                       let activeMeta: any = {};
@@ -3030,24 +3061,86 @@ export default function PosScreen() {
                           ? `${formatCurrency(billingPresentation.rate)}/${billingPresentation.rateUnit}`
                           : 'Chưa cấu hình đơn giá');
 
+                      const activeTableCart = tableCarts[activeTable.id] || {};
+                      const activeItemsEntries = Object.entries(activeTableCart).filter(
+                        ([cartItemId, item]: [string, any]) => !isTimeChargeProduct(item.productId || cartItemId, item.name)
+                      );
+                      const activeItemsCount = activeItemsEntries.reduce(
+                        (sum, [_, item]: [string, any]) => sum + (Number(item.quantity) || 0),
+                        0
+                      );
+                      const activeItemsTotal = activeItemsEntries.reduce(
+                        (sum, [_, item]: [string, any]) =>
+                          sum + ((Number(item.price) || 0) + (Number(item.modifier_total) || 0)) * (Number(item.quantity) || 0),
+                        0
+                      );
+                      const activeTimeCost = billingPresentation.showCost ? (Number(billing.cost) || 0) : 0;
+                      const activeGrandTotal = activeTimeCost + activeItemsTotal;
+
                       return (
                         <View className="bg-orange-50 border border-orange-100 p-4 rounded-xl mb-4">
                           <View className="flex-row justify-between items-center">
-                            <Text className="text-xxs text-slate-455 font-semibold">
-                              {billingPresentation.title}
+                            <Text className="text-xxs text-slate-600 font-semibold">
+                              Tổng tiền sử dụng tạm tính
                             </Text>
                             <Badge variant="primary" label={rateLabel} size="sm" />
                           </View>
                           <Text
                             selectable
-                            className="text-orange-500 text-3xl font-semibold mt-1.5"
+                            className="text-orange-500 text-3xl font-bold mt-1.5"
                             style={{ fontVariant: ['tabular-nums'] }}
                           >
-                            {billingPresentation.showCost ? formatCurrency(billing.cost) : billing.label}
+                            {billingPresentation.showCost || activeItemsTotal > 0
+                              ? formatCurrency(activeGrandTotal)
+                              : billing.label}
                           </Text>
-                          <Text className="text-[9px] text-orange-700/70 font-semibold mt-0.5">
-                            {billingPresentation.showCost ? 'Tạm tính đến hiện tại' : 'Thời gian sử dụng'}
+                          <Text className="text-[9px] text-orange-700/80 font-semibold mt-0.5">
+                            {billingPresentation.showCost
+                              ? `Bao gồm tiền giờ đến hiện tại (${billing.label}) và ${activeItemsCount} món đã gọi`
+                              : 'Thời gian sử dụng'}
                           </Text>
+
+                          {/* Bảng bóc tách Tiền giờ + Tiền món ngay đầu modal */}
+                          <View className="mt-3 bg-white/85 border border-orange-200/70 rounded-xl p-2.5 gap-1.5">
+                            {billingPresentation.showCost && (
+                              <View className="flex-row justify-between items-center">
+                                <Text className="text-[10.5px] text-slate-600 font-semibold">
+                                  ⏱️ {billingPresentation.title} ({billing.label})
+                                </Text>
+                                <Text
+                                  selectable
+                                  className="text-xs font-bold text-slate-800"
+                                  style={{ fontVariant: ['tabular-nums'] }}
+                                >
+                                  {formatCurrency(activeTimeCost)}
+                                </Text>
+                              </View>
+                            )}
+                            <View className="flex-row justify-between items-center">
+                              <Text className="text-[10.5px] text-slate-600 font-semibold">
+                                🍴 Tiền món / dịch vụ ({activeItemsCount} món)
+                              </Text>
+                              <Text
+                                selectable
+                                className="text-xs font-bold text-slate-800"
+                                style={{ fontVariant: ['tabular-nums'] }}
+                              >
+                                {formatCurrency(activeItemsTotal)}
+                              </Text>
+                            </View>
+                            <View className="flex-row justify-between items-center pt-1.5 mt-0.5 border-t border-orange-100">
+                              <Text className="text-[11px] text-orange-700 font-bold">
+                                💰 Tổng cộng tạm tính
+                              </Text>
+                              <Text
+                                selectable
+                                className="text-sm font-extrabold text-orange-600"
+                                style={{ fontVariant: ['tabular-nums'] }}
+                              >
+                                {formatCurrency(activeGrandTotal)}
+                              </Text>
+                            </View>
+                          </View>
 
                           <View className="mt-3 pt-3 border-t border-orange-100 gap-2">
                             <TouchableOpacity 
@@ -3243,7 +3336,20 @@ export default function PosScreen() {
                     {/* CHI TIẾT MÓN / DỊCH VỤ ĐÃ GỌI KÈM */}
                     {tableCarts[activeTable.id] && Object.keys(tableCarts[activeTable.id]).length > 0 ? (
                       <View className="mb-4">
-                        <Text className="text-tiny text-slate-400 font-medium mb-2">Món ăn / Dịch vụ đã gọi:</Text>
+                        <View className="flex-row justify-between items-center mb-2">
+                          <Text className="text-tiny text-slate-500 font-semibold">Món ăn / Dịch vụ đã gọi:</Text>
+                          <Text className="text-xs font-bold text-orange-600">
+                            Tổng món: {formatCurrency(
+                              Object.entries(tableCarts[activeTable.id]).reduce(
+                                (sum, [cartItemId, item]: [string, any]) =>
+                                  isTimeChargeProduct(item.productId || cartItemId, item.name)
+                                    ? sum
+                                    : sum + ((Number(item.price) || 0) + (Number(item.modifier_total) || 0)) * (Number(item.quantity) || 0),
+                                0
+                              )
+                            )}
+                          </Text>
+                        </View>
                         <View className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                           {Object.entries(tableCarts[activeTable.id]).map(([cartItemId, item]) => (
                             <View 
@@ -3537,26 +3643,62 @@ export default function PosScreen() {
                 )}
               </ScrollView>
 
-              {/* Hàng nút thanh toán chính */}
-              <View className="flex-row justify-between gap-3 border-t border-slate-100 pt-4 bg-white">
-                {activeTableTab === 'billing' || shopVertical !== 'lodging' ? (
-                  <Button
-                    variant="primary"
-                    title="Thanh toán & Trả phòng"
-                    icon={<Ionicons name="card-outline" size={16} color="white" />}
-                    onPress={() => triggerPayTable(activeTable)}
-                    className="flex-1 py-3.5 rounded-xl"
-                  />
-                ) : (
-                  <Button
-                    variant="primary"
-                    title="Cập nhật khách lưu trú"
-                    icon={<Ionicons name="save-outline" size={16} color="white" />}
-                    onPress={handleUpdateActiveRoomGuests}
-                    className="flex-1 py-3.5 rounded-xl"
-                    loading={isUpdatingGuestsLoading}
-                  />
-                )}
+              {/* Hàng nút thanh toán chính kèm tổng tiền trực quan */}
+              <View className="border-t border-slate-100 pt-3 bg-white">
+                {(activeTableTab === 'billing' || shopVertical !== 'lodging') && (() => {
+                  const footerBilling = calculateBilling(activeTable);
+                  let footerMeta: any = {};
+                  try {
+                    footerMeta = activeTable.metadata
+                      ? (typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata) : activeTable.metadata)
+                      : {};
+                  } catch {}
+                  const footerPres = getResourceBillingPresentationForResource(shopVertical, { ...activeTable, metadata: footerMeta });
+                  const footerTimeCost = footerPres.showCost ? (Number(footerBilling.cost) || 0) : 0;
+                  const footerItemsCost = Object.entries(tableCarts[activeTable.id] || {}).reduce(
+                    (sum, [cartItemId, item]: [string, any]) =>
+                      isTimeChargeProduct(item.productId || cartItemId, item.name)
+                        ? sum
+                        : sum + ((Number(item.price) || 0) + (Number(item.modifier_total) || 0)) * (Number(item.quantity) || 0),
+                    0
+                  );
+                  const footerGrandTotal = footerTimeCost + footerItemsCost;
+                  return (
+                    <View className="flex-row justify-between items-center mb-2.5 px-1">
+                      <View>
+                        <Text className="text-[10px] text-slate-500 font-medium">
+                          Giờ: <Text className="font-bold text-slate-700">{formatCurrency(footerTimeCost)}</Text> • Món: <Text className="font-bold text-slate-700">{formatCurrency(footerItemsCost)}</Text>
+                        </Text>
+                        <Text className="text-xs font-bold text-slate-800 mt-0.5">
+                          Tổng thanh toán tạm tính
+                        </Text>
+                      </View>
+                      <Text className="text-lg font-extrabold text-orange-500" style={{ fontVariant: ['tabular-nums'] }}>
+                        {formatCurrency(footerGrandTotal)}
+                      </Text>
+                    </View>
+                  );
+                })()}
+                <View className="flex-row justify-between gap-3">
+                  {activeTableTab === 'billing' || shopVertical !== 'lodging' ? (
+                    <Button
+                      variant="primary"
+                      title="Thanh toán & Trả phòng/bàn"
+                      icon={<Ionicons name="card-outline" size={16} color="white" />}
+                      onPress={() => triggerPayTable(activeTable)}
+                      className="flex-1 py-3.5 rounded-xl"
+                    />
+                  ) : (
+                    <Button
+                      variant="primary"
+                      title="Cập nhật khách lưu trú"
+                      icon={<Ionicons name="save-outline" size={16} color="white" />}
+                      onPress={handleUpdateActiveRoomGuests}
+                      className="flex-1 py-3.5 rounded-xl"
+                      loading={isUpdatingGuestsLoading}
+                    />
+                  )}
+                </View>
               </View>
 
               <PosDatePicker

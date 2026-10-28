@@ -104,6 +104,7 @@ const STATUS_CARDS: Record<string, { border: string; bg: string; dot: string; la
 function LiveOccupiedDetails({ resource, activeOrder, hasHourlyBilling, shopSettings, shopId }: { resource: Resource, activeOrder: any, hasHourlyBilling: boolean, shopSettings: any, shopId: string }) {
   const [now, setNow] = useState(Date.now())
   const [itemsCount, setItemsCount] = useState<number | null>(null)
+  const [itemsSubtotal, setItemsSubtotal] = useState<number>(Number(activeOrder?.subtotal || 0) || 0)
   const [billingDetails, setBillingDetails] = useState({ cost: 0, hours: 0, minutes: 0, durationLabel: '' })
 
   useEffect(() => {
@@ -118,6 +119,9 @@ function LiveOccupiedDetails({ resource, activeOrder, hasHourlyBilling, shopSett
     if (omd.cartItemsCount !== undefined && omd.cartItemsCount !== null) {
       setItemsCount(Number(omd.cartItemsCount) || 0)
     }
+    if (activeOrder?.subtotal !== undefined) {
+      setItemsSubtotal(Number(activeOrder.subtotal) || 0)
+    }
     if (activeOrder?.id && shopId) {
       fetch(`/api/shops/${shopId}/order-items?order_id=${activeOrder.id}&limit=500&t=${Date.now()}`, { cache: 'no-store' })
         .then(res => res.json())
@@ -128,12 +132,21 @@ function LiveOccupiedDetails({ resource, activeOrder, hasHourlyBilling, shopSett
                 sum + (it.product_id?.startsWith('TIME_CHARGE') ? 0 : Number(it.qty ?? it.quantity) || 1),
               0
             )
+            const sub = data.data.reduce(
+              (sum: number, it: any) =>
+                sum +
+                (it.product_id?.startsWith('TIME_CHARGE')
+                  ? 0
+                  : Number(it.line_total ?? (Number(it.unit_price || 0) * (Number(it.qty ?? it.quantity) || 1))) || 0),
+              0
+            )
             setItemsCount(count)
+            setItemsSubtotal(sub)
           }
         })
         .catch(() => {})
     }
-  }, [activeOrder?.id, activeOrder?.updated_at, shopId, omd.cartItemsCount, omd.items_updated_at])
+  }, [activeOrder?.id, activeOrder?.updated_at, activeOrder?.subtotal, shopId, omd.cartItemsCount, omd.items_updated_at])
 
   const checkIn = omd.check_in || activeOrder?.created_at || rmd.check_in
   const rentalType = omd.rental_type || rmd.rental_type || 'hourly'
@@ -208,6 +221,7 @@ function LiveOccupiedDetails({ resource, activeOrder, hasHourlyBilling, shopSett
 
   const finalItemsCount = itemsCount || 0
   const { cost, hours, minutes, durationLabel } = billingDetails
+  const totalEstimated = Math.round(cost + itemsSubtotal)
 
   return (
     <div 
@@ -223,8 +237,13 @@ function LiveOccupiedDetails({ resource, activeOrder, hasHourlyBilling, shopSett
         </div>
       )}
       {finalItemsCount > 0 && (
-        <div className="text-[11px] text-slate-600 font-semibold flex items-center gap-1.5 pt-1.5 mt-1.5 border-t" style={{ borderTopColor: 'rgba(244, 63, 94, 0.15)' }}>
-          <span className="opacity-80">🍴</span> Đã gọi: {finalItemsCount} món
+        <div className="text-[11px] text-slate-700 font-semibold flex items-center gap-1.5 mt-0.5">
+          <span className="opacity-80">🍴</span> Tiền món ({finalItemsCount}): {Math.round(itemsSubtotal).toLocaleString('vi-VN')} ₫
+        </div>
+      )}
+      {(cost > 0 || itemsSubtotal > 0) && (
+        <div className="text-[11px] text-rose-900 font-bold flex items-center gap-1.5 pt-1 mt-1 border-t" style={{ borderTopColor: 'rgba(244, 63, 94, 0.2)' }}>
+          <span className="opacity-80">💰</span> Tổng: {totalEstimated.toLocaleString('vi-VN')} ₫
         </div>
       )}
     </div>

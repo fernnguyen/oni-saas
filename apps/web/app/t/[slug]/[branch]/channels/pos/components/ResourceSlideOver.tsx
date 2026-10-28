@@ -2014,12 +2014,26 @@ export function ResourceSlideOver({
                                   )}
                                 </div>
                               </div>
-                              {timeCharge > 0 && (
-                                <div className="mt-3 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between">
+                              <div className="mt-3 pt-3 border-t border-dashed border-slate-200 space-y-1.5">
+                                <div className="flex items-center justify-between">
                                   <span className="text-xs font-medium text-slate-600">Tiền giờ ({detailsLabel || `${billableHours}h`})</span>
-                                  <span className="text-sm font-bold text-slate-900">{fmtVND(timeCharge)}</span>
+                                  <span className="text-xs font-bold text-slate-800">{fmtVND(timeCharge)}</span>
                                 </div>
-                              )}
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-medium text-slate-600">
+                                    Tiền món / dịch vụ ({existingItems.reduce((sum, it) => sum + (Number(it.qty) || 0), 0)} món)
+                                  </span>
+                                  <span className="text-xs font-bold text-slate-800">
+                                    {fmtVND(existingItems.reduce((acc, item) => acc + Number(item.line_total), 0))}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between pt-1.5 border-t border-slate-100">
+                                  <span className="text-xs font-bold text-primary">Tổng tạm tính</span>
+                                  <span className="text-sm font-extrabold text-primary">
+                                    {fmtVND(existingItems.reduce((acc, item) => acc + Number(item.line_total), 0) + timeCharge)}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -2440,6 +2454,21 @@ export function ResourceSlideOver({
             })()
           ) : (
             <div className="flex flex-col gap-3">
+              {activeTab !== 'guests' && (
+                <div className="flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 px-3.5 py-2.5">
+                  <div className="text-xs text-slate-600">
+                    <span>Tiền giờ: <strong className="text-slate-800">{fmtVND(timeCharge)}</strong></span>
+                    <span className="mx-2 text-slate-300">•</span>
+                    <span>Tiền món: <strong className="text-slate-800">{fmtVND(existingItems.reduce((acc, item) => acc + Number(item.line_total), 0))}</strong></span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[11px] font-semibold text-slate-500 mr-2">Tổng tạm tính:</span>
+                    <span className="text-base font-extrabold text-primary">
+                      {fmtVND(existingItems.reduce((acc, item) => acc + Number(item.line_total), 0) + timeCharge)}
+                    </span>
+                  </div>
+                </div>
+              )}
               <div className="flex gap-3">
                 {activeTab === 'guests' ? (
                   <button
