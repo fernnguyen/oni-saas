@@ -351,3 +351,104 @@ export async function reconcileShopTableSessions(
     return existingResources || []
   }
 }
+
+/**
+ * Resolves a potentially temporary client-side table order ID (e.g. `ORD-T-INPROG-...`)
+ * to the canonical server `orders.id` by checking `reference_no` if needed.
+ */
+export async function resolveServerOrderId(
+  connector: DataConnector,
+  rawOrderId: string
+): Promise<string> {
+  const trimmed = (rawOrderId || '').trim()
+  if (!trimmed) return ''
+  if (!trimmed.startsWith('ORD-T-INPROG-')) return trimmed
+
+  try {
+    const direct = await connector.findById('orders', trimmed).catch(() => null)
+    if (direct) return String(direct.order_id || direct.id || trimmed)
+
+    const byRef = await connector.list('orders', {
+      page: 1,
+      limit: 5,
+      filters: { reference_no: trimmed },
+    })
+    const matched = (byRef.data || [])[0] as Record<string, any> | undefined
+    if (matched) {
+      return String(matched.order_id || matched.id || trimmed)
+    }
+  } catch {}
+  return trimmed
+}
+
+/**
+ * Recalculates and syncs `subtotal`, `total_amount`, and `metadata.cartItemsCount`
+ * on an `in_progress` table/room order whenever its `order-items` are created, updated, or deleted.
+ * Strictly no-ops for `completed` or `cancelled` orders (zero impact on retail).
+ */
+export async function recalculateInProgressOrderTotals(
+  connector: DataConnector,
+  shopId: string,
+  orderId: string
+): Promise<void> {
+  if (!orderId) return
+  try {
+    const resolvedId = await resolveServerOrderId(connector, orderId)
+    const order = await connector.findById('orders', resolvedId).catch(() => null)
+    if (!order || order.status !== 'in_progress') return
+
+    const itemsRes = await connector.list('order-items', {
+      page: 1,
+      limit: 500,
+      filters: { order_id: resolvedId, active: 'TRUE' },
+    })
+    const items = (itemsRes.data || []) as Record<string, any>[]
+
+    let cartItemsCount = 0
+    let itemsSubtotal = 0
+
+    for (const it of items) {
+      if (String(it.active || 'TRUE').toUpperCase() === 'FALSE') continue
+      const prodId = String(it.product_id || '')
+      const sku = String(it.sku || '')
+      const prodName = String(it.product_name || '')
+      const isTimeCharge =
+        prodId.startsWith('TIME_CHARGE') ||
+        sku.startsWith('TIME_CHARGE') ||
+        prodName.startsWith('Tiền giờ ') ||
+        prodName.startsWith('Phí giờ ')
+
+      const qty = Number(it.qty ?? it.quantity ?? 0) || 0
+      const lineTotal =
+        it.line_total !== undefined && it.line_total !== ''
+          ? Number(it.line_total) || 0
+          : (Number(it.unit_price || 0) + Number(it.modifier_total || 0)) * qty
+
+      if (!isTimeCharge && qty > 0) {
+        cartItemsCount += qty
+      }
+      itemsSubtotal += lineTotal
+    }
+
+    const meta = parseMetadataSafe(order.metadata)
+    meta.cartItemsCount = cartItemsCount
+    meta.items_updated_at = new Date().toISOString()
+
+    const discountAmt = Number(order.discount_amount || 0) || 0
+    const taxAmt = Number(order.tax_amount || 0) || 0
+    const shippingFee = Number(order.shipping_fee || 0) || 0
+    const totalAmt = Math.max(0, itemsSubtotal - discountAmt + taxAmt + shippingFee)
+
+    await connector.update('orders', resolvedId, {
+      subtotal: String(itemsSubtotal),
+      total_amount: String(totalAmt),
+      metadata: JSON.stringify(meta),
+    })
+
+    invalidate(shopId, 'orders')
+    invalidate(shopId, 'location-resources')
+  } catch (err) {
+    console.warn('[tableSessionReconciler] Failed to recalculate in_progress order totals:', err)
+  }
+}
+

@@ -22,6 +22,7 @@ type RealtimePayload = {
 
 export function useRealtimeSync(activeShopId: string, isOnline: boolean, onSyncRequired: (payload?: any) => void) {
   const channelRef = useRef<any>(null);
+  const shopChannelRef = useRef<any>(null);
   const [isEnabled, setIsEnabled] = useState(true);
   const syncCallbackRef = useRef(onSyncRequired);
   const deviceSourceIdRef = useRef(`mobile_app_${Math.random().toString(36).slice(2, 10)}`);
@@ -59,22 +60,34 @@ export function useRealtimeSync(activeShopId: string, isOnline: boolean, onSyncR
   useEffect(() => {
     if (!isEnabled || !activeShopId) return;
 
-    let tenantCode = '';
+    let lastHandledAt = 0;
+    const handleBroadcast = (payload: any) => {
+      if (payload?.payload?.source !== deviceSourceIdRef.current) {
+        const now = Date.now();
+        if (now - lastHandledAt < 300) return;
+        lastHandledAt = now;
+        console.log('[RealtimeSync] Received sync event:', payload);
+        syncCallbackRef.current(payload?.payload);
+      }
+    };
+
+    const shopChannelName = `pos_sync_shop_${activeShopId}`;
+    shopChannelRef.current = supabase.channel(shopChannelName);
+    shopChannelRef.current
+      .on('broadcast', { event: 'sync_event' }, handleBroadcast)
+      .subscribe((status: string) => {
+        console.log('[RealtimeSync] Subscribed shop channel with status:', status);
+      });
+
     AsyncStorage.getItem('active_tenant_code').then((code) => {
-      tenantCode = code || 'unknown';
+      const tenantCode = code || 'unknown';
       const channelName = `pos_sync_${tenantCode}_${activeShopId}`;
 
       channelRef.current = supabase.channel(channelName);
       channelRef.current
-        .on('broadcast', { event: 'sync_event' }, (payload: any) => {
-          console.log('[RealtimeSync] Received sync event:', payload);
-          // Only trigger if source is not this exact device instance
-          if (payload?.payload?.source !== deviceSourceIdRef.current) {
-            syncCallbackRef.current(payload?.payload);
-          }
-        })
+        .on('broadcast', { event: 'sync_event' }, handleBroadcast)
         .subscribe((status: string) => {
-          console.log('[RealtimeSync] Subscribed with status:', status);
+          console.log('[RealtimeSync] Subscribed tenant channel with status:', status);
         });
     });
 
@@ -83,21 +96,32 @@ export function useRealtimeSync(activeShopId: string, isOnline: boolean, onSyncR
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
+      if (shopChannelRef.current) {
+        supabase.removeChannel(shopChannelRef.current);
+        shopChannelRef.current = null;
+      }
     };
   }, [isEnabled, activeShopId]);
 
   const broadcastSync = async (payload: Omit<RealtimePayload, 'source'>) => {
-    if (!isEnabled || !channelRef.current) return;
-    
+    if (!isEnabled) return;
+
+    const msg = {
+      type: 'broadcast',
+      event: 'sync_event',
+      payload: {
+        ...payload,
+        source: deviceSourceIdRef.current,
+      },
+    };
+
     try {
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'sync_event',
-        payload: {
-          ...payload,
-          source: deviceSourceIdRef.current
-        }
-      });
+      if (channelRef.current) {
+        await channelRef.current.send(msg);
+      }
+      if (shopChannelRef.current) {
+        await shopChannelRef.current.send(msg);
+      }
       console.log('[RealtimeSync] Broadcasted sync event:', payload);
     } catch (e) {
       console.warn('[RealtimeSync] Failed to broadcast:', e);

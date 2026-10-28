@@ -518,7 +518,89 @@ export function useTableManager(props: UseTableManagerProps) {
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const headers = await getApiHeaders();
 
-      const serverItemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${orderId}&limit=200`, {
+      let effectiveOrderId = orderId;
+
+      // Nếu orderId trống hoặc đang là mã tạm ORD-T-INPROG-, tra cứu mã đơn thực tế từ Server qua tableId
+      if ((!effectiveOrderId || String(effectiveOrderId).startsWith('ORD-T-INPROG-')) && tableId) {
+        try {
+          const resCheck = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${tableId}?t=${Date.now()}`, {
+            headers,
+            signal: controller.signal,
+          });
+          if (resCheck.ok) {
+            const resData = await resCheck.json();
+            if (resData?.current_order_id && !String(resData.current_order_id).startsWith('ORD-T-INPROG-')) {
+              effectiveOrderId = resData.current_order_id;
+            }
+          }
+          if (!effectiveOrderId || String(effectiveOrderId).startsWith('ORD-T-INPROG-')) {
+            const ordersCheck = await fetch(`${currentUrl}/api/shops/${shopId}/orders?status=in_progress&limit=100&t=${Date.now()}`, {
+              headers,
+              signal: controller.signal,
+            });
+            if (ordersCheck.ok) {
+              const ordersData = await ordersCheck.json();
+              const matchedOrder = (ordersData.data || []).find((o: any) => {
+                if (effectiveOrderId && o.reference_no === effectiveOrderId) return true;
+                let meta: any = {};
+                try { meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata || '{}') : (o.metadata || {}); } catch {}
+                return (meta.resource_id || o.resource_id) === tableId;
+              });
+              if (matchedOrder) {
+                effectiveOrderId = matchedOrder.id || matchedOrder.order_id;
+              }
+            }
+          }
+          if (effectiveOrderId && !String(effectiveOrderId).startsWith('ORD-T-INPROG-')) {
+            setTables(prev => prev.map(t => t.id === tableId ? { ...t, current_order_id: effectiveOrderId } : t));
+            setActiveTable((prev: any) => prev && prev.id === tableId ? { ...prev, current_order_id: effectiveOrderId } : prev);
+            if (Platform.OS !== 'web') {
+              await db
+                .update(schema.location_resources)
+                .set({ current_order_id: effectiveOrderId })
+                .where(eq(schema.location_resources.id, tableId))
+                .catch(() => {});
+            }
+          }
+        } catch (resolveErr) {
+          console.warn('Không thể phân giải current_order_id từ server:', resolveErr);
+        }
+      }
+
+      if (!effectiveOrderId) {
+        throw new Error('Không tìm thấy mã đơn hàng của phòng/bàn để đồng bộ món');
+      }
+
+      // Lưu đồng thời xuống SQLite cục bộ để bảo toàn khi mất mạng hoặc chuyển tab
+      if (Platform.OS !== 'web') {
+        try {
+          await db.delete(schema.order_items).where(eq(schema.order_items.order_id, effectiveOrderId));
+          for (const [cartItemId, cartItem] of Object.entries(cartItems) as [string, any][]) {
+            if (isTimeChargeProduct(cartItem.productId || cartItemId, cartItem.name)) continue;
+            const productId = cartItem.productId || cartItemId;
+            const modifierTotal = Number(cartItem.modifier_total || 0);
+            const lineTotal = (Number(cartItem.price) + modifierTotal) * Number(cartItem.quantity);
+            await db.insert(schema.order_items).values({
+              id: `ORDI-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+              order_id: effectiveOrderId,
+              product_id: productId,
+              product_name: cartItem.name || '',
+              qty: Number(cartItem.quantity) || 1,
+              unit_price: Number(cartItem.price) || 0,
+              original_price: Number(cartItem.original_price ?? cartItem.price) || 0,
+              discount_amount: Number(cartItem.discount_amount || 0),
+              line_total: lineTotal,
+              tax_rate: String(cartItem.tax_rate || '0'),
+              tax_amount: 0,
+              tax_group: String(cartItem.tax_group || ''),
+              tax_vat_rate: '0',
+              tax_pit_rate: '0',
+            }).catch(() => {});
+          }
+        } catch {}
+      }
+
+      const serverItemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${effectiveOrderId}&limit=200&t=${Date.now()}`, {
         headers,
         signal: controller.signal,
       });
@@ -588,7 +670,7 @@ export function useTableManager(props: UseTableManagerProps) {
             headers: { ...headers, 'Content-Type': 'application/json' },
             signal: controller.signal,
             body: JSON.stringify({
-              order_id: orderId,
+              order_id: effectiveOrderId,
               line_no: lineNo,
               product_id: productId,
               product_name: cartItem.name,
@@ -716,8 +798,12 @@ export function useTableManager(props: UseTableManagerProps) {
         const checkInVal = parsedMeta.check_in || resourceMeta.check_in || tableMetaObj.check_in;
         const checkInTime = checkInVal ? new Date(checkInVal).getTime() : (table.startTime || Date.now());
 
+        const resolvedActiveStatus =
+          resource?.status === 'checking_out' ? 'checking_out' : 'occupied';
+
         const updatedTable = {
           ...table,
+          status: resolvedActiveStatus,
           current_order_id: order ? (order.id || order.order_id) : table.current_order_id, // Tự động chữa lành ID đơn hàng nếu thiếu
           startTime: checkInTime,
           metadata: JSON.stringify({
@@ -759,7 +845,7 @@ export function useTableManager(props: UseTableManagerProps) {
           try {
             await db
               .update(schema.location_resources)
-              .set({ current_order_id: order ? (order.id || order.order_id) : table.current_order_id, startTime: checkInTime, metadata: updatedTable.metadata })
+              .set({ status: resolvedActiveStatus, current_order_id: order ? (order.id || order.order_id) : table.current_order_id, startTime: checkInTime, metadata: updatedTable.metadata })
               .where(eq(schema.location_resources.id, table.id));
           } catch (e) { }
         }
@@ -862,6 +948,26 @@ export function useTableManager(props: UseTableManagerProps) {
       await syncActiveTableSession(targetTable);
     }
   }, [tables, syncActiveTableSession]);
+
+  // Tự động đồng bộ giỏ hàng của các bàn đang có khách (occupied) từ Cloud để Máy B luôn thấy món từ Máy A
+  const lastOccupiedSyncRef = React.useRef<Record<string, number>>({});
+  useEffect(() => {
+    if (!isNavReady || !isOnline || shopVertical === 'retail' || tables.length === 0) return;
+    const now = Date.now();
+    const occupiedTables = tables.filter(
+      t =>
+        (t.status === 'occupied' || t.status === 'playing' || t.status === 'checking_out') &&
+        !openingTableIdsRef.current.has(t.id)
+    );
+    for (const t of occupiedTables) {
+      const syncKey = `${t.id}_${t.current_order_id || ''}`;
+      const lastAt = lastOccupiedSyncRef.current[syncKey] || 0;
+      if (now - lastAt > 8000) {
+        lastOccupiedSyncRef.current[syncKey] = now;
+        void syncActiveTableSession(t);
+      }
+    }
+  }, [tables, isNavReady, isOnline, shopVertical, timeTicker]);
 
   const [isCleanConfirmModalOpen, setIsCleanConfirmModalOpen] = useState(false);
   const [tableToClean, setTableToClean] = useState<any>(null);
@@ -1413,9 +1519,9 @@ export function useTableManager(props: UseTableManagerProps) {
         }
       };
 
-      // Đồng bộ trực tuyến tức thì lên server Next.js nếu có current_order_id
-      if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
-        syncOrderItemsOnline(activeTable.current_order_id, updatedCart, tableId);
+      // Đồng bộ trực tuyến tức thì lên server Next.js
+      if (activeTable && activeTable.id === tableId) {
+        syncOrderItemsOnline(activeTable.current_order_id || '', updatedCart, tableId);
       }
 
       return {
@@ -1440,9 +1546,9 @@ export function useTableManager(props: UseTableManagerProps) {
         }
       };
 
-      // Đồng bộ trực tuyến tức thì lên server Next.js nếu có current_order_id
-      if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
-        syncOrderItemsOnline(activeTable.current_order_id, updatedCart, tableId);
+      // Đồng bộ trực tuyến tức thì lên server Next.js
+      if (activeTable && activeTable.id === tableId) {
+        syncOrderItemsOnline(activeTable.current_order_id || '', updatedCart, tableId);
       }
 
       return {
@@ -1458,9 +1564,9 @@ export function useTableManager(props: UseTableManagerProps) {
       const tableCart = { ...(prev[tableId] || {}) };
       delete tableCart[cartItemId];
 
-      // Đồng bộ trực tuyến tức thì lên server Next.js nếu có current_order_id
-      if (activeTable && activeTable.id === tableId && activeTable.current_order_id) {
-        syncOrderItemsOnline(activeTable.current_order_id, tableCart, tableId);
+      // Đồng bộ trực tuyến tức thì lên server Next.js
+      if (activeTable && activeTable.id === tableId) {
+        syncOrderItemsOnline(activeTable.current_order_id || '', tableCart, tableId);
       }
 
       return {

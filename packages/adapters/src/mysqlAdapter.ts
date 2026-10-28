@@ -104,21 +104,11 @@ export class MysqlConnector implements IDataConnector {
     const searchPrefix = `${prefix}-${tenantHash}`
 
     const tableName = this.getTableName(entity)
-    let query = `SELECT id FROM \`${tableName}\` WHERE id LIKE ?`
-    const params: any[] = [`${searchPrefix}%`]
-
-    if (this.tenantId) {
-      query += ' AND tenant_id = ?'
-      params.push(this.tenantId)
-    }
-
-    // Filter to only include numeric suffixes (5 to 10 digits) to prevent mixed
-    // hexadecimal/random IDs from breaking the sequence
-    const regexPattern = `^${searchPrefix}[0-9]{5,10}$`
-    query += ' AND id REGEXP ?'
-    params.push(regexPattern)
-
-    query += ' ORDER BY CAST(SUBSTRING_INDEX(id, \'-\', -1) AS UNSIGNED) DESC LIMIT 1'
+    const regexPattern = `^${searchPrefix}[0-9]{5,16}$`
+    const query =
+      `SELECT id FROM \`${tableName}\` WHERE id LIKE ? AND id REGEXP ? ` +
+      `ORDER BY CAST(SUBSTRING_INDEX(id, '-', -1) AS UNSIGNED) DESC LIMIT 1`
+    const params: any[] = [`${searchPrefix}%`, regexPattern]
 
     const [rows] = await this.db.execute(sql.raw(mysql.format(query, params)))
     const resultRows = rows as unknown as any[]
@@ -331,26 +321,66 @@ export class MysqlConnector implements IDataConnector {
       insertData.updated_at = insertData.created_at
     }
 
-    if (!insertData.id) {
-      insertData.id = await this.generateSequentialId(entity)
+    const isAutoId = !insertData.id
+    const isAutoSku = entity === 'products' && !insertData.sku
+    const isAutoEmployeeCode =
+      entity === 'employees' && (!insertData.employee_code || insertData.employee_code.trim() === '')
+
+    const applyDerivedFields = (idVal: string) => {
+      insertData.id = idVal
+      if (isAutoSku) {
+        insertData.sku = idVal
+      }
+      if (isAutoEmployeeCode) {
+        const match = idVal.match(/-(\d+)$/)
+        const seq = match ? match[1] : '10001'
+        insertData.employee_code = `NV${seq}`
+      }
     }
 
-    if (entity === 'products' && !insertData.sku) {
-      insertData.sku = insertData.id
+    if (isAutoId) {
+      applyDerivedFields(await this.generateSequentialId(entity))
+    } else {
+      applyDerivedFields(insertData.id)
     }
 
-    if (entity === 'employees' && (!insertData.employee_code || insertData.employee_code.trim() === '')) {
-      const match = insertData.id.match(/-(\d+)$/)
-      const seq = match ? match[1] : '10001'
-      insertData.employee_code = `NV${seq}`
+    const maxAttempts = isAutoId ? 5 : 1
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const columns = Object.keys(insertData).map(k => `\`${k}\``).join(', ')
+      const placeholders = Object.keys(insertData).map(() => '?').join(', ')
+      const values = Object.values(insertData)
+
+      const query = `INSERT INTO \`${tableName}\` (${columns}) VALUES (${placeholders})`
+      try {
+        await this.db.execute(sql.raw(mysql.format(query, values)))
+        break
+      } catch (err: any) {
+        const isDuplicateKey =
+          err?.code === 'ER_DUP_ENTRY' ||
+          err?.errno === 1062 ||
+          String(err?.message || '').includes('Duplicate entry')
+
+        if (!isAutoId || !isDuplicateKey || attempt === maxAttempts) {
+          throw err
+        }
+
+        const prevId = insertData.id
+        let nextCandidate = await this.generateSequentialId(entity)
+        if (nextCandidate === prevId || attempt >= 3) {
+          const prefix = ENTITY_PREFIXES[entity] || 'ID'
+          const tenantHash = this.tenantId
+            ? crypto.createHash('sha256').update(this.tenantId).digest('hex').substring(0, 8).toUpperCase() + '-'
+            : ''
+          const match = nextCandidate.match(/^(.+)-(\d+)$/)
+          if (match && attempt < 3) {
+            nextCandidate = `${match[1]}-${parseInt(match[2], 10) + attempt}`
+          } else {
+            nextCandidate = `${prefix}-${tenantHash}${Date.now()}${Math.floor(100 + Math.random() * 900)}`
+          }
+        }
+        applyDerivedFields(nextCandidate)
+      }
     }
-
-    const columns = Object.keys(insertData).map(k => `\`${k}\``).join(', ')
-    const placeholders = Object.keys(insertData).map(() => '?').join(', ')
-    const values = Object.values(insertData)
-
-    const query = `INSERT INTO \`${tableName}\` (${columns}) VALUES (${placeholders})`
-    await this.db.execute(sql.raw(mysql.format(query, values)))
 
     return this.formatRow(entity, insertData)
   }

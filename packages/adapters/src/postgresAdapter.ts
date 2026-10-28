@@ -186,24 +186,13 @@ export class PostgresConnector implements IDataConnector {
 
     const tableName = this.getTableName(entity)
 
-    const params: unknown[] = [`${searchPrefix}%`]
-    let paramIdx = 2
-    let queryText = `SELECT id FROM "${tableName}" WHERE id LIKE $1`
-
-    if (this.tenantId) {
-      queryText += ` AND tenant_id = $${paramIdx}`
-      params.push(this.tenantId)
-      paramIdx++
-    }
-
-    // Filter to only include numeric suffixes (5 to 10 digits) to prevent mixed
-    // hexadecimal/random IDs from breaking the sequence
-    const regexPattern = '^' + searchPrefix + '[0-9]{5,10}$'
-    queryText += ` AND id ~ $${paramIdx}`
-    params.push(regexPattern)
-    paramIdx++
-
-    queryText += ` ORDER BY (SUBSTRING(id FROM '[0-9]+$'))::bigint DESC LIMIT 1`
+    // Query globally across primary key `id` (do NOT filter by tenant_id here because
+    // the primary key constraint is table-wide and searchPrefix already encodes tenantHash)
+    const regexPattern = '^' + searchPrefix + '[0-9]{5,16}$'
+    const params: unknown[] = [`${searchPrefix}%`, regexPattern]
+    const queryText =
+      `SELECT id FROM "${tableName}" WHERE id LIKE $1 AND id ~ $2 ` +
+      `ORDER BY (SUBSTRING(id FROM '[0-9]+$'))::bigint DESC LIMIT 1`
 
     const rows = await this.query(queryText, params)
 
@@ -429,27 +418,67 @@ export class PostgresConnector implements IDataConnector {
       insertData.updated_at = insertData.created_at
     }
 
-    if (!insertData.id) {
-      insertData.id = await this.generateSequentialId(entity)
+    const isAutoId = !insertData.id
+    const isAutoSku = entity === 'products' && !insertData.sku
+    const isAutoEmployeeCode =
+      entity === 'employees' && (!insertData.employee_code || insertData.employee_code.trim() === '')
+
+    const applyDerivedFields = (idVal: string) => {
+      insertData.id = idVal
+      if (isAutoSku) {
+        insertData.sku = idVal
+      }
+      if (isAutoEmployeeCode) {
+        const match = idVal.match(/-(\d+)$/)
+        const seq = match ? match[1] : '10001'
+        insertData.employee_code = `NV${seq}`
+      }
     }
 
-    if (entity === 'products' && !insertData.sku) {
-      insertData.sku = insertData.id
+    if (isAutoId) {
+      applyDerivedFields(await this.generateSequentialId(entity))
+    } else {
+      applyDerivedFields(insertData.id)
     }
 
-    if (entity === 'employees' && (!insertData.employee_code || insertData.employee_code.trim() === '')) {
-      const match = insertData.id.match(/-(\d+)$/)
-      const seq = match ? match[1] : '10001'
-      insertData.employee_code = `NV${seq}`
+    const maxAttempts = isAutoId ? 5 : 1
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const columns = Object.keys(insertData)
+      const columnsSql = columns.map(k => `"${k}"`).join(', ')
+      const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+      const values = columns.map(k => this.sanitizeValue(k, insertData[k]))
+
+      const queryText = `INSERT INTO "${tableName}" (${columnsSql}) VALUES (${placeholders})`
+      try {
+        await this.query(queryText, values)
+        break
+      } catch (err: any) {
+        const isDuplicateKey =
+          err?.code === '23505' ||
+          String(err?.message || '').includes('duplicate key value violates unique constraint')
+
+        if (!isAutoId || !isDuplicateKey || attempt === maxAttempts) {
+          throw err
+        }
+
+        // Regenerate a collision-free ID and retry
+        const prevId = insertData.id
+        let nextCandidate = await this.generateSequentialId(entity)
+        if (nextCandidate === prevId || attempt >= 3) {
+          const prefix = ENTITY_PREFIXES[entity] || 'ID'
+          const tenantHash = this.tenantId
+            ? crypto.createHash('sha256').update(this.tenantId).digest('hex').substring(0, 8).toUpperCase() + '-'
+            : ''
+          const match = nextCandidate.match(/^(.+)-(\d+)$/)
+          if (match && attempt < 3) {
+            nextCandidate = `${match[1]}-${parseInt(match[2], 10) + attempt}`
+          } else {
+            nextCandidate = `${prefix}-${tenantHash}${Date.now()}${Math.floor(100 + Math.random() * 900)}`
+          }
+        }
+        applyDerivedFields(nextCandidate)
+      }
     }
-
-    const columns = Object.keys(insertData)
-    const columnsSql = columns.map(k => `"${k}"`).join(', ')
-    const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ')
-    const values = columns.map(k => this.sanitizeValue(k, insertData[k]))
-
-    const queryText = `INSERT INTO "${tableName}" (${columnsSql}) VALUES (${placeholders})`
-    await this.query(queryText, values)
 
     return this.formatRow(entity, insertData)
   }

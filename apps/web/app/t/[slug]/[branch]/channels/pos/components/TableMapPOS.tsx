@@ -115,22 +115,25 @@ function LiveOccupiedDetails({ resource, activeOrder, hasHourlyBilling, shopSett
   const omd = typeof activeOrder?.metadata === 'string' ? JSON.parse(activeOrder.metadata || '{}') : (activeOrder?.metadata || {})
 
   useEffect(() => {
-    if (omd.cartItemsCount) {
-      setItemsCount(omd.cartItemsCount)
-      return
+    if (omd.cartItemsCount !== undefined && omd.cartItemsCount !== null) {
+      setItemsCount(Number(omd.cartItemsCount) || 0)
     }
     if (activeOrder?.id && shopId) {
-      fetch(`/api/shops/${shopId}/order-items?order_id=${activeOrder.id}&limit=500`)
+      fetch(`/api/shops/${shopId}/order-items?order_id=${activeOrder.id}&limit=500&t=${Date.now()}`, { cache: 'no-store' })
         .then(res => res.json())
         .then(data => {
           if (data.data) {
-            const count = data.data.reduce((sum: number, it: any) => sum + (it.product_id?.startsWith('TIME_CHARGE') ? 0 : Number(it.quantity) || 1), 0)
+            const count = data.data.reduce(
+              (sum: number, it: any) =>
+                sum + (it.product_id?.startsWith('TIME_CHARGE') ? 0 : Number(it.qty ?? it.quantity) || 1),
+              0
+            )
             setItemsCount(count)
           }
         })
         .catch(() => {})
     }
-  }, [activeOrder?.id, shopId, omd.cartItemsCount])
+  }, [activeOrder?.id, activeOrder?.updated_at, shopId, omd.cartItemsCount, omd.items_updated_at])
 
   const checkIn = omd.check_in || activeOrder?.created_at || rmd.check_in
   const rentalType = omd.rental_type || rmd.rental_type || 'hourly'
@@ -336,6 +339,7 @@ export function TableMapPOS({
   const activeShift = openShiftData?.data?.[0] || null
   const hasActiveShift = !!activeShift
   const syncChannelRef = useRef<any>(null)
+  const syncShopChannelRef = useRef<any>(null)
   const webClientSourceRef = useRef(`web_app_${Math.random().toString(36).slice(2, 10)}`)
   const [syncTick, setSyncTick] = useState(0)
   const isRealtimeSyncEnabled =
@@ -343,17 +347,21 @@ export function TableMapPOS({
 
   // Broadcast helper
   const broadcastSyncEvent = useCallback(async (eventAction: string = 'ORDER_UPDATED', payloadOverrides: any = {}) => {
-    console.log('[TableMapPOS] Attempting broadcastSyncEvent:', eventAction, payloadOverrides, 'Realtime enabled:', isRealtimeSyncEnabled, 'Channel exists:', !!syncChannelRef.current);
-    if (isRealtimeSyncEnabled && syncChannelRef.current) {
+    const message = {
+      type: 'broadcast',
+      event: 'sync_event',
+      payload: { source: webClientSourceRef.current, event: eventAction, ...payloadOverrides }
+    }
+    if (isRealtimeSyncEnabled) {
       try {
-        const resp = await syncChannelRef.current.send({
-          type: 'broadcast',
-          event: 'sync_event',
-          payload: { source: webClientSourceRef.current, event: eventAction, ...payloadOverrides }
-        });
-        console.log('[TableMapPOS] Broadcast successful:', resp);
+        if (syncChannelRef.current) {
+          await syncChannelRef.current.send(message)
+        }
+        if (syncShopChannelRef.current) {
+          await syncShopChannelRef.current.send(message)
+        }
       } catch (err) {
-        console.error('[TableMapPOS] Broadcast failed:', err);
+        console.error('[TableMapPOS] Broadcast failed:', err)
       }
     }
   }, [isRealtimeSyncEnabled])
@@ -613,24 +621,56 @@ export function TableMapPOS({
     if (typeof window === 'undefined' || !isRealtimeSyncEnabled) return
     const supabase = getSupabaseBrowserClient()
     const channelName = `pos_sync_${slug}_${shopId}`
+    const shopChannelName = `pos_sync_shop_${shopId}`
     const channel = supabase.channel(channelName, { config: { broadcast: { ack: true } } })
+    const shopChannel = supabase.channel(shopChannelName, { config: { broadcast: { ack: true } } })
     syncChannelRef.current = channel
-    
-    channel.on('broadcast', { event: 'sync_event' }, (payload: any) => {
-      console.log('[TableMapPOS] Received Supabase Realtime sync_event:', payload)
+    syncShopChannelRef.current = shopChannel
+
+    let lastHandledAt = 0
+    const handleIncomingBroadcast = (payload: any) => {
       if (payload?.payload?.source !== webClientSourceRef.current) {
+        const now = Date.now()
+        if (now - lastHandledAt < 300) return
+        lastHandledAt = now
         void fetchResources()
         setSyncTick(prev => prev + 1)
       }
-    }).subscribe((status) => {
-      console.log(`[TableMapPOS] Supabase Realtime status: ${status}`)
-    })
+    }
+
+    channel.on('broadcast', { event: 'sync_event' }, handleIncomingBroadcast).subscribe()
+    shopChannel.on('broadcast', { event: 'sync_event' }, handleIncomingBroadcast).subscribe()
 
     return () => {
       void supabase.removeChannel(channel)
+      void supabase.removeChannel(shopChannel)
       syncChannelRef.current = null
+      syncShopChannelRef.current = null
     }
   }, [isRealtimeSyncEnabled, slug, shopId, fetchResources])
+
+  // Periodic background reconciliation when tab is visible/focused so Máy B never misses updates
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchResources()
+        setSyncTick(prev => prev + 1)
+      }
+    }
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void fetchResources()
+      }
+    }, 12000)
+    window.addEventListener('focus', onFocusOrVisible)
+    document.addEventListener('visibilitychange', onFocusOrVisible)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', onFocusOrVisible)
+      document.removeEventListener('visibilitychange', onFocusOrVisible)
+    }
+  }, [fetchResources])
 
   // Timer for occupied resources
   useEffect(() => {

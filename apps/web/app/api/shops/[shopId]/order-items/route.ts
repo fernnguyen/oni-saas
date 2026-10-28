@@ -5,6 +5,10 @@ import { orderItemCreateSchema } from '@/lib/validators/orders'
 import { shopTag, invalidate, shopCache } from '@/lib/server/cache'
 import { cacheTTL } from '@/lib/env'
 import { handleApiError } from '../../_helpers'
+import {
+  resolveServerOrderId,
+  recalculateInProgressOrderTotals,
+} from '@/lib/server/tableSessionReconciler'
 
 export async function GET(
   req: NextRequest,
@@ -12,14 +16,17 @@ export async function GET(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'orders.view')
+    const { connector } = await requireShopAccess(shopId, 'pos.use')
 
     const sp = req.nextUrl.searchParams
     const page = Math.max(1, parseInt(sp.get('page') ?? '1'))
     const limit = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '100')))
-    const order_id = sp.get('order_id') ?? ''
+    const rawOrderId = sp.get('order_id') ?? ''
+    const resolvedOrderId = rawOrderId
+      ? await resolveServerOrderId(connector, rawOrderId)
+      : ''
     const filters: Record<string, string> = { active: 'TRUE' }
-    if (order_id) filters.order_id = order_id
+    if (resolvedOrderId) filters.order_id = resolvedOrderId
 
     const result = await connector.list('order-items', { page, limit, filters })
 
@@ -37,10 +44,11 @@ export async function POST(
 ) {
   try {
     const { shopId } = await params
-    const { connector } = await requireShopAccess(shopId, 'orders.edit')
+    const { connector } = await requireShopAccess(shopId, 'pos.use')
 
     const body = await req.json()
     const data = orderItemCreateSchema.parse(body)
+    const resolvedOrderId = await resolveServerOrderId(connector, data.order_id)
 
     // Fallback logic for tax rate & group
     let taxRate = data.tax_rate
@@ -104,6 +112,7 @@ export async function POST(
 
     const finalData = {
       ...data,
+      order_id: resolvedOrderId || data.order_id,
       tax_rate: taxRate,
       tax_group: taxGroup,
       tax_vat_rate: taxVatRate,
@@ -113,6 +122,11 @@ export async function POST(
 
     const created = await connector.create('order-items', finalData)
     invalidate(shopId, 'order-items')
+    await recalculateInProgressOrderTotals(
+      connector,
+      shopId,
+      String(created.order_id || finalData.order_id || '')
+    )
     return NextResponse.json(created, { status: 201 })
   } catch (e) {
     return handleApiError(e, 'POST order-items')

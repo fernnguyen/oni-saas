@@ -232,6 +232,7 @@ export function ResourceSlideOver({
 
     console.log(`Replaying ${actions.length} offline actions for order ${orderId}`)
     const remainingActions = []
+    let syncedAny = false
 
     for (let i = 0; i < actions.length; i++) {
       const action = actions[i]
@@ -242,8 +243,13 @@ export function ResourceSlideOver({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(action.item)
           })
-          if (!res.ok) throw new Error()
+          if (!res.ok) {
+            const err: any = new Error(`HTTP ${res.status}`)
+            err.status = res.status
+            throw err
+          }
           const savedItem = await res.json()
+          syncedAny = true
 
           const tempId = action.tempId
           const serverId = savedItem.id
@@ -258,6 +264,9 @@ export function ResourceSlideOver({
 
           setExistingItems(prev => prev.map(item => item.id === tempId ? savedItem : item))
         } else if (action.type === 'UPDATE') {
+          if (String(action.itemId || '').startsWith('temp-')) {
+            continue
+          }
           const payload: any = {}
           if (action.qty !== undefined) payload.qty = action.qty
           if (action.line_total !== undefined) payload.line_total = action.line_total
@@ -269,18 +278,32 @@ export function ResourceSlideOver({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
           })
-          if (!res.ok) throw new Error()
+          if (!res.ok) {
+            const err: any = new Error(`HTTP ${res.status}`)
+            err.status = res.status
+            throw err
+          }
+          syncedAny = true
         } else if (action.type === 'DELETE') {
-          if (!action.itemId.startsWith('temp-')) {
+          if (!String(action.itemId || '').startsWith('temp-')) {
             const res = await fetch(`/api/shops/${shopId}/order-items/${action.itemId}`, {
               method: 'DELETE'
             })
-            if (!res.ok) throw new Error()
+            if (!res.ok && res.status !== 404) {
+              const err: any = new Error(`HTTP ${res.status}`)
+              err.status = res.status
+              throw err
+            }
+            syncedAny = true
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to sync action', action, err)
-        remainingActions.push(action)
+        const retries = Number(action._retries || 0) + 1
+        // Drop permanently invalid server-rejected actions after 3 retries so they don't block the queue forever
+        if (!err?.status || retries < 3) {
+          remainingActions.push({ ...action, _retries: retries })
+        }
       }
     }
 
@@ -290,7 +313,11 @@ export function ResourceSlideOver({
       localStorage.removeItem(queueKey)
       toast.success("Đã đồng bộ thành công các món đặt tạm khi offline lên máy chủ!")
     }
-  }, [shopId])
+
+    if (syncedAny && broadcastSyncEvent) {
+      broadcastSyncEvent('ITEMS_UPDATED', { tableId: resource.id })
+    }
+  }, [shopId, broadcastSyncEvent, resource.id])
 
   // --- Data Loading (Occupied) ---
   const fetchOrder = useCallback(async () => {
@@ -447,6 +474,19 @@ export function ResourceSlideOver({
       }
     }
   }, [syncTick, fetchOrder])
+
+  // Background poll while slide-over is open so another device adding items is reflected even if a WS broadcast is dropped
+  useEffect(() => {
+    if (!open || !isOccupied || !resource.current_order_id) return
+    const poll = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      if (!isDirtyRef.current) {
+        fetchingRef.current = ''
+        void fetchOrder()
+      }
+    }, 10000)
+    return () => clearInterval(poll)
+  }, [open, isOccupied, resource.current_order_id, fetchOrder])
 
   const orderMeta = order ? safeParse(order.metadata) : null
 
@@ -705,6 +745,12 @@ export function ResourceSlideOver({
 
       setExistingItems(updatedItems)
 
+      if (String(existingInDb.id || '').startsWith('temp-')) {
+        pushOfflineAction(order.id, { type: 'UPDATE', itemId: existingInDb.id, qty: String(newQty), line_total: String(newLineTotal) })
+        localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(updatedItems))
+        return
+      }
+
       try {
         const res = await fetch(`/api/shops/${shopId}/order-items/${existingInDb.id}`, {
           method: 'PUT',
@@ -715,6 +761,7 @@ export function ResourceSlideOver({
 
         toast.success(`Đã cập nhật: ${item.product_name} (x${newQty})`)
         localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(updatedItems))
+        if (broadcastSyncEvent) { broadcastSyncEvent("ITEMS_UPDATED", { tableId: resource.id }); }
       } catch (err) {
         pushOfflineAction(order.id, { type: 'UPDATE', itemId: existingInDb.id, qty: String(newQty), line_total: String(newLineTotal) })
         toast.warning(`Mất kết nối. Đã lưu tạm số lượng mới (x${newQty}) cho ${item.product_name} trên thiết bị này.`)
@@ -1003,6 +1050,15 @@ export function ResourceSlideOver({
       } catch {
         // ignore
       }
+    }
+    if (order?.id) {
+      localStorage.removeItem(`table_order:${order.id}`)
+      localStorage.removeItem(`table_order_items:${order.id}`)
+      localStorage.removeItem(`table_order_payments:${order.id}`)
+      localStorage.removeItem(`offline_table_actions:${order.id}`)
+    }
+    if (broadcastSyncEvent) {
+      broadcastSyncEvent('TABLE_PAID', { tableId: resource.id, orderId: order?.id })
     }
     setCheckoutOpen(false)
     onSessionClosed()

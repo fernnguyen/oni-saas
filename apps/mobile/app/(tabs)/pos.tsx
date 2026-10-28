@@ -392,12 +392,11 @@ export default function PosScreen() {
 
   const { broadcastSync, isEnabled: isRealtimeEnabled } = useRealtimeSync(activeShopId, isOnline, (payload) => {
     showToast('Đã cập nhật dữ liệu mới từ thiết bị khác', 'info');
-    // Kích hoạt state để useEffect bên dưới xử lý auto-refresh
+    // Kích hoạt đồng bộ chi tiết bàn + làm mới sơ đồ phòng bàn
     if (payload?.tableId && syncTableSilentRef.current) {
       syncTableSilentRef.current(payload.tableId);
-    } else {
-      setSyncTriggerTick(prev => prev + 1);
     }
+    setSyncTriggerTick(prev => prev + 1);
   });
 
   const {
@@ -2406,22 +2405,24 @@ export default function PosScreen() {
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
                 showToast(`Đã lưu món vào ${targetTable.name}! Đang đồng bộ...`, "info");
 
-                // 2. Đồng bộ trực tuyến lên server ở chế độ nền
-                if (targetTable.current_order_id) {
-                  (async () => {
-                    try {
-                      const success = await syncOrderItemsOnline(targetTable.current_order_id, targetCart, targetTable.id);
-                      if (success) {
-                        showToast(`Đã đồng bộ món ăn cho ${targetTable.name} thành công!`, "success");
-                      } else {
-                        showToast(`Lỗi đồng bộ trực tuyến, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
-                      }
-                    } catch (err) {
-                      console.error('Lỗi khi đồng bộ nền món phòng bàn:', err);
-                      showToast(`Mất kết nối, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
+                // 2. Đồng bộ trực tuyến lên server ở chế độ nền (tự động phân giải current_order_id qua targetTable.id nếu cần)
+                (async () => {
+                  try {
+                    const latestOrderId =
+                      tables.find(t => t.id === targetTable.id)?.current_order_id ||
+                      targetTable.current_order_id ||
+                      '';
+                    const success = await syncOrderItemsOnline(latestOrderId, targetCart, targetTable.id);
+                    if (success) {
+                      showToast(`Đã đồng bộ món ăn cho ${targetTable.name} thành công!`, "success");
+                    } else {
+                      showToast(`Lỗi đồng bộ trực tuyến, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
                     }
-                  })();
-                }
+                  } catch (err) {
+                    console.error('Lỗi khi đồng bộ nền món phòng bàn:', err);
+                    showToast(`Mất kết nối, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
+                  }
+                })();
               } else {
                 handleCheckoutPress(() => {
                   setIsCartModalOpen(true);
