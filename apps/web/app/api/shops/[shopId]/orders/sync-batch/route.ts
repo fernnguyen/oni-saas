@@ -350,9 +350,23 @@ export async function POST(
         }
 
         if (!serverId) {
+          const incomingMeta = parseMetadataSafe(order.metadata)
+          const incomingCheckInIso = incomingMeta.check_in || ''
+          const incomingCheckInMs = incomingCheckInIso ? new Date(incomingCheckInIso).getTime() : 0
+
+          const isSameTableSession = (candidateOrd: Record<string, any>) => {
+            const candidateMeta = parseMetadataSafe(candidateOrd.metadata)
+            const candidateCheckInIso = candidateMeta.check_in || ''
+            const candidateCheckInMs = candidateCheckInIso ? new Date(candidateCheckInIso).getTime() : 0
+            if (incomingCheckInMs > 0 && candidateCheckInMs > 0) {
+              return Math.abs(incomingCheckInMs - candidateCheckInMs) < 60_000
+            }
+            return true
+          }
+
           if (resourceRow?.current_order_id) {
             const currentOrd = await connector.findById('orders', String(resourceRow.current_order_id)).catch(() => null)
-            if (currentOrd && currentOrd.status === 'in_progress') {
+            if (currentOrd && currentOrd.status === 'in_progress' && isSameTableSession(currentOrd as Record<string, any>)) {
               serverId = String((currentOrd as Record<string, string>).order_id || (currentOrd as Record<string, string>).id || resourceRow.current_order_id)
               orderNo = String((currentOrd as Record<string, string>).order_no || '')
             }
@@ -364,7 +378,7 @@ export async function POST(
               filters: { status: 'in_progress' },
             })
             const matchedInProg = ((inProgList.data || []) as Record<string, any>[]).find(
-              (o) => resolveOrderResourceId(o) === resolvedResourceId
+              (o) => resolveOrderResourceId(o) === resolvedResourceId && isSameTableSession(o)
             )
             if (matchedInProg) {
               serverId = String(matchedInProg.order_id || matchedInProg.id || '')

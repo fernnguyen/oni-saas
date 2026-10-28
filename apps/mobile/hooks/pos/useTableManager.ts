@@ -78,6 +78,10 @@ export function useTableManager(props: UseTableManagerProps) {
   const [isOpeningTable, setIsOpeningTable] = useState<boolean>(false);
   // Theo dõi các bàn đang trong quá trình mở/chuyển để chống race condition thoát bàn khi Cloud chưa kịp cập nhật
   const openingTableIdsRef = React.useRef<Set<string>>(new Set());
+  // Theo dõi các bàn đang đẩy món lên Server để tránh poll ngầm ghi đè lúc đang lưu
+  const syncingItemsTableIdsRef = React.useRef<Set<string>>(new Set());
+  // Theo dõi các order_id đã thanh toán/hủy trên máy này để chặn poll ngầm đang bay ghi đè lại món của khách cũ
+  const closedOrderIdsRef = React.useRef<Set<string>>(new Set());
 
   const cleanStaticResourceMeta = useCallback((rawMeta: any, extraFields: Record<string, any> = {}) => {
     let parsed: Record<string, any> = {};
@@ -334,7 +338,7 @@ export function useTableManager(props: UseTableManagerProps) {
   // Các hàm tiện ích đồng bộ hóa thời gian thực trực tuyến cho phòng/bàn
   const fetchActiveTableSessionOnline = async (tableId: string, orderId: string | null) => {
     if (!isOnline) return null;
-    
+
     try {
       const currentUrl = getApiBaseUrl();
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
@@ -548,6 +552,10 @@ export function useTableManager(props: UseTableManagerProps) {
     const getItemKey = (productId: string, variantLabel: string, modifiers: any) =>
       `${productId}_${variantLabel || 'none'}_${getModifiersHash(modifiers)}`;
 
+    if (tableId) {
+      syncingItemsTableIdsRef.current.add(tableId);
+    }
+
     try {
       const currentUrl = getApiBaseUrl();
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
@@ -756,6 +764,9 @@ export function useTableManager(props: UseTableManagerProps) {
       );
       return false;
     } finally {
+      if (tableId) {
+        syncingItemsTableIdsRef.current.delete(tableId);
+      }
       clearTimeout(timeoutId);
     }
   };
@@ -800,6 +811,17 @@ export function useTableManager(props: UseTableManagerProps) {
         }
 
         const { order, items, resource } = onlineSession;
+        const resolvedRemoteOrderId = order ? String(order.id || order.order_id || '') : '';
+        if (resolvedRemoteOrderId && closedOrderIdsRef.current.has(resolvedRemoteOrderId)) {
+          setTableCarts(prev => {
+            if (!prev[table.id]) return prev;
+            const copy = { ...prev };
+            delete copy[table.id];
+            return copy;
+          });
+          return { isFinished: true };
+        }
+
         let parsedMeta: any = {};
         if (order) {
           try {
@@ -927,28 +949,12 @@ export function useTableManager(props: UseTableManagerProps) {
             }
           }
 
-          setTableCarts(prev => {
-            const existingLocalCart = prev[table.id] || {};
-            const hasLocalNonTimeItems = Object.keys(existingLocalCart).some(
-              k => !isTimeChargeProduct(existingLocalCart[k]?.productId || k, existingLocalCart[k]?.name)
-            );
-            // Bảo vệ dữ liệu cục bộ trên Máy A: Nếu Server đang trả về 0 món (do lỗi mạng/order_items_pkey trước đó chưa kịp đẩy lên)
-            // trong khi Máy A đang có món trong giỏ cục bộ và đơn chưa từng ghi nhận xóa món trên Server,
-            // giữ nguyên giỏ cục bộ của Máy A và tự động đẩy bù lên Server!
-            if (Object.keys(mappedCart).length === 0 && hasLocalNonTimeItems && !parsedMeta.items_updated_at) {
-              const targetOrderId = order.id || order.order_id || table.current_order_id || '';
-              if (targetOrderId) {
-                setTimeout(() => {
-                  void syncOrderItemsOnline(targetOrderId, existingLocalCart, table.id);
-                }, 100);
-              }
-              return prev;
-            }
-            return {
+          if (!syncingItemsTableIdsRef.current.has(table.id)) {
+            setTableCarts(prev => ({
               ...prev,
               [table.id]: mappedCart
-            };
-          });
+            }));
+          }
         }
 
         // Khôi phục thông tin khách lưu trú từ Cloud
@@ -1002,10 +1008,48 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   }, [tables, syncActiveTableSession]);
 
-  // Tự động đồng bộ giỏ hàng của các bàn đang có khách (occupied) từ Cloud để Máy B luôn thấy món từ Máy A
+  // Tự động dọn sạch giỏ hàng & khách hàng tạm của các bàn đã trống (available/dirty/cleaning),
+  // đồng thời đồng bộ giỏ hàng của các bàn đang có khách (occupied) từ Cloud để Máy B luôn thấy món từ Máy A
   const lastOccupiedSyncRef = React.useRef<Record<string, number>>({});
   useEffect(() => {
-    if (!isNavReady || !isOnline || shopVertical === 'retail' || tables.length === 0) return;
+    if (!isNavReady || shopVertical === 'retail' || tables.length === 0) return;
+
+    const inactiveTableIds = tables
+      .filter(
+        t =>
+          t.status !== 'occupied' &&
+          t.status !== 'playing' &&
+          t.status !== 'checking_out' &&
+          !openingTableIdsRef.current.has(t.id)
+      )
+      .map(t => t.id);
+
+    if (inactiveTableIds.length > 0) {
+      setTableCarts(prev => {
+        let changed = false;
+        const copy = { ...prev };
+        for (const id of inactiveTableIds) {
+          if (copy[id]) {
+            delete copy[id];
+            changed = true;
+          }
+        }
+        return changed ? copy : prev;
+      });
+      setTableCustomers(prev => {
+        let changed = false;
+        const copy = { ...prev };
+        for (const id of inactiveTableIds) {
+          if (copy[id]) {
+            delete copy[id];
+            changed = true;
+          }
+        }
+        return changed ? copy : prev;
+      });
+    }
+
+    if (!isOnline) return;
     const now = Date.now();
     const occupiedTables = tables.filter(
       t =>
@@ -1382,6 +1426,26 @@ export function useTableManager(props: UseTableManagerProps) {
           metadata: openTableMeta
         } : t));
       } else {
+        // Dọn sạch mọi đơn in_progress và món ăn cũ của bàn này trong SQLite trước khi mở phiên mới
+        try {
+          const oldInProgOrders = await db
+            .select()
+            .from(schema.orders)
+            .where(
+              and(
+                eq(schema.orders.resource_id, targetTableForOpen.id),
+                eq(schema.orders.status, 'in_progress')
+              )
+            );
+          for (const oldOrd of oldInProgOrders) {
+            if (oldOrd.id) {
+              closedOrderIdsRef.current.add(oldOrd.id);
+              await db.delete(schema.orders).where(eq(schema.orders.id, oldOrd.id));
+              await db.delete(schema.order_items).where(eq(schema.order_items.order_id, oldOrd.id));
+            }
+          }
+        } catch (e) {}
+
         await db
           .update(schema.location_resources)
           .set({
@@ -1417,13 +1481,23 @@ export function useTableManager(props: UseTableManagerProps) {
         setTables(updated);
       }
 
-      // Gán thông tin khách hàng nhận phòng bàn
-      if (targetCustomer) {
-        setTableCustomers(prev => ({
-          ...prev,
-          [targetTableForOpen.id]: targetCustomer
-        }));
-      }
+      // BẮT BUỘC làm sạch giỏ hàng của bàn khi mở phiên mới (tuyệt đối không để sót món của khách trước!)
+      setTableCarts(prev => {
+        const copy = { ...prev };
+        delete copy[targetTableForOpen.id];
+        return copy;
+      });
+
+      // Gán thông tin khách hàng nhận phòng bàn (hoặc xóa khách cũ nếu mở cho Khách lẻ)
+      setTableCustomers(prev => {
+        const copy = { ...prev };
+        if (targetCustomer) {
+          copy[targetTableForOpen.id] = targetCustomer;
+        } else {
+          delete copy[targetTableForOpen.id];
+        }
+        return copy;
+      });
 
       setIsTableOpenDialogVisible(false);
       setSelectedTableForOpen(null);
@@ -2001,6 +2075,8 @@ export function useTableManager(props: UseTableManagerProps) {
 
       const releaseStatusAfterPay = shopVertical === 'lodging' ? 'dirty' : 'available';
       const cleanedPaidTableMeta = cleanStaticResourceMeta(selectedTableForPay.metadata, { last_checkout_time: checkoutTimeStr });
+      if (selectedTableForPay.current_order_id) closedOrderIdsRef.current.add(selectedTableForPay.current_order_id);
+      if (resolvedCurrentOrderId) closedOrderIdsRef.current.add(resolvedCurrentOrderId);
 
       // A. Lưu vào cơ sở dữ liệu SQLite cục bộ (Offline-First)
       if (Platform.OS === 'web') {

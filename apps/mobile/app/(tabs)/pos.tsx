@@ -3361,6 +3361,18 @@ export default function PosScreen() {
                               activeTable.current_order_id ||
                               '';
 
+                            // Dọn dẹp ngay lập tức tableCart & tableCustomers trước khi gọi mạng
+                            setTableCarts(prev => {
+                              const copy = { ...prev };
+                              delete copy[activeTable.id];
+                              return copy;
+                            });
+                            setTableCustomers(prev => {
+                              const copy = { ...prev };
+                              delete copy[activeTable.id];
+                              return copy;
+                            });
+
                             // 1. Đồng bộ cục bộ (Offline-First)
                             if (Platform.OS === 'web') {
                               setTables(prev => prev.map(t => t.id === activeTable.id ? { ...t, status: 'available', startTime: null, current_order_id: null, metadata: cleanedCancelledMeta } : t));
