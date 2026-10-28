@@ -194,7 +194,7 @@ export class SyncManager {
             const ageMs = poCheckInMs > 0 ? (Date.now() - poCheckInMs) : Infinity;
             const isTempLocalInProg = String(po.id).startsWith('ORD-T-INPROG-');
             const isBeforeLastCheckout = lastCheckoutMs > 0 && poCheckInMs > 0 && poCheckInMs < lastCheckoutMs - 5000;
-            const isStaleOfflineOpen = ageMs > 3 * 60 * 1000;
+            const isStaleOfflineOpen = ageMs > 12 * 60 * 60 * 1000;
             const isStillActiveOnCloud =
               activeOrdersByIdMap.has(po.id) ||
               activeOrdersMap.has(po.resource_id) ||
@@ -224,7 +224,7 @@ export class SyncManager {
             lr.current_order_id &&
             String(lr.current_order_id).startsWith('ORD-T-INPROG-') &&
             lrStartTimeMs > 0 &&
-            (Date.now() - lrStartTimeMs) <= 3 * 60 * 1000 &&
+            (Date.now() - lrStartTimeMs) <= 12 * 60 * 60 * 1000 &&
             !(lastCheckoutMs > 0 && lrStartTimeMs < lastCheckoutMs - 5000);
           const hasLocalInprogOrder = Boolean(isFreshTempInprog) || pendingByResId.has(lr.id);
           if (isOccupiedLocal && hasLocalInprogOrder) {
@@ -802,6 +802,13 @@ export class SyncManager {
                   updated_at: new Date().toISOString(),
                 })
                 .where(eq(schema.orders.id, localId))
+
+              if (order.status === 'in_progress' && orderResId) {
+                await db.update(schema.location_resources)
+                  .set({ current_order_id: serverId, status: 'occupied' })
+                  .where(eq(schema.location_resources.id, orderResId))
+                  .catch(() => {})
+              }
             } else {
               await db.update(schema.orders)
                 .set({ sync_status: 'synced', order_no: serverNo || order.order_no, updated_at: new Date().toISOString() })
@@ -1600,7 +1607,7 @@ export class SyncManager {
             const ageMs = poCheckInMs > 0 ? (Date.now() - poCheckInMs) : Infinity;
             const isTempLocalInProg = String(po.id).startsWith('ORD-T-INPROG-');
             const isBeforeLastCheckout = lastCheckoutMs > 0 && poCheckInMs > 0 && poCheckInMs < lastCheckoutMs - 5000;
-            const isStaleOfflineOpen = ageMs > 3 * 60 * 1000;
+            const isStaleOfflineOpen = ageMs > 12 * 60 * 60 * 1000;
             const isStillActiveOnCloud =
               activeOrdersByIdMap.has(po.id) ||
               activeOrdersMap.has(po.resource_id) ||
@@ -1630,7 +1637,7 @@ export class SyncManager {
             lr.current_order_id &&
             String(lr.current_order_id).startsWith('ORD-T-INPROG-') &&
             lrStartTimeMs > 0 &&
-            (Date.now() - lrStartTimeMs) <= 3 * 60 * 1000 &&
+            (Date.now() - lrStartTimeMs) <= 12 * 60 * 60 * 1000 &&
             !(lastCheckoutMs > 0 && lrStartTimeMs < lastCheckoutMs - 5000);
           const hasLocalInprogOrder = Boolean(isFreshTempInprog) || pendingByResId.has(lr.id);
           if (isOccupiedLocal && hasLocalInprogOrder) {

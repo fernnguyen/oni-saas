@@ -80,6 +80,8 @@ export function useTableManager(props: UseTableManagerProps) {
   const openingTableIdsRef = React.useRef<Set<string>>(new Set());
   // Theo dõi các bàn đang đẩy món lên Server để tránh poll ngầm ghi đè lúc đang lưu
   const syncingItemsTableIdsRef = React.useRef<Set<string>>(new Set());
+  // Theo dõi các order_id đang có món gọi lúc offline chờ đẩy lên Server (khóa theo order_id để không bao giờ lẫn giữa Khách A và Khách B)
+  const pendingItemSyncByOrderRef = React.useRef<Map<string, { tableId: string; cartItems: any }>>(new Map());
   // Theo dõi các order_id đã thanh toán/hủy trên máy này để chặn poll ngầm đang bay ghi đè lại món của khách cũ
   const closedOrderIdsRef = React.useRef<Set<string>>(new Set());
 
@@ -403,18 +405,38 @@ export function useTableManager(props: UseTableManagerProps) {
 
               const isTempLocalInProg = String(localPendingOrder.id).startsWith('ORD-T-INPROG-');
               const isBeforeLastCheckout = lastCheckoutMs > 0 && localCheckInMs > 0 && localCheckInMs < lastCheckoutMs - 5000;
-              const isStaleOfflineOpen = ageMs > 3 * 60 * 1000;
+              const isStaleOfflineOpen =
+                ageMs > 12 * 60 * 60 * 1000 ||
+                closedOrderIdsRef.current.has(String(localPendingOrder.id));
 
               // Nếu đơn local đã từng có ID server (nhưng nay server đã giải phóng bàn),
-              // hoặc giờ vào cũ hơn lần trả bàn gần nhất trên Cloud, hoặc đơn tạm đã quá 3 phút:
+              // hoặc giờ vào cũ hơn lần trả bàn gần nhất trên Cloud, hoặc đơn tạm từ hôm trước (> 12h):
               // -> Đây là đơn mồ côi cũ trong SQLite, xóa sạch để không bao giờ hồi sinh bàn đã đóng!
               if (!isTempLocalInProg || isBeforeLastCheckout || isStaleOfflineOpen) {
                 await db.delete(schema.orders).where(eq(schema.orders.id, localPendingOrder.id));
                 await db.delete(schema.order_items).where(eq(schema.order_items.order_id, localPendingOrder.id));
               } else {
-                // Chỉ tự động đẩy đơn vừa mở ngoại tuyến (< 3 phút) lên Cloud
+                // Tự động đẩy đơn mở lúc rớt mạng (kèm toàn bộ món đã gọi lúc offline) lên Cloud khi có mạng lại
                 (async () => {
                   try {
+                    const localItems = await db
+                      .select()
+                      .from(schema.order_items)
+                      .where(eq(schema.order_items.order_id, localPendingOrder.id));
+                    const mappedBatchItems = localItems.map((it: any) => ({
+                      product_id: it.product_id,
+                      product_name: it.product_name,
+                      qty: it.qty,
+                      unit_price: it.unit_price,
+                      original_price: it.original_price ?? it.unit_price,
+                      discount_amount: it.discount_amount || 0,
+                      line_total: it.line_total,
+                      tax_rate: it.tax_rate || '0',
+                      tax_amount: it.tax_amount || 0,
+                      tax_group: it.tax_group || '',
+                      tax_vat_rate: it.tax_vat_rate || '0',
+                      tax_pit_rate: it.tax_pit_rate || '0',
+                    }));
                     const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
                       method: 'POST',
                       headers: { ...headers, 'Content-Type': 'application/json' },
@@ -434,7 +456,7 @@ export function useTableManager(props: UseTableManagerProps) {
                           created_at: localPendingOrder.created_at || new Date().toISOString(),
                           metadata: localPendingOrder.metadata || '{}',
                         },
-                        items: [],
+                        items: mappedBatchItems,
                         payments: [],
                       }),
                     });
@@ -450,6 +472,10 @@ export function useTableManager(props: UseTableManagerProps) {
                         await db.update(schema.location_resources).set({ current_order_id: serverOrderId, status: 'occupied' }).where(eq(schema.location_resources.id, tableId));
                         await db.update(schema.orders).set({ id: serverOrderId, sync_status: 'synced', updated_at: new Date().toISOString() }).where(eq(schema.orders.id, localPendingOrder.id));
                         await db.update(schema.order_items).set({ order_id: serverOrderId }).where(eq(schema.order_items.order_id, localPendingOrder.id));
+                        setTables(prev => prev.map(t => t.id === tableId ? { ...t, current_order_id: serverOrderId, status: 'occupied' } : t));
+                        setActiveTable((prev: any) => prev && prev.id === tableId ? { ...prev, current_order_id: serverOrderId, status: 'occupied' } : prev);
+                        setCartOwnerTable((prev: any) => prev && prev.id === tableId ? { ...prev, current_order_id: serverOrderId, status: 'occupied' } : prev);
+                        pendingItemSyncByOrderRef.current.delete(localPendingOrder.id);
                       }
                     }
                   } catch (healErr) {
@@ -529,6 +555,58 @@ export function useTableManager(props: UseTableManagerProps) {
   };
 
   const syncOrderItemsOnline = async (orderId: string, cartItems: any, tableId?: string) => {
+    const initialOrderId =
+      orderId ||
+      (tableId ? tables.find(t => t.id === tableId)?.current_order_id : '') ||
+      '';
+
+    if (initialOrderId) {
+      pendingItemSyncByOrderRef.current.set(initialOrderId, {
+        tableId: tableId || '',
+        cartItems,
+      });
+    }
+
+    // 1. Lưu ngay xuống SQLite cục bộ TRƯỚC khi kiểm tra mạng (để khi máy rớt mạng vẫn lưu 100% vào SQLite & tự đẩy lên khi có mạng lại)
+    if (Platform.OS !== 'web' && initialOrderId) {
+      try {
+        await db.delete(schema.order_items).where(eq(schema.order_items.order_id, initialOrderId));
+        let localItemsSubtotal = 0;
+        for (const [cartItemId, cartItem] of Object.entries(cartItems) as [string, any][]) {
+          if (isTimeChargeProduct(cartItem.productId || cartItemId, cartItem.name)) continue;
+          const productId = cartItem.productId || cartItemId;
+          const modifierTotal = Number(cartItem.modifier_total || 0);
+          const lineTotal = (Number(cartItem.price) + modifierTotal) * Number(cartItem.quantity);
+          localItemsSubtotal += lineTotal;
+          await db.insert(schema.order_items).values({
+            id: `ORDI-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+            order_id: initialOrderId,
+            product_id: productId,
+            product_name: cartItem.name || '',
+            qty: Number(cartItem.quantity) || 1,
+            unit_price: Number(cartItem.price) || 0,
+            original_price: Number(cartItem.original_price ?? cartItem.price) || 0,
+            discount_amount: Number(cartItem.discount_amount || 0),
+            line_total: lineTotal,
+            tax_rate: String(cartItem.tax_rate || '0'),
+            tax_amount: 0,
+            tax_group: String(cartItem.tax_group || ''),
+            tax_vat_rate: '0',
+            tax_pit_rate: '0',
+          }).catch(() => {});
+        }
+        await db
+          .update(schema.orders)
+          .set({
+            total_amount: localItemsSubtotal,
+            sync_status: 'pending',
+            updated_at: new Date().toISOString(),
+          })
+          .where(eq(schema.orders.id, initialOrderId))
+          .catch(() => {});
+      } catch {}
+    }
+
     if (!isOnline) return false;
 
     const controller = new AbortController();
@@ -561,9 +639,10 @@ export function useTableManager(props: UseTableManagerProps) {
       const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
       const headers = await getApiHeaders();
 
-      let effectiveOrderId = orderId;
+      let effectiveOrderId = initialOrderId;
 
       // Nếu orderId trống hoặc đang là mã tạm ORD-T-INPROG-, tra cứu mã đơn thực tế từ Server qua tableId
+      // Nếu trên Server bàn vẫn đang trống (do đơn được tạo lúc máy rớt mạng), tự động khởi tạo phiên bàn lên Server ngay!
       if ((!effectiveOrderId || String(effectiveOrderId).startsWith('ORD-T-INPROG-')) && tableId) {
         try {
           const resCheck = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${tableId}?t=${Date.now()}`, {
@@ -594,15 +673,79 @@ export function useTableManager(props: UseTableManagerProps) {
               }
             }
           }
+
+          // Nếu trên Server bàn vẫn đang trống (chưa có đơn in_progress vì bàn được mở lúc rớt mạng),
+          // tự động đẩy phiên bàn in_progress lên Server qua sync-batch để lấy serverOrderId chính thức!
+          if (!effectiveOrderId || String(effectiveOrderId).startsWith('ORD-T-INPROG-')) {
+            const localTableObj = tables.find(t => t.id === tableId);
+            let localOrdRow: any = null;
+            if (Platform.OS !== 'web' && effectiveOrderId) {
+              const rows = await db.select().from(schema.orders).where(eq(schema.orders.id, effectiveOrderId)).limit(1).catch(() => []);
+              localOrdRow = rows[0] || null;
+            }
+            const fallbackLocalId = effectiveOrderId || `ORD-T-INPROG-${Date.now()}`;
+            const batchMeta =
+              localOrdRow?.metadata ||
+              localTableObj?.metadata ||
+              JSON.stringify({
+                resource_id: tableId,
+                resource_name: localTableObj?.name || '',
+                check_in: localTableObj?.startTime ? new Date(localTableObj.startTime).toISOString() : new Date().toISOString(),
+              });
+            const batchRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              signal: controller.signal,
+              body: JSON.stringify({
+                local_order_id: fallbackLocalId,
+                order: {
+                  status: 'in_progress',
+                  channel: 'pos-mobile',
+                  customer_id: localOrdRow?.customer_id || tableCustomers[tableId]?.id || 'C-DEFAULT-RETAIL',
+                  customer_name: localOrdRow?.customer_name || tableCustomers[tableId]?.name || 'Khách lẻ',
+                  branch_id: shopId,
+                  employee_id: currentUserEmail,
+                  subtotal: localOrdRow?.total_amount || 0,
+                  total_amount: localOrdRow?.total_amount || 0,
+                  paid_amount: 0,
+                  resource_id: tableId,
+                  created_at: localOrdRow?.created_at || new Date().toISOString(),
+                  metadata: batchMeta,
+                },
+                items: [],
+                payments: [],
+              }),
+            });
+            if (batchRes.ok) {
+              const batchData = await batchRes.json().catch(() => ({}));
+              if (batchData.order_id && !batchData.skipped_stale_in_progress) {
+                effectiveOrderId = batchData.order_id;
+              }
+            }
+          }
+
           if (effectiveOrderId && !String(effectiveOrderId).startsWith('ORD-T-INPROG-')) {
-            setTables(prev => prev.map(t => t.id === tableId ? { ...t, current_order_id: effectiveOrderId } : t));
-            setActiveTable((prev: any) => prev && prev.id === tableId ? { ...prev, current_order_id: effectiveOrderId } : prev);
+            setTables(prev => prev.map(t => t.id === tableId ? { ...t, current_order_id: effectiveOrderId, status: 'occupied' } : t));
+            setActiveTable((prev: any) => prev && prev.id === tableId ? { ...prev, current_order_id: effectiveOrderId, status: 'occupied' } : prev);
+            setCartOwnerTable((prev: any) => prev && prev.id === tableId ? { ...prev, current_order_id: effectiveOrderId, status: 'occupied' } : prev);
             if (Platform.OS !== 'web') {
               await db
                 .update(schema.location_resources)
-                .set({ current_order_id: effectiveOrderId })
+                .set({ current_order_id: effectiveOrderId, status: 'occupied' })
                 .where(eq(schema.location_resources.id, tableId))
                 .catch(() => {});
+              if (initialOrderId && initialOrderId !== effectiveOrderId) {
+                await db
+                  .update(schema.orders)
+                  .set({ id: effectiveOrderId, sync_status: 'synced', updated_at: new Date().toISOString() })
+                  .where(eq(schema.orders.id, initialOrderId))
+                  .catch(() => {});
+                await db
+                  .update(schema.order_items)
+                  .set({ order_id: effectiveOrderId })
+                  .where(eq(schema.order_items.order_id, initialOrderId))
+                  .catch(() => {});
+              }
             }
           }
         } catch (resolveErr) {
@@ -612,35 +755,6 @@ export function useTableManager(props: UseTableManagerProps) {
 
       if (!effectiveOrderId) {
         throw new Error('Không tìm thấy mã đơn hàng của phòng/bàn để đồng bộ món');
-      }
-
-      // Lưu đồng thời xuống SQLite cục bộ để bảo toàn khi mất mạng hoặc chuyển tab
-      if (Platform.OS !== 'web') {
-        try {
-          await db.delete(schema.order_items).where(eq(schema.order_items.order_id, effectiveOrderId));
-          for (const [cartItemId, cartItem] of Object.entries(cartItems) as [string, any][]) {
-            if (isTimeChargeProduct(cartItem.productId || cartItemId, cartItem.name)) continue;
-            const productId = cartItem.productId || cartItemId;
-            const modifierTotal = Number(cartItem.modifier_total || 0);
-            const lineTotal = (Number(cartItem.price) + modifierTotal) * Number(cartItem.quantity);
-            await db.insert(schema.order_items).values({
-              id: `ORDI-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
-              order_id: effectiveOrderId,
-              product_id: productId,
-              product_name: cartItem.name || '',
-              qty: Number(cartItem.quantity) || 1,
-              unit_price: Number(cartItem.price) || 0,
-              original_price: Number(cartItem.original_price ?? cartItem.price) || 0,
-              discount_amount: Number(cartItem.discount_amount || 0),
-              line_total: lineTotal,
-              tax_rate: String(cartItem.tax_rate || '0'),
-              tax_amount: 0,
-              tax_group: String(cartItem.tax_group || ''),
-              tax_vat_rate: '0',
-              tax_pit_rate: '0',
-            }).catch(() => {});
-          }
-        } catch {}
       }
 
       const serverItemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${effectiveOrderId}&limit=200&t=${Date.now()}`, {
@@ -749,6 +863,16 @@ export function useTableManager(props: UseTableManagerProps) {
             throw new Error(`Không thể xóa món cũ trên server (${deleteRes.status})`);
           }
         }
+      }
+
+      if (initialOrderId) pendingItemSyncByOrderRef.current.delete(initialOrderId);
+      if (effectiveOrderId) pendingItemSyncByOrderRef.current.delete(effectiveOrderId);
+      if (Platform.OS !== 'web' && effectiveOrderId) {
+        await db
+          .update(schema.orders)
+          .set({ sync_status: 'synced', updated_at: new Date().toISOString() })
+          .where(eq(schema.orders.id, effectiveOrderId))
+          .catch(() => {});
       }
 
       if (broadcastSync && tableId) {
@@ -949,7 +1073,13 @@ export function useTableManager(props: UseTableManagerProps) {
             }
           }
 
-          if (!syncingItemsTableIdsRef.current.has(table.id)) {
+          const pendingForOrder =
+            (resolvedRemoteOrderId && pendingItemSyncByOrderRef.current.get(resolvedRemoteOrderId)) ||
+            (table.current_order_id && pendingItemSyncByOrderRef.current.get(String(table.current_order_id)));
+
+          if (pendingForOrder && !syncingItemsTableIdsRef.current.has(table.id)) {
+            void syncOrderItemsOnline(resolvedRemoteOrderId || table.current_order_id || '', pendingForOrder.cartItems, table.id);
+          } else if (!syncingItemsTableIdsRef.current.has(table.id)) {
             setTableCarts(prev => ({
               ...prev,
               [table.id]: mappedCart
