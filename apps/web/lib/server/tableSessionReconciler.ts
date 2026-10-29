@@ -63,7 +63,8 @@ export async function cancelOrphanedInProgressOrdersForResource(
   connector: DataConnector,
   shopId: string,
   resourceId: string,
-  keepOrderId?: string
+  keepOrderId?: string,
+  safeMode: boolean = false
 ): Promise<void> {
   if (!resourceId || resourceId.startsWith('takeaway')) return
   try {
@@ -81,6 +82,17 @@ export async function cancelOrphanedInProgressOrdersForResource(
 
       const ordResId = resolveOrderResourceId(ord)
       if (ordResId !== resourceId) continue
+
+      // In safeMode, skip orders that already have items (to avoid data loss)
+      if (safeMode) {
+        try {
+          const itemsCheck = await connector.list('order-items', {
+            filters: { order_id: ordId },
+            limit: 1,
+          })
+          if ((itemsCheck.data || []).length > 0) continue
+        } catch {}
+      }
 
       await connector.update('orders', ordId, {
         status: 'cancelled',

@@ -31,6 +31,7 @@ import { ProductPreviewModal } from '../../components/pos/ProductPreviewModal';
 import CartCheckoutModal from '../../components/pos/CartCheckoutModal';
 import { PosItemEditModal } from '../../components/pos/PosItemEditModal';
 import QRTransferModal from '../../components/pos/QRTransferModal';
+import { ConflictResolutionModal } from '../../components/pos/ConflictResolutionModal';
 
 import { LodgingGuest, LodgingGuestsForm } from '../../components/pos/LodgingGuestsForm';
 import { PosDatePicker } from '../../components/pos/PosDatePicker';
@@ -444,7 +445,9 @@ export default function PosScreen() {
     tableToClean, setTableToClean,
     cleanConfirmSaving,
     handleCleanTable,
-    handleUpdateTableTime
+    handleUpdateTableTime,
+    tableConflict, setTableConflict,
+    resolveTableConflict,
   } = useTableManager({
     tables, setTables, shopVertical, activeShopId,
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
@@ -4179,6 +4182,22 @@ export default function PosScreen() {
           </View>
         </View>
       </Modal>
+      {shopVertical !== 'retail' && (
+        <ConflictResolutionModal
+          visible={!!tableConflict}
+          conflict={tableConflict}
+          tableName={tableConflict ? (tables.find(t => t.id === tableConflict.tableId)?.name || '') : ''}
+          onResolve={async (action) => {
+            try {
+              await resolveTableConflict(action);
+              showToast('Đã giải quyết thành công!', 'success');
+            } catch {
+              showToast('Có lỗi xảy ra, vui lòng thử lại!', 'error');
+            }
+          }}
+          onDismiss={() => setTableConflict(null)}
+        />
+      )}
     </SafeAreaView>
   );
 }

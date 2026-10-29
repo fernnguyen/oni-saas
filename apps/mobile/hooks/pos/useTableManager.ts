@@ -40,6 +40,7 @@ export interface UseTableManagerProps {
 }
 
 import { CartItem } from '../../app/(tabs)/pos';
+import { TableConflict } from '../../components/pos/ConflictResolutionModal';
 import { calculateHourlyBilling, isTimeChargeProduct, getTimeChargeProductId } from '@oni/core';
 import { LodgingGuest } from '../../components/pos/LodgingGuestsForm';
 
@@ -84,6 +85,8 @@ export function useTableManager(props: UseTableManagerProps) {
   const pendingItemSyncByOrderRef = React.useRef<Map<string, { tableId: string; cartItems: any }>>(new Map());
   // Theo dõi các order_id đã thanh toán/hủy trên máy này để chặn poll ngầm đang bay ghi đè lại món của khách cũ
   const closedOrderIdsRef = React.useRef<Set<string>>(new Set());
+
+  const [tableConflict, setTableConflict] = useState<TableConflict | null>(null);
 
   const cleanStaticResourceMeta = useCallback((rawMeta: any, extraFields: Record<string, any> = {}) => {
     let parsed: Record<string, any> = {};
@@ -1195,6 +1198,123 @@ export function useTableManager(props: UseTableManagerProps) {
       }
     }
   }, [tables, isNavReady, isOnline, shopVertical, timeTicker]);
+
+  // Kiểm tra xung đột bàn được lưu từ SyncManager
+  useEffect(() => {
+    if (shopVertical === 'retail') return;
+    const checkConflicts = async () => {
+      try {
+        const keys = await AsyncStorage.getAllKeys();
+        const conflictKeys = keys.filter(k => k.startsWith('table_conflict:'));
+        if (conflictKeys.length > 0) {
+          const firstKey = conflictKeys[0];
+          const data = await AsyncStorage.getItem(firstKey);
+          if (data) {
+            const conflict = JSON.parse(data);
+            // Tự động xóa xung đột cũ hơn 24h
+            if (conflict.detectedAt) {
+              const age = Date.now() - new Date(conflict.detectedAt).getTime();
+              if (age > 24 * 60 * 60 * 1000) {
+                await AsyncStorage.removeItem(firstKey);
+                // Tự động giải quyết: giữ đơn hệ thống
+                try {
+                  await db.delete(schema.orders).where(eq(schema.orders.id, conflict.localOrderId));
+                  await db.delete(schema.order_items).where(eq(schema.order_items.order_id, conflict.localOrderId));
+                } catch {}
+                return;
+              }
+            }
+            setTableConflict(conflict);
+          }
+        }
+      } catch {}
+    };
+    checkConflicts();
+  }, [tables, shopVertical]);
+
+  const resolveTableConflict = async (action: 'merge' | 'keep_server' | 'replace_server') => {
+    if (!tableConflict) return;
+    try {
+      const currentUrl = getApiBaseUrl();
+      const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      const headers = await getApiHeaders();
+
+      // Chuẩn bị dữ liệu món từ máy cục bộ cho merge/replace
+      let localItemsPayload: any[] | undefined;
+      if (action === 'merge' || action === 'replace_server') {
+        try {
+          const localDbItems = await db
+            .select()
+            .from(schema.order_items)
+            .where(eq(schema.order_items.order_id, tableConflict.localOrderId));
+          localItemsPayload = localDbItems.map((it: any) => ({
+            product_id: it.product_id,
+            product_name: it.product_name || '',
+            qty: String(it.qty || 1),
+            unit_price: String(it.unit_price || 0),
+            original_price: String(it.original_price ?? it.unit_price ?? 0),
+            discount_amount: String(it.discount_amount || 0),
+            line_total: String(it.line_total || 0),
+            tax_rate: it.tax_rate || '0',
+            tax_amount: String(it.tax_amount || 0),
+            tax_group: it.tax_group || '',
+          }));
+        } catch {
+          // Fallback nếu không đọc được từ SQLite
+          localItemsPayload = tableConflict.localItems.map(it => ({
+            product_id: '',
+            product_name: it.product_name,
+            qty: String(it.qty),
+            unit_price: String(it.unit_price),
+            line_total: String(it.qty * it.unit_price),
+          }));
+        }
+      }
+
+      const res = await fetch(`${currentUrl}/api/shops/${shopId}/orders/resolve-conflict`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          local_order_id: tableConflict.localOrderId,
+          existing_order_id: tableConflict.existingOrder.order_id,
+          resource_id: tableConflict.tableId,
+          local_items: localItemsPayload,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        // Dọn dẹp đơn cục bộ
+        if (Platform.OS !== 'web') {
+          try {
+            await db.delete(schema.orders).where(eq(schema.orders.id, tableConflict.localOrderId));
+            await db.delete(schema.order_items).where(eq(schema.order_items.order_id, tableConflict.localOrderId));
+          } catch {}
+        }
+        // Cập nhật trạng thái bàn
+        setTables(prev => prev.map(t =>
+          t.id === tableConflict.tableId
+            ? { ...t, current_order_id: data.resolved_order_id, status: 'occupied' }
+            : t
+        ));
+        // Xóa xung đột khỏi storage
+        await AsyncStorage.removeItem(`table_conflict:${tableConflict.tableId}`);
+        pendingItemSyncByOrderRef.current.delete(tableConflict.localOrderId);
+        setTableConflict(null);
+        // Đồng bộ lại dữ liệu bàn
+        const updatedTable = tables.find(t => t.id === tableConflict.tableId);
+        if (updatedTable) {
+          setTimeout(() => syncActiveTableSession({ ...updatedTable, current_order_id: data.resolved_order_id }), 500);
+        }
+      } else {
+        throw new Error('Không thể giải quyết xung đột');
+      }
+    } catch (err) {
+      console.error('[resolveTableConflict] Error:', err);
+      throw err;
+    }
+  };
 
   const [isCleanConfirmModalOpen, setIsCleanConfirmModalOpen] = useState(false);
   const [tableToClean, setTableToClean] = useState<any>(null);
@@ -3014,6 +3134,8 @@ export function useTableManager(props: UseTableManagerProps) {
     tableToClean, setTableToClean,
     cleanConfirmSaving,
     handleCleanTable,
-    handleUpdateTableTime
+    handleUpdateTableTime,
+    tableConflict, setTableConflict,
+    resolveTableConflict,
   };
 }

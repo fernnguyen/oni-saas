@@ -766,8 +766,32 @@ export class SyncManager {
             body: JSON.stringify(payload),
           });
 
+          const resData = await response.json().catch(() => ({}))
+
+          // Phát hiện xung đột bàn — không đếm là thất bại, chờ user xử lý
+          if (response.status === 409 && resData.conflict === true && resData.conflict_type === 'table_already_occupied') {
+            const conflictKey = `table_conflict:${orderResId}`
+            try {
+              const localItems = items.map((it: any) => ({
+                product_name: it.product_name || '',
+                qty: Number(it.qty || 1),
+                unit_price: Number(it.unit_price || 0),
+              }))
+              await AsyncStorage.setItem(conflictKey, JSON.stringify({
+                tableId: orderResId,
+                localOrderId: order.id,
+                localItems,
+                localCheckIn: parsedOrderMetadata.check_in || order.created_at || '',
+                localCustomerName: order.customer_name || 'Khách lẻ',
+                existingOrder: resData.existing_order,
+                detectedAt: new Date().toISOString(),
+              }))
+            } catch {}
+            console.log(`[Sync] Phát hiện xung đột bàn ${orderResId} — chờ user xử lý`)
+            continue
+          }
+
           if (response.ok) {
-            const resData = await response.json().catch(() => ({}))
             const serverId = resData.order_id
             const serverNo = resData.order_no
             const localId = order.id

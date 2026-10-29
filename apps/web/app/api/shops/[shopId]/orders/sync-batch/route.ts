@@ -349,15 +349,98 @@ export async function POST(
           }
         }
 
-        if (!serverId) {
+        // CONFLICT DETECTION: When an offline device tries to create a new in_progress order
+        // for a table that already has an active in_progress order from a different session
+        if (!serverId && order.status === 'in_progress') {
+          const incomingMeta = parseMetadataSafe(order.metadata)
+          const incomingCheckInIso = incomingMeta.check_in || ''
+          const incomingCheckInMs = incomingCheckInIso ? new Date(incomingCheckInIso).getTime() : 0
+
+          // Find existing in_progress order on this resource
+          let existingOrder: Record<string, any> | null = null
+
+          if (resourceRow?.current_order_id) {
+            const currentOrd = await connector.findById('orders', String(resourceRow.current_order_id)).catch(() => null)
+            if (currentOrd && currentOrd.status === 'in_progress') {
+              existingOrder = currentOrd as Record<string, any>
+            }
+          }
+          if (!existingOrder) {
+            const inProgList = await connector.list('orders', {
+              page: 1,
+              limit: 50,
+              filters: { status: 'in_progress' },
+            })
+            existingOrder = ((inProgList.data || []) as Record<string, any>[]).find(
+              (o) => resolveOrderResourceId(o) === resolvedResourceId
+            ) || null
+          }
+
+          if (existingOrder) {
+            const existingOrdId = String(existingOrder.order_id || existingOrder.id || '')
+            const existingMeta = parseMetadataSafe(existingOrder.metadata)
+            const existingCheckInMs = existingMeta.check_in ? new Date(existingMeta.check_in).getTime() : 0
+
+            // Check if this is the SAME table session (check_in within 60s)
+            const isSameSession =
+              incomingCheckInMs > 0 && existingCheckInMs > 0
+                ? Math.abs(incomingCheckInMs - existingCheckInMs) < 60_000
+                : true
+
+            if (isSameSession) {
+              // Same session — reuse existing order (normal self-healing)
+              serverId = existingOrdId
+              orderNo = String(existingOrder.order_no || '')
+            } else {
+              // DIFFERENT session — CONFLICT! Don't auto-cancel, don't auto-create.
+              // Fetch existing order items for the conflict response
+              let existingItemsSummary: { name: string; qty: number }[] = []
+              try {
+                const itemsRes = await connector.list('order-items', {
+                  page: 1,
+                  limit: 20,
+                  filters: { order_id: existingOrdId },
+                })
+                existingItemsSummary = ((itemsRes.data || []) as Record<string, any>[])
+                  .filter(it => it.product_name && it.product_id !== 'TIME_CHARGE')
+                  .slice(0, 8)
+                  .map(it => ({ name: it.product_name, qty: Number(it.qty || 1) }))
+              } catch {}
+
+              return NextResponse.json({
+                ok: false,
+                conflict: true,
+                conflict_type: 'table_already_occupied',
+                existing_order: {
+                  order_id: existingOrdId,
+                  order_no: String(existingOrder.order_no || ''),
+                  check_in: existingMeta.check_in || existingOrder.created_at || '',
+                  customer_name: existingOrder.customer_name || 'Khách lẻ',
+                  employee_id: existingOrder.employee_id || '',
+                  items_count: existingItemsSummary.length,
+                  items_summary: existingItemsSummary,
+                  total_amount: Number(existingOrder.total_amount || 0),
+                  created_at: existingOrder.created_at || '',
+                },
+                incoming_order: {
+                  local_order_id: local_order_id || '',
+                  check_in: incomingCheckInIso || order.created_at || '',
+                  resource_id: resolvedResourceId,
+                },
+              }, { status: 409 })
+            }
+          }
+        }
+
+        // Self-healing for non-conflict cases (completed orders syncing)
+        if (!serverId && order.status !== 'in_progress') {
           const incomingMeta = parseMetadataSafe(order.metadata)
           const incomingCheckInIso = incomingMeta.check_in || ''
           const incomingCheckInMs = incomingCheckInIso ? new Date(incomingCheckInIso).getTime() : 0
 
           const isSameTableSession = (candidateOrd: Record<string, any>) => {
             const candidateMeta = parseMetadataSafe(candidateOrd.metadata)
-            const candidateCheckInIso = candidateMeta.check_in || ''
-            const candidateCheckInMs = candidateCheckInIso ? new Date(candidateCheckInIso).getTime() : 0
+            const candidateCheckInMs = candidateMeta.check_in ? new Date(candidateMeta.check_in).getTime() : 0
             if (incomingCheckInMs > 0 && candidateCheckInMs > 0) {
               return Math.abs(incomingCheckInMs - candidateCheckInMs) < 60_000
             }
@@ -1286,7 +1369,7 @@ export async function POST(
         const metaObj = parseMetadataSafe(order.metadata)
         const resourceId = resolvedResourceId
         if (resourceId && !resourceId.startsWith('takeaway')) {
-          await cancelOrphanedInProgressOrdersForResource(connector, shopId, resourceId, serverId)
+          await cancelOrphanedInProgressOrdersForResource(connector, shopId, resourceId, serverId, true)
 
           const resource = await connector.findById('location-resources', resourceId)
           if (resource) {
