@@ -37,6 +37,7 @@ import { LodgingGuest, LodgingGuestsForm } from '../../components/pos/LodgingGue
 import { PosDatePicker } from '../../components/pos/PosDatePicker';
 import { PosDateTimePicker } from '../../components/pos/PosDateTimePicker';
 import { PosToast } from '../../components/pos/PosToast';
+import { TableOrderTicketSheet } from '../../components/pos/TableOrderTicketSheet';
 import { useCart } from '../../hooks/pos/useCart';
 import { usePosData } from '../../hooks/pos/usePosData';
 import { useTableManager } from '../../hooks/pos/useTableManager';
@@ -80,6 +81,9 @@ export default function PosScreen() {
     loadPosData
   } = usePosData();
 
+  // Bàn đang được "Gọi món" (khác cartOwnerTable — cái đó dùng cho thanh toán bàn)
+  const [orderingTable, setOrderingTable] = useState<any | null>(null);
+
   const {
     cart, setCart,
     isPreviewModalOpen, setIsPreviewModalOpen,
@@ -91,7 +95,7 @@ export default function PosScreen() {
     discountAmount, setDiscountAmount,
     orderNote, setOrderNote,
     addToCart, handleConfirmAddToCart, removeFromCart, updateCartItemQuantity, getCartTotal, getCartCount
-  } = useCart(isNavReady, isLoading);
+  } = useCart(isNavReady, isLoading, !!orderingTable);
 
   const [editingCartItem, setEditingCartItem] = useState<{ tableId?: string, cartItemId: string, item: any, fromCartModal?: boolean } | null>(null);
 
@@ -99,9 +103,9 @@ export default function PosScreen() {
   const [toastMsg, setToastMsg] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const toastOpacity = React.useRef(new Animated.Value(0)).current;
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success', opts?: { silent?: boolean }) => {
     setToastMsg({ message, type });
-    Haptics.notificationAsync(
+    if (!opts?.silent) Haptics.notificationAsync(
       type === 'success' ? Haptics.NotificationFeedbackType.Success :
         type === 'error' ? Haptics.NotificationFeedbackType.Error :
           Haptics.NotificationFeedbackType.Warning
@@ -111,7 +115,8 @@ export default function PosScreen() {
       Animated.timing(toastOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
       Animated.delay(2000),
       Animated.timing(toastOpacity, { toValue: 0, duration: 250, useNativeDriver: true })
-    ]).start(() => setToastMsg(null));
+      // A newer toast stops this sequence (finished = false): don't wipe the newer message
+    ]).start(({ finished }) => { if (finished) setToastMsg(null); });
   };
 
   const renderToast = (isForModal: boolean = false) => {
@@ -473,6 +478,283 @@ export default function PosScreen() {
     tableSync,
     refreshTables: () => setSyncTriggerTick(prev => prev + 1),
   });
+
+  // ── "Gọi món" cho phòng/bàn: nháp riêng theo bàn ───────────────────────────────────
+  // Khi đang gọi món, state `cart` tạm thời chứa NHÁP món mới của bàn (không phải giỏ bán lẻ).
+  // Giỏ bán lẻ được cất vào orderingStashRef lúc vào và trả lại khi thoát (lưu / huỷ / chuyển tab).
+  // useCart(..., persistSuspended = !!orderingTable) nên nháp không bao giờ bị ghi vào 'temp_cart';
+  // nháp được lưu riêng ở AsyncStorage `table_order_draft:<tableId>`.
+  const tableOrderDraftKey = (tableId: string) => `table_order_draft:${tableId}`;
+  const orderingStashRef = React.useRef<{ cart: Record<string, any>; owner: any } | null>(null);
+  const orderingSavingRef = React.useRef(false);
+  const [isSavingTableDraft, setIsSavingTableDraft] = useState(false);
+  const [isTableTicketOpen, setIsTableTicketOpen] = useState(false);
+  // Thứ tự các dòng nháp được thêm/tăng gần nhất (cuối mảng = mới nhất) → nút "−" trên ô sản phẩm
+  const draftTouchOrderRef = React.useRef<string[]>([]);
+  const prevDraftRef = React.useRef<Record<string, any> | null>(null);
+  const addToastTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingAddedProductIdsRef = React.useRef<string[]>([]);
+  const latestCartRef = React.useRef(cart);
+  latestCartRef.current = cart;
+
+  const tableMapVertical = !['retail', 'fashion'].includes(shopVertical) ? shopVertical : 'billiards';
+  const sumQty = (c: Record<string, any> | undefined) =>
+    Object.values(c || {}).reduce((s: number, l: any) => s + (Number(l?.quantity) || 0), 0);
+  const draftProductQty = (productId: string) =>
+    Object.values(cart).reduce((s: number, l: any) => s + (l?.productId === productId ? Number(l.quantity) || 0 : 0), 0);
+
+  /** Cộng dồn nháp vào giỏ đã có của bàn (cùng khoá dòng → cộng số lượng, giữ thông tin dòng gốc) */
+  const mergeDraftIntoTableCart = (base: Record<string, any>, draft: Record<string, any>) => {
+    const next: Record<string, any> = { ...(base || {}) };
+    for (const [key, line] of Object.entries(draft || {})) {
+      const qty = Number((line as any)?.quantity) || 0;
+      if (qty <= 0) continue;
+      const existing = next[key];
+      next[key] = existing
+        ? { ...existing, quantity: (Number(existing.quantity) || 0) + qty }
+        : { ...(line as any) };
+    }
+    return next;
+  };
+
+  const clearAddToastTimer = () => {
+    if (addToastTimerRef.current) clearTimeout(addToastTimerRef.current);
+    addToastTimerRef.current = null;
+    pendingAddedProductIdsRef.current = [];
+  };
+
+  const enterTableOrdering = async (table: any) => {
+    if (!table) return;
+    if (orderingTable) {
+      // Đang gọi món cho chính bàn này → chỉ quay lại màn chọn món
+      if (orderingTable.id === table.id) {
+        setActiveTable(null);
+        setActiveVertical('retail');
+        return;
+      }
+      return;
+    }
+    const retailStash = { cart, owner: cartOwnerTable };
+    beginTableOrdering(table);
+    setActiveTable(null);
+    let draft: Record<string, any> = {};
+    try {
+      const raw = await AsyncStorage.getItem(tableOrderDraftKey(table.id));
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) draft = parsed;
+    } catch (err) {
+      console.warn('[Gọi món] Không đọc được nháp của bàn:', err);
+    }
+    orderingStashRef.current = retailStash;
+    draftTouchOrderRef.current = Object.keys(draft);
+    prevDraftRef.current = draft;
+    clearAddToastTimer();
+    // Cùng một lượt render: cart = nháp + orderingTable = bàn → không bao giờ ghi nháp vào temp_cart
+    setCart(draft);
+    setCartOwnerTable(null);
+    setOrderingTable(table);
+    setActiveVertical('retail');
+    const restored = sumQty(draft);
+    if (restored > 0) showToast(`Đã khôi phục ${restored} món nháp của ${table.name}`, 'info', { silent: true });
+  };
+
+  /** Thoát chế độ gọi món: trả giỏ bán lẻ. mode 'keep' giữ nháp cho lần sau, 'discard'/'saved' xoá nháp. */
+  const exitTableOrdering = (mode: 'keep' | 'discard' | 'saved') => {
+    const table = orderingTable;
+    if (!table) return;
+    const draft = cart;
+    const key = tableOrderDraftKey(table.id);
+    if (mode === 'keep' && Object.keys(draft).length > 0) {
+      AsyncStorage.setItem(key, JSON.stringify(draft)).catch(() => {});
+    } else {
+      AsyncStorage.removeItem(key).catch(() => {});
+    }
+    takeOrderingBaseCart(table.id);
+    clearAddToastTimer();
+    draftTouchOrderRef.current = [];
+    prevDraftRef.current = null;
+    const stash = orderingStashRef.current;
+    orderingStashRef.current = null;
+    setIsTableTicketOpen(false);
+    setCart(stash?.cart || {});
+    setCartOwnerTable(stash?.owner || null);
+    setOrderingTable(null);
+    setActiveVertical(tableMapVertical);
+  };
+
+  const saveTableOrderDraft = async () => {
+    const target = orderingTable;
+    if (!target || orderingSavingRef.current) return;
+    const draft = cart;
+    const count = sumQty(draft);
+    if (count <= 0) return;
+    orderingSavingRef.current = true;
+    setIsSavingTableDraft(true);
+    try {
+      const liveTable = tables.find(t => t.id === target.id) || target;
+      const latestOrderId = liveTable.current_order_id || target.current_order_id || '';
+      const base = tableCarts[target.id] || {};
+      const next = mergeDraftIntoTableCart(base, draft);
+
+      if (isV2Table(liveTable)) {
+        // v2: base = món đã có trên bàn → chỉ gửi add_item / change_qty cho phần nháp
+        const ok = await syncOrderItemsOnline(latestOrderId, next, target.id, base);
+        if (!ok) {
+          // Alert (không phải toast): toast bị phiếu gọi món (Modal) che mất
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => { });
+          Alert.alert('Chưa lưu được món', `Không ghi được món vào ${target.name}. Các món mới vẫn được giữ trong nháp, vui lòng thử lại.`);
+          return;
+        }
+        setTableCarts(prev => ({ ...prev, [target.id]: next }));
+        setIsTableTicketOpen(false);
+        exitTableOrdering('saved');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+        showToast(`Đã lưu ${count} món vào ${target.name}`, 'success', { silent: true });
+        return;
+      }
+
+      // Luồng cũ (offline-first): lưu cục bộ ngay, đồng bộ nền với giỏ tuyệt đối đã cộng dồn
+      setTableCarts(prev => ({ ...prev, [target.id]: next }));
+      setIsTableTicketOpen(false);
+      exitTableOrdering('saved');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+      showToast(`Đã lưu ${count} món vào ${target.name}`, 'success', { silent: true });
+      (async () => {
+        try {
+          const success = await syncOrderItemsOnline(latestOrderId, next, target.id, base);
+          if (!success) {
+            showToast(`Lỗi đồng bộ trực tuyến, món đã được lưu cục bộ tại ${target.name}.`, 'error');
+          }
+        } catch (err) {
+          console.error('Lỗi khi đồng bộ nền món phòng bàn:', err);
+          showToast(`Mất kết nối, món đã được lưu cục bộ tại ${target.name}.`, 'error');
+        }
+      })();
+    } catch (err) {
+      console.error('[Gọi món] Lỗi khi lưu món vào bàn:', err);
+      Alert.alert('Chưa lưu được món', `Không lưu được món vào ${target.name}. Các món mới vẫn được giữ trong nháp.`);
+    } finally {
+      orderingSavingRef.current = false;
+      setIsSavingTableDraft(false);
+    }
+  };
+
+  /** "Thoát" / chuyển sang sơ đồ bàn khi còn nháp → hỏi lưu / giữ / bỏ */
+  const requestExitTableOrdering = () => {
+    if (!orderingTable || orderingSavingRef.current) return;
+    const count = sumQty(cart);
+    if (count <= 0) {
+      exitTableOrdering('discard');
+      return;
+    }
+    Alert.alert(
+      `Còn ${count} món chưa lưu`,
+      `Các món mới cho ${orderingTable.name} chưa được lưu vào bàn.`,
+      [
+        { text: 'Lưu vào bàn', onPress: () => { void saveTableOrderDraft(); } },
+        { text: 'Giữ nháp, thoát', onPress: () => exitTableOrdering('keep') },
+        { text: 'Bỏ món mới', style: 'destructive', onPress: () => exitTableOrdering('discard') },
+      ]
+    );
+  };
+
+  /** "−" trên ô sản phẩm: giảm dòng nháp được thêm gần nhất của sản phẩm đó */
+  const decreaseDraftProduct = (productId: string) => {
+    const keys = Object.keys(cart).filter(k => cart[k]?.productId === productId);
+    if (keys.length === 0) return;
+    const order = draftTouchOrderRef.current;
+    const key = [...keys].sort((a, b) => order.indexOf(a) - order.indexOf(b)).pop()!;
+    decreaseDraftLine(key);
+  };
+
+  const decreaseDraftLine = (cartItemId: string) => {
+    const line = cart[cartItemId];
+    if (!line) return;
+    if ((Number(line.quantity) || 0) <= 1) removeFromCart(cartItemId);
+    else updateCartItemQuantity(cartItemId, Number(line.quantity) - 1);
+  };
+
+  const increaseDraftLine = (cartItemId: string) => {
+    const line = cart[cartItemId];
+    if (!line) return;
+    updateCartItemQuantity(cartItemId, (Number(line.quantity) || 0) + 1);
+  };
+
+  const confirmClearTableDraft = () => {
+    Alert.alert('Xoá hết món mới?', 'Các món mới chưa lưu sẽ bị xoá khỏi phiếu.', [
+      { text: 'Huỷ', style: 'cancel' },
+      {
+        text: 'Xoá hết',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          setCart({});
+        },
+      },
+    ]);
+  };
+
+  // Nháp thay đổi: lưu theo bàn, cập nhật thứ tự dòng mới nhất, gộp toast "Đã thêm …"
+  useEffect(() => {
+    if (!orderingTable) return;
+    const key = tableOrderDraftKey(orderingTable.id);
+    if (Object.keys(cart).length > 0) AsyncStorage.setItem(key, JSON.stringify(cart)).catch(() => {});
+    else AsyncStorage.removeItem(key).catch(() => {});
+
+    const prev = prevDraftRef.current || {};
+    prevDraftRef.current = cart;
+    let order = draftTouchOrderRef.current.filter(k => !!cart[k]);
+    const added: string[] = [];
+    for (const [k, line] of Object.entries(cart)) {
+      const before = Number(prev[k]?.quantity) || 0;
+      const after = Number((line as any)?.quantity) || 0;
+      if (after > before) {
+        order = order.filter(x => x !== k).concat(k);
+        if ((line as any)?.productId) added.push(String((line as any).productId));
+      } else if (!order.includes(k)) {
+        order.push(k);
+      }
+    }
+    draftTouchOrderRef.current = order;
+    // Trong phiếu gọi món đã thấy ngay số lượng → không cần toast (toast cũng bị Modal che)
+    if (added.length === 0 || isTableTicketOpen) return;
+
+    pendingAddedProductIdsRef.current = Array.from(new Set([...pendingAddedProductIdsRef.current, ...added]));
+    if (addToastTimerRef.current) clearTimeout(addToastTimerRef.current);
+    addToastTimerRef.current = setTimeout(() => {
+      const ids = pendingAddedProductIdsRef.current;
+      pendingAddedProductIdsRef.current = [];
+      addToastTimerRef.current = null;
+      const latest = latestCartRef.current;
+      if (ids.length === 1) {
+        const lines = Object.values(latest).filter((l: any) => l?.productId === ids[0]) as any[];
+        if (lines.length === 0) return;
+        const qty = lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0);
+        showToast(`Đã thêm ${lines[0].name} (x${qty})`, 'success', { silent: true });
+      } else if (ids.length > 1) {
+        showToast(`Đã thêm ${ids.length} sản phẩm · ${sumQty(latest)} món mới`, 'success', { silent: true });
+      }
+    }, 450);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart, orderingTable]);
+
+  useEffect(() => () => { if (addToastTimerRef.current) clearTimeout(addToastTimerRef.current); }, []);
+
+  // loadPosData (focus / đồng bộ từ thiết bị khác) đặt lại activeVertical = phân hệ của shop.
+  // Đang gọi món thì giữ nguyên màn chọn món (layout effect → không nháy sơ đồ bàn).
+  // Rời chế độ gọi món chỉ qua exitTableOrdering (Thoát / tab Sơ đồ bàn / lưu xong).
+  React.useLayoutEffect(() => {
+    if (orderingTable && activeVertical !== 'retail') setActiveVertical('retail');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVertical, orderingTable]);
+
+  // Đổi cửa hàng/phân hệ khi đang gọi món: giữ nháp của bàn và trả giỏ bán lẻ
+  const orderingShopVerticalRef = React.useRef(shopVertical);
+  useEffect(() => {
+    if (orderingTable && orderingShopVerticalRef.current !== shopVertical) exitTableOrdering('keep');
+    orderingShopVerticalRef.current = shopVertical;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopVertical]);
 
   // State thêm nhanh khách hàng cho sơ đồ phòng bàn
   const { hasPermission } = usePermissions();
@@ -1580,7 +1862,13 @@ export default function PosScreen() {
                 shadowRadius: 3,
                 elevation: 2,
               } : undefined}
-              onPress={() => setActiveVertical(!['retail', 'fashion'].includes(shopVertical) ? shopVertical : 'billiards')}
+              onPress={() => {
+                if (orderingTable) {
+                  requestExitTableOrdering();
+                  return;
+                }
+                setActiveVertical(!['retail', 'fashion'].includes(shopVertical) ? shopVertical : 'billiards');
+              }}
             >
               <Ionicons
                 name={
@@ -1626,77 +1914,25 @@ export default function PosScreen() {
         // 🛒 GIAO DIỆN BÁN LẺ
         <View className="flex-1 px-4 pt-2">
 
-          {/* BANNER GỌI MÓN PHÒNG BAN CHUYÊN DỤNG */}
-          {cartOwnerTable && (
-            <View className="bg-orange-50 border border-orange-200 p-3.5 rounded-xl flex-row justify-between items-center mb-3">
-              <View className="flex-row items-center flex-1 mr-4">
-                <Ionicons name="fast-food" size={16} color="#fa5908" />
-                <Text className="text-xs font-semibold text-slate-800 ml-2" numberOfLines={1}>
-                  Đang chọn món cho: <Text className="text-orange-600 font-medium">{cartOwnerTable.name}</Text>
+          {/* BANNER GỌI MÓN PHÒNG BAN: tên bàn + Thoát (lưu bằng nút chính ở thanh dưới) */}
+          {orderingTable && (
+            <View className="bg-orange-50 border border-orange-200 p-3 rounded-xl flex-row justify-between items-center mb-3">
+              <View className="flex-row items-center flex-1 mr-3">
+                <Feather name="clipboard" size={15} color="#fa5908" />
+                <Text className="text-xs font-semibold text-slate-800 ml-2 flex-1" numberOfLines={1}>
+                  Đang gọi món cho: <Text className="text-orange-600 font-semibold">{orderingTable.name}</Text>
                 </Text>
               </View>
-
-              <View className="flex-row gap-2">
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  className="bg-slate-200 border border-slate-300 px-2.5 py-1 rounded-lg active:scale-95"
-                  onPress={() => {
-                    // Hủy chọn món
-                    setCart({});
-                    setCartOwnerTable(null);
-                    setActiveVertical(shopVertical);
-                  }}
-                >
-                  <Text className="text-xxs font-semibold text-slate-600">Hủy</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  className="bg-orange-500 border border-orange-600 px-3 py-1 rounded-lg active:scale-95"
-                  onPress={async () => {
-                    if (!cartOwnerTable) return;
-                    
-                    const targetTable = cartOwnerTable;
-                    const targetCart = cart;
-
-                    // 1. Lưu món vào phòng/bàn cục bộ lập tức (Offline-First)
-                    setTableCarts(prev => ({
-                      ...prev,
-                      [targetTable.id]: targetCart
-                    }));
-
-                    // Reset trạng thái giỏ hàng & chuyển màn hình ngay lập tức (Zero-Lag)
-                    setCart({});
-                    setCartOwnerTable(null);
-                    setActiveVertical(shopVertical);
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-                    
-                    // Thông báo lưu local thành công & đang sync
-                    showToast(`Đã lưu món vào ${targetTable.name}! Đang đồng bộ...`, "info");
-
-                    // 2. Đồng bộ trực tuyến lên server ở chế độ nền (tự động phân giải current_order_id qua targetTable.id nếu cần)
-                    (async () => {
-                      try {
-                        const latestOrderId =
-                          tables.find(t => t.id === targetTable.id)?.current_order_id ||
-                          targetTable.current_order_id ||
-                          '';
-                        const success = await syncOrderItemsOnline(latestOrderId, targetCart, targetTable.id, takeOrderingBaseCart(targetTable.id));
-                        if (success) {
-                          showToast(`Đã đồng bộ món ăn cho ${targetTable.name} thành công!`, "success");
-                        } else {
-                          showToast(`Lỗi đồng bộ trực tuyến, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
-                        }
-                      } catch (err) {
-                        console.error('Lỗi khi đồng bộ nền món phòng bàn:', err);
-                        showToast(`Mất kết nối, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
-                      }
-                    })();
-                  }}
-                >
-                  <Text className="text-xxs font-semibold text-white">Lưu món</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                disabled={isSavingTableDraft}
+                className="flex-row items-center bg-white border border-slate-300 px-2.5 py-1.5 rounded-lg active:bg-slate-100"
+                onPress={requestExitTableOrdering}
+                accessibilityLabel="Thoát gọi món"
+              >
+                <Feather name="log-out" size={12} color="#475569" />
+                <Text className="text-xs font-semibold text-slate-600 ml-1">Thoát</Text>
+              </TouchableOpacity>
             </View>
           )}
 
@@ -1828,13 +2064,25 @@ export default function PosScreen() {
               </View>
             ) : (
               <View className="flex-row flex-wrap justify-between pb-28">
-                {displayedProducts.map(p => (
+                {displayedProducts.map(p => {
+                  // Chế độ gọi món: số lượng món mới (nháp) của sản phẩm này
+                  const draftQty = orderingTable ? draftProductQty(p.id) : 0;
+                  return (
                   <TouchableOpacity
                     key={p.id}
                     activeOpacity={0.85}
-                    className="w-[48%] mb-4 p-3 rounded-2xl border bg-white border-slate-100 justify-between active:scale-[0.98]" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 }}
+                    className={`w-[48%] mb-4 p-3 rounded-2xl border bg-white justify-between active:scale-[0.98] ${draftQty > 0 ? 'border-orange-300' : 'border-slate-100'}`} style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 }}
+                    disabled={!!orderingTable && isSavingTableDraft}
                     onPress={() => addToCart(p)}
                   >
+                    {draftQty > 0 && (
+                      <View
+                        className="absolute top-1.5 right-1.5 z-10 min-w-[24px] h-6 px-1.5 rounded-full items-center justify-center border-2 border-white"
+                        style={{ backgroundColor: '#fa5908', elevation: 3 }}
+                      >
+                        <Text className="text-[11px] font-bold text-white" style={{ fontVariant: ['tabular-nums'] }}>{draftQty}</Text>
+                      </View>
+                    )}
                     {/* Hình ảnh - Thay thế Emoji bằng Ionicons */}
                     <View className="w-full h-24 bg-slate-50 border border-slate-100 rounded-xl mb-2.5 overflow-hidden justify-center items-center">
                       {p.image_url ? (
@@ -1862,12 +2110,37 @@ export default function PosScreen() {
                         {formatCurrency(p.sell_price)}
                       </Text>
 
-                      <View className="bg-orange-50 p-1.5 rounded-lg border border-orange-100">
-                        <Ionicons name="add" size={11} color="#fa5908" />
-                      </View>
+                      {draftQty > 0 ? (
+                        <View className="flex-row items-center bg-orange-50 border border-orange-200 rounded-lg">
+                          <TouchableOpacity
+                            onPress={() => decreaseDraftProduct(p.id)}
+                            disabled={isSavingTableDraft}
+                            hitSlop={{ top: 8, bottom: 8, left: 6, right: 2 }}
+                            className="w-7 h-7 items-center justify-center active:bg-orange-100 rounded-l-lg"
+                            accessibilityLabel={`Bớt ${p.name}`}
+                          >
+                            <Feather name="minus" size={13} color="#fa5908" />
+                          </TouchableOpacity>
+                          <Text className="min-w-[18px] text-center text-xs font-bold text-orange-600" style={{ fontVariant: ['tabular-nums'] }}>{draftQty}</Text>
+                          <TouchableOpacity
+                            onPress={() => addToCart(p)}
+                            disabled={isSavingTableDraft}
+                            hitSlop={{ top: 8, bottom: 8, left: 2, right: 6 }}
+                            className="w-7 h-7 items-center justify-center active:bg-orange-100 rounded-r-lg"
+                            accessibilityLabel={`Thêm ${p.name}`}
+                          >
+                            <Feather name="plus" size={13} color="#fa5908" />
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <View className="bg-orange-50 p-1.5 rounded-lg border border-orange-100">
+                          <Ionicons name="add" size={11} color="#fa5908" />
+                        </View>
+                      )}
                     </View>
                   </TouchableOpacity>
-                ))}
+                  );
+                })}
               </View>
             )}
           </ScrollView>
@@ -2448,7 +2721,7 @@ export default function PosScreen() {
       )}
 
       {/* 4. THANH GIỎ HÀNG BÁN LẺ DƯỚI CÙNG - Giảm góc bo về rounded-t-2xl */}
-      {getCartCount() > 0 && activeVertical === 'retail' && (
+      {!orderingTable && getCartCount() > 0 && activeVertical === 'retail' && (
         <View className="absolute bottom-0 left-0 right-0 p-4 border-t bg-white border-slate-100 flex-row justify-between items-center pb-6 rounded-t-2xl" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
           <View className="flex-row items-center">
             <View className="relative mr-3 h-14 w-14" style={{ overflow: 'visible' }}>
@@ -2468,54 +2741,81 @@ export default function PosScreen() {
           <Button
             variant="primary"
             size="md"
-            onPress={async () => {
-              if (cartOwnerTable) {
-                const targetTable = cartOwnerTable;
-                const targetCart = cart;
-
-                // 1. Lưu vào bàn/phòng cục bộ lập tức
-                setTableCarts(prev => ({
-                  ...prev,
-                  [targetTable.id]: targetCart
-                }));
-
-                // Reset trạng thái giỏ hàng & chuyển màn hình ngay lập tức
-                setCart({});
-                setCartOwnerTable(null);
-                setActiveVertical(shopVertical);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-                showToast(`Đã lưu món vào ${targetTable.name}! Đang đồng bộ...`, "info");
-
-                // 2. Đồng bộ trực tuyến lên server ở chế độ nền (tự động phân giải current_order_id qua targetTable.id nếu cần)
-                (async () => {
-                  try {
-                    const latestOrderId =
-                      tables.find(t => t.id === targetTable.id)?.current_order_id ||
-                      targetTable.current_order_id ||
-                      '';
-                    const success = await syncOrderItemsOnline(latestOrderId, targetCart, targetTable.id, takeOrderingBaseCart(targetTable.id));
-                    if (success) {
-                      showToast(`Đã đồng bộ món ăn cho ${targetTable.name} thành công!`, "success");
-                    } else {
-                      showToast(`Lỗi đồng bộ trực tuyến, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
-                    }
-                  } catch (err) {
-                    console.error('Lỗi khi đồng bộ nền món phòng bàn:', err);
-                    showToast(`Mất kết nối, món ăn đã được lưu cục bộ tại ${targetTable.name}.`, "error");
-                  }
-                })();
-              } else {
-                handleCheckoutPress(() => {
-                  setIsCartModalOpen(true);
-                });
-              }
+            onPress={() => {
+              handleCheckoutPress(() => {
+                setIsCartModalOpen(true);
+              });
             }}
-            icon={<Ionicons name={cartOwnerTable ? "save" : "arrow-forward"} size={12} color="white" />}
+            icon={<Ionicons name="arrow-forward" size={12} color="white" />}
             iconPosition="right"
-            title={cartOwnerTable ? "Lưu vào phòng/bàn" : "Thanh toán"}
+            title="Thanh toán"
             className="rounded-xl px-4"
           />
         </View>
+      )}
+
+      {/* 4b. THANH GỌI MÓN CHO PHÒNG/BÀN: món mới (mở phiếu) + một nút lưu duy nhất */}
+      {orderingTable && activeVertical === 'retail' && (() => {
+        const draftCount = getCartCount();
+        const canSave = draftCount > 0 && !isSavingTableDraft;
+        return (
+          <View className="absolute bottom-0 left-0 right-0 px-4 pt-3 pb-6 border-t bg-white border-slate-100 flex-row items-center rounded-t-2xl" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                setIsTableTicketOpen(true);
+              }}
+              className="flex-1 flex-row items-center mr-3 py-1"
+              accessibilityLabel="Xem phiếu gọi món"
+            >
+              <View className="h-11 w-11 items-center justify-center rounded-xl border border-orange-100 bg-orange-50 mr-2.5">
+                <Feather name="file-text" size={17} color="#fa5908" />
+              </View>
+              <View className="flex-1">
+                <View className="flex-row items-center">
+                  <Text className="text-xs font-semibold text-slate-700" numberOfLines={1}>Món mới: {draftCount} món</Text>
+                  <Feather name="chevron-up" size={14} color="#94a3b8" style={{ marginLeft: 2 }} />
+                </View>
+                <Text className="text-orange-500 font-semibold text-sm" numberOfLines={1}>{formatCurrency(getCartTotal())}</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.85}
+              disabled={!canSave}
+              onPress={() => { void saveTableOrderDraft(); }}
+              className={`h-11 px-4 rounded-xl flex-row items-center justify-center ${canSave ? 'bg-orange-500 active:bg-orange-600' : 'bg-slate-300'}`}
+              style={{ maxWidth: '58%' }}
+              accessibilityLabel={`Lưu vào ${orderingTable.name}`}
+            >
+              {isSavingTableDraft ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Feather name="save" size={14} color="white" />
+              )}
+              <Text className="text-xs font-semibold text-white ml-1.5" numberOfLines={1}>
+                Lưu vào {orderingTable.name} ({draftCount})
+              </Text>
+            </TouchableOpacity>
+          </View>
+        );
+      })()}
+
+      {orderingTable && (
+        <TableOrderTicketSheet
+          visible={isTableTicketOpen}
+          tableName={orderingTable.name}
+          draft={cart}
+          previousItems={tableCarts[orderingTable.id] || {}}
+          saving={isSavingTableDraft}
+          onClose={() => setIsTableTicketOpen(false)}
+          onIncrease={increaseDraftLine}
+          onDecrease={decreaseDraftLine}
+          onRemove={(cartItemId) => removeFromCart(cartItemId)}
+          onClearAll={confirmClearTableDraft}
+          onSave={() => { void saveTableOrderDraft(); }}
+        />
       )}
 
       {/* CÁC DIALOG XÁC NHẬN SANG TRỌNG - RÚT GỌN CARD BO TRÒN rounded-2xl */}
@@ -3310,12 +3610,8 @@ export default function PosScreen() {
                         activeOpacity={0.8}
                         className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
                         onPress={() => {
-                          // Đồng bộ giỏ hàng và khóa bàn
-                          beginTableOrdering(activeTable);
-                          setCart(tableCarts[activeTable.id] || {});
-                          setCartOwnerTable(activeTable);
-                          setActiveVertical('retail'); // Switch to product catalog
-                          setActiveTable(null); // Close this modal
+                          // Nháp món mới riêng cho bàn (giỏ bán lẻ được cất lại, trả về khi thoát)
+                          void enterTableOrdering(activeTable);
                         }}
                       >
                         <Ionicons name="fast-food-outline" size={16} color="#fa5908" />
