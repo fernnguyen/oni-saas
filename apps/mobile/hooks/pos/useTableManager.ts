@@ -204,13 +204,23 @@ export function useTableManager(props: UseTableManagerProps) {
     const table = typeof tableOrId === 'string' ? tables.find(t => t.id === tableOrId) : tableOrId;
     const tableId = typeof tableOrId === 'string' ? tableOrId : tableOrId.id;
     const known = v2SessionsRef.current[tableId];
-    const sessionId = String(parseMetaSafe(table?.metadata).session_id || known?.sessionId || '');
-    if (!sessionId) return null;
     const currentOrderId = table?.current_order_id && !String(table.current_order_id).startsWith('ORD-T-INPROG-')
       ? String(table.current_order_id)
       : '';
-    const orderId = known && known.sessionId === sessionId && known.orderId ? known.orderId : currentOrderId;
-    return { sessionId, orderId };
+    // A session only counts when it belongs to the table's CURRENT order. Table/resource metadata can
+    // still carry the session of a previous (closed) customer after a legacy reopen.
+    if (known?.sessionId) {
+      if (!currentOrderId || !known.orderId || known.orderId === currentOrderId) {
+        return { sessionId: known.sessionId, orderId: known.orderId || currentOrderId };
+      }
+      return null;
+    }
+    // Offline-opened table: no order yet, its `open` is still queued on this device
+    const metaSessionId = String(parseMetaSafe(table?.metadata).session_id || '');
+    if (!currentOrderId && metaSessionId && v2.pendingFor(metaSessionId).some((e: any) => e.kind === 'open')) {
+      return { sessionId: metaSessionId, orderId: '' };
+    }
+    return null;
   };
 
   const withoutTimeCharge = (cart: Record<string, any> | undefined) =>
@@ -509,8 +519,14 @@ export function useTableManager(props: UseTableManagerProps) {
       // Table sync v2: session id from the server resource first (it may have been reopened elsewhere),
       // then what this device knows about the table.
       const v2LocalSession = getV2Session(tableId);
+      // The resource's session_id is only trusted while the table has no live order (offline open);
+      // otherwise the order's own metadata decides (read below in syncActiveTableSession).
       const v2SessionId = v2
-        ? String(parseMetaSafe(latestResource?.metadata).session_id || v2LocalSession?.sessionId || '')
+        ? String(
+            v2LocalSession?.sessionId ||
+            (!latestResource?.current_order_id ? parseMetaSafe(latestResource?.metadata).session_id : '') ||
+            ''
+          )
         : '';
 
       // Nếu Cloud trả về available hoặc dirty/cleaning và không có order:
@@ -1339,9 +1355,12 @@ export function useTableManager(props: UseTableManagerProps) {
                     (tableMetaObj.guests && tableMetaObj.guests.length > 0) ? tableMetaObj.guests : [];
 
         // Table sync v2: this table runs on a session (server lines + this device's pending ops)
+        // Order metadata is the source of truth: an order without session_id is a legacy order even if
+        // the resource still carries the session of a previous customer.
         const v2SessionId = v2
-          ? String(parsedMeta.session_id || resourceMeta.session_id || getV2Session(table)?.sessionId || '')
+          ? String(order ? (parsedMeta.session_id || '') : (getV2Session(table)?.sessionId || ''))
           : '';
+        if (v2 && order && !parsedMeta.session_id) forgetV2Session(table.id);
 
         const rentalType = parsedMeta.rental_type || resourceMeta.rental_type || tableMetaObj.rental_type || 'hourly';
         const numGuests = (onlineGuests.length > 0) ? onlineGuests.length : (parsedMeta.num_guests || resourceMeta.num_guests || tableMetaObj.num_guests || 1);
@@ -3972,6 +3991,26 @@ export function useTableManager(props: UseTableManagerProps) {
   // ── Table sync v2 helpers used by the POS screen ─────────────────────────────────
   const isV2Table = (table: any) => !!getV2Session(table);
 
+  /**
+   * Before saving items into a v2 table: confirm with the server that the session is still open and
+   * still belongs to this table's order. 'offline' → caller may queue (ops are sent later).
+   */
+  const verifyV2SessionOpen = async (table: any): Promise<'open' | 'closed' | 'offline'> => {
+    const session = getV2Session(table);
+    if (!v2 || !session) return 'closed';
+    if (!isOnline) return 'offline';
+    try {
+      const res = await callTableSessionApi(activeShopId, `/${encodeURIComponent(session.sessionId)}`, 'GET');
+      if (res.status !== 200) return res.status >= 500 ? 'offline' : 'closed';
+      const s = res.body?.session;
+      const open = s?.status === 'open' && (!session.orderId || !s?.order_id || s.order_id === session.orderId);
+      if (!open) forgetV2Session(table.id);
+      return open ? 'open' : 'closed';
+    } catch {
+      return 'offline';
+    }
+  };
+
   /** "Gọi món": snapshot the table cart the user starts editing from (base for "Lưu món", #4) */
   const beginTableOrdering = (table: any) => {
     if (!table) return;
@@ -4160,6 +4199,7 @@ export function useTableManager(props: UseTableManagerProps) {
     isV2Table,
     beginTableOrdering,
     takeOrderingBaseCart,
+    verifyV2SessionOpen,
     cancelV2Table,
     tableNameOfSession,
     itemNameOfSession,

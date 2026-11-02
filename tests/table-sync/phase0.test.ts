@@ -424,3 +424,12 @@ test('0.3 tableLineKey normalises empty modifiers and JSON formatting', () => {
   assert.equal(tableLineKey('P', 'L', '[{"a":1}]'), tableLineKey('P', 'L', [{ a: 1 }]))
   assert.notEqual(tableLineKey('P', 'L', ''), tableLineKey('P', 'S', ''))
 })
+
+test('releasing a table strips the v2 session_id so a later legacy reopen is not mistaken for that session', async () => {
+  const { cleanResourceSessionMetadata } = await import('../../apps/web/lib/server/tableSessionReconciler')
+  const cleaned = JSON.parse(cleanResourceSessionMetadata(JSON.stringify({ session_id: 'S-old', check_in: 'x', advanced_pricing: { enabled: true } }), { last_checkout_time: 'y' }))
+  assert.equal(cleaned.session_id, undefined)
+  assert.equal(cleaned.check_in, undefined)
+  assert.deepEqual(cleaned.advanced_pricing, { enabled: true })
+  assert.equal(cleaned.last_checkout_time, 'y')
+})

@@ -15,6 +15,8 @@ const SESSION_METADATA_KEYS = [
   'customer_phone',
   'customer_address',
   'note',
+  // table sync v2: a released table must not keep pointing at its last (closed) session
+  'session_id',
 ] as const
 
 export function parseMetadataSafe(raw: unknown): Record<string, any> {

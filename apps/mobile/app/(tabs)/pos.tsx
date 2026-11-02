@@ -465,6 +465,7 @@ export default function PosScreen() {
     isV2Table,
     beginTableOrdering,
     takeOrderingBaseCart,
+    verifyV2SessionOpen,
     cancelV2Table,
     tableNameOfSession,
     itemNameOfSession,
@@ -597,6 +598,17 @@ export default function PosScreen() {
       const next = mergeDraftIntoTableCart(base, draft);
 
       if (isV2Table(liveTable)) {
+        // Phiên phải còn mở và đúng đơn hiện tại của bàn, nếu không món sẽ bị server từ chối (xung đột)
+        const sessionState = await verifyV2SessionOpen(liveTable);
+        if (sessionState === 'closed') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => { });
+          Alert.alert(
+            'Bàn đã đóng trên thiết bị khác',
+            `${target.name} đã được thanh toán hoặc đóng ở thiết bị khác nên chưa thể thêm món. Các món mới vẫn được giữ trong nháp; vui lòng mở lại bàn rồi lưu.`
+          );
+          setSyncTriggerTick(prev => prev + 1);
+          return;
+        }
         // v2: base = món đã có trên bàn → chỉ gửi add_item / change_qty cho phần nháp
         const ok = await syncOrderItemsOnline(latestOrderId, next, target.id, base);
         if (!ok) {
@@ -609,7 +621,13 @@ export default function PosScreen() {
         setIsTableTicketOpen(false);
         exitTableOrdering('saved');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-        showToast(`Đã lưu ${count} món vào ${target.name}`, 'success', { silent: true });
+        showToast(
+          sessionState === 'offline'
+            ? `Đã lưu ${count} món trên máy cho ${target.name}, sẽ gửi khi có mạng`
+            : `Đã lưu ${count} món vào ${target.name}`,
+          'success',
+          { silent: true }
+        );
         return;
       }
 
