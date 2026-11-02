@@ -273,7 +273,17 @@ export async function applyTableOps(
     } else if (op.type === 'set_time_charge') {
       const amount = Math.round(op.amount)
       const existing = lines.find((l) => l.active && isTimeChargeLine(l.product_id, l.product_name))
-      if (existing) {
+      if (amount <= 0) {
+        // No time billing (e.g. cafés with hourly_rate 0): never print a "0đ" time-charge line
+        if (existing) {
+          existing.active = false
+          existing.qty = 0
+          await repo.updateLine(existing.id, { active: false })
+          itemId = existing.id
+        }
+        qty = 0
+        lineKey = tableLineKey(op.product_id, '', '')
+      } else if (existing) {
         existing.unit_price = amount
         existing.line_total = amount
         existing.qty = 1
