@@ -10,6 +10,7 @@ import { updateCustomerStats } from '@/lib/server/customerStats'
 import {
   cleanResourceSessionMetadata,
   cancelOrphanedInProgressOrdersForResource,
+  parseMetadataSafe,
   resolveOrderResourceId,
 } from '@/lib/server/tableSessionReconciler'
 
@@ -232,11 +233,22 @@ export async function POST(
       }).catch(() => {})
     })
 
+    // Table sync v2: end the session of this order (no-op without metadata.session_id)
+    if (parseMetadataSafe((order as Record<string, any>).metadata).session_id) {
+      try {
+        const { endTableSessionForCancelledOrder } = await import('@/lib/server/tableSync/service')
+        await endTableSessionForCancelledOrder(connector, shopId, id, (order as Record<string, any>).metadata)
+      } catch (err) {
+        console.error('[cancel] Failed to end table sync v2 session:', err)
+      }
+    }
+
     // 4. Auto-release physical resource if this cancelled order was occupying a table/room
     const cancelledResId = resolveOrderResourceId(order as Record<string, any>)
     if (cancelledResId && !cancelledResId.startsWith('takeaway')) {
       try {
-        await cancelOrphanedInProgressOrdersForResource(connector, shopId, cancelledResId, id)
+        const cancelledCheckIn = parseMetadataSafe((order as Record<string, any>).metadata).check_in
+        await cancelOrphanedInProgressOrdersForResource(connector, shopId, cancelledResId, id, false, cancelledCheckIn)
         const resource = await connector.findById('location-resources', cancelledResId)
         if (resource && (!resource.current_order_id || resource.current_order_id === id)) {
           const cleanedMeta = cleanResourceSessionMetadata(resource.metadata, {

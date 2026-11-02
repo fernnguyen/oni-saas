@@ -7,6 +7,8 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+// Feather icons ship with @expo/vector-icons (same stroke style, no extra native module)
+import { Feather } from '@expo/vector-icons';
 
 export interface TableConflict {
   tableId: string;
@@ -86,11 +88,12 @@ export function ConflictResolutionModal({
           <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
             {/* Header */}
             <View className="px-5 pt-5 pb-3">
-              <Text className="text-lg font-bold text-amber-700 text-center">
-                ⚠️ Phát hiện dữ liệu chưa đồng bộ
-              </Text>
+              <View className="flex-row items-center justify-center gap-2">
+                <Feather name="alert-triangle" size={20} color="#b45309" />
+                <Text className="text-lg font-bold text-amber-700">Phát hiện dữ liệu chưa đồng bộ</Text>
+              </View>
               <Text className="text-sm text-gray-500 text-center mt-2">
-                {tableName} đã được mở trên thiết bị khác trong khi máy bạn đang mất kết nối.
+                Trong lúc máy bạn mất kết nối, {tableName} đã được thanh toán hoặc mở lại trên thiết bị khác. Các món bên trái chưa được gửi lên hệ thống.
               </Text>
             </View>
 
@@ -98,9 +101,10 @@ export function ConflictResolutionModal({
             <View className="flex-row px-4 pb-3 gap-2">
               {/* Local */}
               <View className="flex-1 bg-blue-50 rounded-xl p-3">
-                <Text className="text-xs font-bold text-blue-700 mb-2">
-                  📱 Đơn trên máy bạn
-                </Text>
+                <View className="flex-row items-center gap-1 mb-2">
+                  <Feather name="smartphone" size={14} color="#1d4ed8" />
+                  <Text className="text-xs font-bold text-blue-700">Đơn trên máy bạn</Text>
+                </View>
                 <Text className="text-xs text-gray-500 mb-1">
                   Giờ vào: {formatTime(conflict.localCheckIn)}
                 </Text>
@@ -119,9 +123,10 @@ export function ConflictResolutionModal({
 
               {/* Server */}
               <View className="flex-1 bg-green-50 rounded-xl p-3">
-                <Text className="text-xs font-bold text-green-700 mb-2">
-                  🖥️ Đơn trên hệ thống
-                </Text>
+                <View className="flex-row items-center gap-1 mb-2">
+                  <Feather name="monitor" size={14} color="#15803d" />
+                  <Text className="text-xs font-bold text-green-700">Đơn trên hệ thống</Text>
+                </View>
                 <Text className="text-xs text-gray-500 mb-1">
                   Giờ vào: {formatTime(conflict.existingOrder.check_in)}
                 </Text>
@@ -156,11 +161,12 @@ export function ConflictResolutionModal({
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <>
-                    <Text className="text-white font-bold text-sm text-center">
-                      🔀 Gộp tất cả món vào 1 đơn
-                    </Text>
+                    <View className="flex-row items-center justify-center gap-2">
+                      <Feather name="git-merge" size={16} color="#ffffff" />
+                      <Text className="text-white font-bold text-sm">Gộp món vào đơn hệ thống</Text>
+                    </View>
                     <Text className="text-indigo-200 text-xs text-center mt-1">
-                      Giữ đơn hệ thống + thêm món từ máy bạn
+                      Thêm món trên máy bạn vào đơn đang mở (cộng dồn số lượng). Nếu đơn hệ thống đã thanh toán, món được cất vào đơn "cần kiểm tra"
                     </Text>
                   </>
                 )}
@@ -176,11 +182,12 @@ export function ConflictResolutionModal({
                   <ActivityIndicator color="#6b7280" />
                 ) : (
                   <>
-                    <Text className="text-gray-700 font-bold text-sm text-center">
-                      ☁️ Giữ đơn hệ thống
-                    </Text>
+                    <View className="flex-row items-center justify-center gap-2">
+                      <Feather name="cloud" size={16} color="#374151" />
+                      <Text className="text-gray-700 font-bold text-sm">Giữ đơn hệ thống</Text>
+                    </View>
                     <Text className="text-gray-400 text-xs text-center mt-1">
-                      Bỏ đơn trên máy bạn
+                      Bỏ các món chỉ có trên máy bạn (khi khách không dùng các món đó)
                     </Text>
                   </>
                 )}
@@ -196,11 +203,12 @@ export function ConflictResolutionModal({
                   <ActivityIndicator color="#dc2626" />
                 ) : (
                   <>
-                    <Text className="text-red-600 font-bold text-sm text-center">
-                      📱 Dùng đơn trên máy bạn
-                    </Text>
+                    <View className="flex-row items-center justify-center gap-2">
+                      <Feather name="repeat" size={16} color="#dc2626" />
+                      <Text className="text-red-600 font-bold text-sm">Dùng đơn trên máy bạn</Text>
+                    </View>
                     <Text className="text-red-300 text-xs text-center mt-1">
-                      Hủy đơn hệ thống, thay bằng đơn của bạn
+                      Huỷ đơn hệ thống và thay bằng các món trên máy bạn. Không áp dụng khi đơn hệ thống đã thu tiền
                     </Text>
                   </>
                 )}
@@ -213,8 +221,11 @@ export function ConflictResolutionModal({
               onPress={onDismiss}
               disabled={resolvingAction !== null}
             >
-              <Text className="text-gray-400 text-sm text-center underline">
-                Đóng - xử lý sau
+              <Text className="text-gray-500 text-sm text-center underline">
+                Để sau
+              </Text>
+              <Text className="text-gray-400 text-xs text-center mt-1 px-6">
+                Món vẫn được giữ trên máy này. Mở lại bất cứ lúc nào từ nút "Xung đột" trên màn sơ đồ bàn.
               </Text>
             </TouchableOpacity>
           </ScrollView>

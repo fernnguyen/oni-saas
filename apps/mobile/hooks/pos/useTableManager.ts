@@ -44,6 +44,61 @@ import { TableConflict } from '../../components/pos/ConflictResolutionModal';
 import { calculateHourlyBilling, isTimeChargeProduct, getTimeChargeProductId } from '@oni/core';
 import { LodgingGuest } from '../../components/pos/LodgingGuestsForm';
 
+// Phân tích mốc check_in (ms). Chuỗi naive (không Z/offset) có thể là giờ GMT+7 hoặc UTC
+// tuỳ nơi ghi -> trả về cả 2 cách hiểu để so sánh không bị lệch 7 tiếng.
+const parseCheckInCandidatesMs = (value: any): number[] => {
+  if (value === null || value === undefined || value === '') return [];
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? [value] : [];
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? [value.getTime()] : [];
+  let str = String(value).trim();
+  if (!str) return [];
+  if (!str.includes('T') && str.includes(' ')) str = str.replace(' ', 'T');
+  const hasTz = /(Z|[+-]\d{2}:?\d{2})$/i.test(str);
+  if (hasTz) {
+    const ms = new Date(str).getTime();
+    return Number.isFinite(ms) ? [ms] : [];
+  }
+  return [new Date(`${str}+07:00`).getTime(), new Date(`${str}Z`).getTime()].filter(ms => Number.isFinite(ms));
+};
+
+// So khớp 2 mốc check_in với dung sai ±2 giây
+const isSameCheckIn = (a: any, b: any, toleranceMs = 2000): boolean => {
+  const aList = parseCheckInCandidatesMs(a);
+  const bList = parseCheckInCandidatesMs(b);
+  return aList.some(x => bList.some(y => Math.abs(x - y) <= toleranceMs));
+};
+
+// Tập ID món trên server mà CHÍNH MÁY NÀY đã từng thấy cho một đơn.
+// syncOrderItemsOnline chỉ được xoá món nằm trong tập này (không xoá món máy khác thêm).
+const knownServerItemsKey = (orderId: string) => `known_server_items:${orderId}`;
+const loadKnownServerItemIds = async (orderId: string): Promise<Set<string>> => {
+  if (!orderId) return new Set();
+  try {
+    const raw = await AsyncStorage.getItem(knownServerItemsKey(orderId));
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr.map((v: any) => String(v)) : []);
+  } catch {
+    return new Set();
+  }
+};
+const saveKnownServerItemIds = async (orderId: string, ids: Set<string>) => {
+  if (!orderId) return;
+  try {
+    await AsyncStorage.setItem(knownServerItemsKey(orderId), JSON.stringify(Array.from(ids)));
+  } catch {}
+};
+const addKnownServerItemIds = async (orderId: string, ids: any[]) => {
+  if (!orderId || String(orderId).startsWith('ORD-T-INPROG-')) return;
+  const valid = ids.filter(Boolean).map((v: any) => String(v));
+  if (valid.length === 0) return;
+  const set = await loadKnownServerItemIds(orderId);
+  let changed = false;
+  for (const id of valid) {
+    if (!set.has(id)) { set.add(id); changed = true; }
+  }
+  if (changed) await saveKnownServerItemIds(orderId, set);
+};
+
 export function useTableManager(props: UseTableManagerProps) {
   const { 
     tables, setTables, shopVertical, activeShopId, 
@@ -513,6 +568,8 @@ export function useTableManager(props: UseTableManagerProps) {
           const matched = list.find((o: any) => {
             try {
               const meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata) : (o.metadata || {});
+              // Đơn bị server gắn cờ cần kiểm tra (đơn cũ còn món) không được chọn làm đơn đang mở của bàn
+              if (meta.needs_review === true || meta.needs_review === 'true') return false;
               return meta.resource_id === tableId;
             } catch (e) {
               return false;
@@ -554,6 +611,88 @@ export function useTableManager(props: UseTableManagerProps) {
     } catch (err) {
       console.warn('Lỗi khi tải chi tiết phòng/bàn từ server:', err);
       return null;
+    }
+  };
+
+  // Báo xung đột thay vì đẩy món khi giỏ hàng không thuộc phiên hiện tại của đơn/bàn trên server.
+  // Món local vẫn nằm trong SQLite (theo localOrderId) để màn xử lý xung đột gộp/thay thế/bỏ.
+  // Nếu đơn server đã đóng: ưu tiên đối chiếu với phiên đang mở trên bàn; không có thì server sẽ cất
+  // món vào một đơn "cần kiểm tra" khi người dùng chọn gộp/thay thế (resolve-conflict).
+  const raiseItemSyncSessionConflict = async (params: {
+    tableId: string;
+    localOrderId: string;
+    cartItems: any;
+    localCheckIn: any;
+    serverOrderId: string;
+    currentUrl: string;
+    shopId: string;
+    headers: any;
+  }) => {
+    const { tableId, localOrderId, cartItems, localCheckIn, currentUrl, shopId, headers } = params;
+    let serverOrderId = params.serverOrderId;
+    if (localOrderId) pendingItemSyncByOrderRef.current.delete(localOrderId);
+
+    const localItems = Object.entries(cartItems || {})
+      .filter(([cartItemId, it]: [string, any]) => !isTimeChargeProduct(it?.productId || cartItemId, it?.name))
+      .map(([, it]: [string, any]) => ({
+        product_name: it?.name || '',
+        qty: Number(it?.quantity || 1),
+        unit_price: Number(it?.price || 0),
+      }));
+    if (!tableId || localItems.length === 0) return;
+
+    try {
+      const fetchOrder = async (id: string) => {
+        const r = await fetch(`${currentUrl}/api/shops/${shopId}/orders/${id}?t=${Date.now()}`, { headers });
+        return r.ok ? await r.json().catch(() => null) : null;
+      };
+      let serverOrder: any = await fetchOrder(serverOrderId);
+      if (serverOrder && (serverOrder.status === 'completed' || serverOrder.status === 'cancelled')) {
+        const resRes = await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${tableId}?t=${Date.now()}`, { headers });
+        const resData = resRes.ok ? await resRes.json().catch(() => null) : null;
+        const currentId = resData?.current_order_id ? String(resData.current_order_id) : '';
+        if (currentId && currentId !== serverOrderId && !currentId.startsWith('ORD-T-INPROG-')) {
+          const currentOrder = await fetchOrder(currentId);
+          if (currentOrder && currentOrder.status === 'in_progress') {
+            serverOrderId = currentId;
+            serverOrder = currentOrder;
+          }
+        }
+      }
+
+      let serverItems: any[] = [];
+      try {
+        const itemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${serverOrderId}&limit=200&t=${Date.now()}`, { headers });
+        if (itemsRes.ok) {
+          const itemsData = await itemsRes.json();
+          serverItems = (itemsData.data || []).filter((it: any) => !isTimeChargeProduct(it.product_id, it.product_name));
+        }
+      } catch {}
+
+      let serverMeta: any = {};
+      try { serverMeta = typeof serverOrder?.metadata === 'string' ? JSON.parse(serverOrder.metadata || '{}') : (serverOrder?.metadata || {}); } catch {}
+
+      const conflict: TableConflict = {
+        tableId,
+        localOrderId,
+        localItems,
+        localCheckIn: String(localCheckIn || ''),
+        localCustomerName: tableCustomers[tableId]?.name || 'Khách lẻ',
+        existingOrder: {
+          order_id: serverOrderId,
+          order_no: serverOrder?.order_no || '',
+          check_in: String(serverMeta.check_in || serverOrder?.created_at || ''),
+          customer_name: serverOrder?.customer_name || 'Khách lẻ',
+          items_count: serverItems.length,
+          items_summary: serverItems.map((it: any) => ({ name: it.product_name || '', qty: Number(it.qty || 1) })),
+          total_amount: Number(serverOrder?.total_amount || 0),
+        },
+      };
+      await AsyncStorage.setItem(`table_conflict:${tableId}`, JSON.stringify({ ...conflict, detectedAt: new Date().toISOString() }));
+      setTableConflict(conflict);
+      console.log(`[TableSync] Giỏ của phiên ${localOrderId} không thuộc đơn ${serverOrderId} trên bàn ${tableId} — giữ làm xung đột, không đẩy món`);
+    } catch (err) {
+      console.warn('[TableSync] Không thể tạo xung đột phiên bàn:', err);
     }
   };
 
@@ -644,6 +783,24 @@ export function useTableManager(props: UseTableManagerProps) {
 
       let effectiveOrderId = initialOrderId;
 
+      // Giờ vào (check_in) của phiên mà giỏ hàng này thuộc về — dùng để không đẩy món sang phiên/khách khác
+      const localTableForSession = tableId ? tables.find(t => t.id === tableId) : undefined;
+      let localSessionCheckIn: any = '';
+      try {
+        const localMeta = typeof localTableForSession?.metadata === 'string'
+          ? JSON.parse(localTableForSession.metadata || '{}')
+          : (localTableForSession?.metadata || {});
+        localSessionCheckIn = localMeta.check_in || '';
+      } catch {}
+      if (!localSessionCheckIn && localTableForSession?.startTime) {
+        localSessionCheckIn = new Date(localTableForSession.startTime).toISOString();
+      }
+      // Không đủ dữ liệu để so thì giữ hành vi cũ (tin server)
+      const matchesLocalSession = (serverCheckIn: any) =>
+        !localSessionCheckIn || !serverCheckIn || isSameCheckIn(localSessionCheckIn, serverCheckIn);
+      // Đơn trên server KHÔNG thuộc phiên của giỏ này (bàn đã đóng/mở lại) -> không đẩy món, báo xung đột
+      let sessionMismatchOrderId = '';
+
       // Nếu orderId trống hoặc đang là mã tạm ORD-T-INPROG-, tra cứu mã đơn thực tế từ Server qua tableId
       // Nếu trên Server bàn vẫn đang trống (do đơn được tạo lúc máy rớt mạng), tự động khởi tạo phiên bàn lên Server ngay!
       if ((!effectiveOrderId || String(effectiveOrderId).startsWith('ORD-T-INPROG-')) && tableId) {
@@ -655,10 +812,16 @@ export function useTableManager(props: UseTableManagerProps) {
           if (resCheck.ok) {
             const resData = await resCheck.json();
             if (resData?.current_order_id && !String(resData.current_order_id).startsWith('ORD-T-INPROG-')) {
-              effectiveOrderId = resData.current_order_id;
+              let resMeta: any = {};
+              try { resMeta = typeof resData.metadata === 'string' ? JSON.parse(resData.metadata || '{}') : (resData.metadata || {}); } catch {}
+              if (matchesLocalSession(resMeta.check_in)) {
+                effectiveOrderId = resData.current_order_id;
+              } else {
+                sessionMismatchOrderId = String(resData.current_order_id);
+              }
             }
           }
-          if (!effectiveOrderId || String(effectiveOrderId).startsWith('ORD-T-INPROG-')) {
+          if (!sessionMismatchOrderId && (!effectiveOrderId || String(effectiveOrderId).startsWith('ORD-T-INPROG-'))) {
             const ordersCheck = await fetch(`${currentUrl}/api/shops/${shopId}/orders?status=in_progress&limit=100&t=${Date.now()}`, {
               headers,
               signal: controller.signal,
@@ -669,17 +832,26 @@ export function useTableManager(props: UseTableManagerProps) {
                 if (effectiveOrderId && o.reference_no === effectiveOrderId) return true;
                 let meta: any = {};
                 try { meta = typeof o.metadata === 'string' ? JSON.parse(o.metadata || '{}') : (o.metadata || {}); } catch {}
+                if (meta.needs_review === true || meta.needs_review === 'true') return false;
                 return (meta.resource_id || o.resource_id) === tableId;
               });
               if (matchedOrder) {
-                effectiveOrderId = matchedOrder.id || matchedOrder.order_id;
+                let matchedMeta: any = {};
+                try { matchedMeta = typeof matchedOrder.metadata === 'string' ? JSON.parse(matchedOrder.metadata || '{}') : (matchedOrder.metadata || {}); } catch {}
+                const matchedByOwnRef = !!effectiveOrderId && matchedOrder.reference_no === effectiveOrderId;
+                if (matchedByOwnRef || matchesLocalSession(matchedMeta.check_in)) {
+                  effectiveOrderId = matchedOrder.id || matchedOrder.order_id;
+                } else {
+                  sessionMismatchOrderId = String(matchedOrder.id || matchedOrder.order_id);
+                }
               }
             }
           }
 
           // Nếu trên Server bàn vẫn đang trống (chưa có đơn in_progress vì bàn được mở lúc rớt mạng),
           // tự động đẩy phiên bàn in_progress lên Server qua sync-batch để lấy serverOrderId chính thức!
-          if (!effectiveOrderId || String(effectiveOrderId).startsWith('ORD-T-INPROG-')) {
+          // (Bỏ qua nếu bàn đang thuộc phiên khác — sẽ báo xung đột bên dưới.)
+          if (!sessionMismatchOrderId && (!effectiveOrderId || String(effectiveOrderId).startsWith('ORD-T-INPROG-'))) {
             const localTableObj = tables.find(t => t.id === tableId);
             let localOrdRow: any = null;
             if (Platform.OS !== 'web' && effectiveOrderId) {
@@ -756,6 +928,34 @@ export function useTableManager(props: UseTableManagerProps) {
         }
       }
 
+      // Đơn thật đã đóng (thanh toán/huỷ ở máy khác trong lúc máy này offline) -> không đẩy món vào đơn đã đóng
+      if (!sessionMismatchOrderId && effectiveOrderId && !String(effectiveOrderId).startsWith('ORD-T-INPROG-')) {
+        const ordStatusRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/${effectiveOrderId}?t=${Date.now()}`, {
+          headers,
+          signal: controller.signal,
+        });
+        if (ordStatusRes.ok) {
+          const ordStatus = await ordStatusRes.json().catch(() => null);
+          if (ordStatus && (ordStatus.status === 'completed' || ordStatus.status === 'cancelled')) {
+            sessionMismatchOrderId = String(effectiveOrderId);
+          }
+        }
+      }
+
+      if (sessionMismatchOrderId) {
+        await raiseItemSyncSessionConflict({
+          tableId: tableId || '',
+          localOrderId: initialOrderId || effectiveOrderId || '',
+          cartItems,
+          localCheckIn: localSessionCheckIn,
+          serverOrderId: sessionMismatchOrderId,
+          currentUrl,
+          shopId,
+          headers,
+        });
+        return false;
+      }
+
       if (!effectiveOrderId) {
         throw new Error('Không tìm thấy mã đơn hàng của phòng/bàn để đồng bộ món');
       }
@@ -771,6 +971,9 @@ export function useTableManager(props: UseTableManagerProps) {
       const serverItemsData = await serverItemsRes.json();
       const serverItems = serverItemsData.data || [];
       const serverItemsMap = new Map<string, any[]>();
+      // Tập món máy này đã từng thấy cho đơn -> chỉ những món này mới được phép xoá
+      const knownServerItemIds = await loadKnownServerItemIds(effectiveOrderId);
+      const touchedServerItemIds: string[] = [];
 
       for (const item of serverItems) {
         const key = getItemKey(item.product_id, item.variant_label, item.modifiers);
@@ -797,6 +1000,7 @@ export function useTableManager(props: UseTableManagerProps) {
         if (existing) {
           const existingId = existing.item_id || existing.id;
           if (!existingId) throw new Error('Món trên server không có mã định danh');
+          touchedServerItemIds.push(String(existingId));
 
           const needsUpdate =
             Number(existing.qty) !== Number(cartItem.quantity) ||
@@ -848,15 +1052,22 @@ export function useTableManager(props: UseTableManagerProps) {
           if (!createRes.ok) {
             throw new Error(`Không thể thêm món lên server (${createRes.status})`);
           }
+          const createdItem = await createRes.json().catch(() => null);
+          const createdId = createdItem?.item_id || createdItem?.id;
+          if (createdId) touchedServerItemIds.push(String(createdId));
         }
       }
 
       // Những dòng còn lại không còn xuất hiện trong giỏ hiện tại; đồng thời dọn
       // các bản ghi trùng được tạo bởi cơ chế key cũ.
+      // CHỈ xoá món mà máy này đã từng thấy (knownServerItemIds). Món máy khác vừa thêm
+      // (máy này chưa thấy) được giữ nguyên trên server, lần đồng bộ bàn kế tiếp sẽ gộp vào giỏ.
+      const deletedServerItemIds: string[] = [];
       for (const staleItems of serverItemsMap.values()) {
         for (const serverItem of staleItems) {
           const serverItemId = serverItem.item_id || serverItem.id;
           if (!serverItemId) continue;
+          if (!knownServerItemIds.has(String(serverItemId))) continue;
           const deleteRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items/${serverItemId}`, {
             method: 'DELETE',
             headers,
@@ -865,7 +1076,15 @@ export function useTableManager(props: UseTableManagerProps) {
           if (!deleteRes.ok && deleteRes.status !== 404) {
             throw new Error(`Không thể xóa món cũ trên server (${deleteRes.status})`);
           }
+          deletedServerItemIds.push(String(serverItemId));
         }
+      }
+
+      // Cập nhật tập món đã biết: thêm món vừa khớp/tạo, bỏ món vừa xoá
+      if (touchedServerItemIds.length > 0 || deletedServerItemIds.length > 0) {
+        for (const id of touchedServerItemIds) knownServerItemIds.add(id);
+        for (const id of deletedServerItemIds) knownServerItemIds.delete(id);
+        await saveKnownServerItemIds(effectiveOrderId, knownServerItemIds);
       }
 
       if (initialOrderId) pendingItemSyncByOrderRef.current.delete(initialOrderId);
@@ -1080,13 +1299,69 @@ export function useTableManager(props: UseTableManagerProps) {
             (resolvedRemoteOrderId && pendingItemSyncByOrderRef.current.get(resolvedRemoteOrderId)) ||
             (table.current_order_id && pendingItemSyncByOrderRef.current.get(String(table.current_order_id)));
 
-          if (pendingForOrder && !syncingItemsTableIdsRef.current.has(table.id)) {
+          // So khớp phiên local với phiên hiện tại trên server trước khi đẩy giỏ đang chờ.
+          // Nếu giỏ chờ thuộc đơn local khác đơn server và giờ vào (check_in) lệch quá ±2s
+          // -> bàn đã bị đóng & mở lại bởi máy/khách khác: KHÔNG đẩy món sang khách sau, lưu xung đột local.
+          const localPendingOrderId = table.current_order_id ? String(table.current_order_id) : '';
+          const pendingMatchedByLocalId =
+            !!pendingForOrder &&
+            !(resolvedRemoteOrderId && pendingItemSyncByOrderRef.current.get(resolvedRemoteOrderId)) &&
+            !!localPendingOrderId &&
+            localPendingOrderId !== resolvedRemoteOrderId;
+          const serverCheckIn = parsedMeta.check_in || resourceMeta.check_in || '';
+          const isPendingSessionMismatch =
+            pendingMatchedByLocalId &&
+            !(serverCheckIn && (isSameCheckIn(tableMetaObj.check_in, serverCheckIn) || isSameCheckIn(table.startTime, serverCheckIn)));
+
+          if (pendingForOrder && isPendingSessionMismatch) {
+            const localItems = Object.entries(pendingForOrder.cartItems || {})
+              .filter(([cartItemId, it]: [string, any]) => !isTimeChargeProduct(it?.productId || cartItemId, it?.name))
+              .map(([, it]: [string, any]) => ({
+                product_name: it?.name || '',
+                qty: Number(it?.quantity || 1),
+                unit_price: Number(it?.price || 0),
+              }));
+            const serverItemsNoTime = items.filter((it: any) => !isTimeChargeProduct(it.product_id, it.product_name));
+            const conflict: TableConflict = {
+              tableId: table.id,
+              localOrderId: localPendingOrderId,
+              localItems,
+              localCheckIn: String(tableMetaObj.check_in || (table.startTime ? new Date(table.startTime).toISOString() : '')),
+              localCustomerName: tableCustomers[table.id]?.name || 'Khách lẻ',
+              existingOrder: {
+                order_id: resolvedRemoteOrderId,
+                order_no: order.order_no || '',
+                check_in: String(serverCheckIn || ''),
+                customer_name: order.customer_name || 'Khách lẻ',
+                items_count: serverItemsNoTime.length,
+                items_summary: serverItemsNoTime.map((it: any) => ({ name: it.product_name || '', qty: Number(it.qty || 1) })),
+                total_amount: Number(order.total_amount || 0),
+              },
+            };
+            pendingItemSyncByOrderRef.current.delete(localPendingOrderId);
+            if (localItems.length > 0) {
+              try {
+                await AsyncStorage.setItem(`table_conflict:${table.id}`, JSON.stringify({ ...conflict, detectedAt: new Date().toISOString() }));
+              } catch {}
+              setTableConflict(conflict);
+              console.log(`[TableSync] Phiên bàn ${table.id} đã đổi (local ${localPendingOrderId} ≠ server ${resolvedRemoteOrderId}) — giữ giỏ chờ làm xung đột, không đẩy`);
+            }
+            if (!syncingItemsTableIdsRef.current.has(table.id)) {
+              setTableCarts(prev => ({
+                ...prev,
+                [table.id]: mappedCart
+              }));
+              void addKnownServerItemIds(resolvedRemoteOrderId, items.map((it: any) => it.item_id || it.id));
+            }
+          } else if (pendingForOrder && !syncingItemsTableIdsRef.current.has(table.id)) {
             void syncOrderItemsOnline(resolvedRemoteOrderId || table.current_order_id || '', pendingForOrder.cartItems, table.id);
           } else if (!syncingItemsTableIdsRef.current.has(table.id)) {
             setTableCarts(prev => ({
               ...prev,
               [table.id]: mappedCart
             }));
+            // Ghi nhận các món server máy này đã thấy (đã nạp vào giỏ) -> được phép xoá khi người dùng bỏ món
+            void addKnownServerItemIds(resolvedRemoteOrderId, items.map((it: any) => it.item_id || it.id));
           }
         }
 
@@ -1199,38 +1474,53 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   }, [tables, isNavReady, isOnline, shopVertical, timeTicker]);
 
-  // Kiểm tra xung đột bàn được lưu từ SyncManager
+  // Xung đột bàn được lưu bền trong AsyncStorage (`table_conflict:<tableId>`) bởi SyncManager / syncOrderItemsOnline.
+  // "Để sau" chỉ tạm ẩn (snooze) bàn đó trong phiên app; xung đột KHÔNG bao giờ tự xoá — món trên máy chỉ mất
+  // khi người dùng chủ động chọn "Giữ đơn hệ thống".
+  const snoozedConflictTablesRef = React.useRef<Set<string>>(new Set());
+  const [pendingConflictTableIds, setPendingConflictTableIds] = useState<string[]>([]);
+
+  const loadPendingConflicts = useCallback(async (): Promise<TableConflict[]> => {
+    try {
+      const keys = (await AsyncStorage.getAllKeys()).filter(k => k.startsWith('table_conflict:'));
+      const conflicts: TableConflict[] = [];
+      for (const key of keys) {
+        const raw = await AsyncStorage.getItem(key);
+        if (!raw) continue;
+        try { conflicts.push(JSON.parse(raw)); } catch {}
+      }
+      setPendingConflictTableIds(conflicts.map(c => c.tableId));
+      return conflicts;
+    } catch {
+      return [];
+    }
+  }, []);
+
   useEffect(() => {
     if (shopVertical === 'retail') return;
-    const checkConflicts = async () => {
-      try {
-        const keys = await AsyncStorage.getAllKeys();
-        const conflictKeys = keys.filter(k => k.startsWith('table_conflict:'));
-        if (conflictKeys.length > 0) {
-          const firstKey = conflictKeys[0];
-          const data = await AsyncStorage.getItem(firstKey);
-          if (data) {
-            const conflict = JSON.parse(data);
-            // Tự động xóa xung đột cũ hơn 24h
-            if (conflict.detectedAt) {
-              const age = Date.now() - new Date(conflict.detectedAt).getTime();
-              if (age > 24 * 60 * 60 * 1000) {
-                await AsyncStorage.removeItem(firstKey);
-                // Tự động giải quyết: giữ đơn hệ thống
-                try {
-                  await db.delete(schema.orders).where(eq(schema.orders.id, conflict.localOrderId));
-                  await db.delete(schema.order_items).where(eq(schema.order_items.order_id, conflict.localOrderId));
-                } catch {}
-                return;
-              }
-            }
-            setTableConflict(conflict);
-          }
-        }
-      } catch {}
-    };
-    checkConflicts();
-  }, [tables, shopVertical]);
+    (async () => {
+      const conflicts = await loadPendingConflicts();
+      const next = conflicts.find(c => !snoozedConflictTablesRef.current.has(c.tableId));
+      if (next) setTableConflict(prev => prev || next);
+    })();
+  }, [tables, shopVertical, loadPendingConflicts]);
+
+  /** "Để sau": ẩn bảng xung đột của bàn này cho tới khi người dùng mở lại từ nút "Xung đột" */
+  const dismissTableConflict = useCallback(() => {
+    setTableConflict(prev => {
+      if (prev) snoozedConflictTablesRef.current.add(prev.tableId);
+      return null;
+    });
+  }, []);
+
+  /** Mở lại xung đột đang chờ (ưu tiên bàn được chỉ định) */
+  const openPendingConflict = useCallback(async (tableId?: string) => {
+    const conflicts = await loadPendingConflicts();
+    const target = (tableId && conflicts.find(c => c.tableId === tableId)) || conflicts[0];
+    if (!target) return;
+    snoozedConflictTablesRef.current.delete(target.tableId);
+    setTableConflict(target);
+  }, [loadPendingConflicts]);
 
   const resolveTableConflict = async (action: 'merge' | 'keep_server' | 'replace_server') => {
     if (!tableConflict) return;
@@ -1285,6 +1575,24 @@ export function useTableManager(props: UseTableManagerProps) {
 
       if (res.ok) {
         const data = await res.json();
+        // Đơn trên server đã đóng: món local đã được cất vào đơn "cần kiểm tra" (parked) hoặc bị bỏ theo lựa chọn (discarded)
+        // -> chỉ dọn local, không chiếm bàn
+        if (data.action_taken === 'parked' || data.action_taken === 'discarded') {
+          if (Platform.OS !== 'web') {
+            try {
+              await db.delete(schema.orders).where(eq(schema.orders.id, tableConflict.localOrderId));
+              await db.delete(schema.order_items).where(eq(schema.order_items.order_id, tableConflict.localOrderId));
+            } catch {}
+          }
+          await AsyncStorage.removeItem(`table_conflict:${tableConflict.tableId}`);
+          pendingItemSyncByOrderRef.current.delete(tableConflict.localOrderId);
+          snoozedConflictTablesRef.current.delete(tableConflict.tableId);
+          setTableConflict(null);
+          void loadPendingConflicts();
+          const parkedTable = tables.find(t => t.id === tableConflict.tableId);
+          if (parkedTable) setTimeout(() => syncActiveTableSession(parkedTable), 500);
+          return;
+        }
         // Dọn dẹp đơn cục bộ
         if (Platform.OS !== 'web') {
           try {
@@ -1301,7 +1609,9 @@ export function useTableManager(props: UseTableManagerProps) {
         // Xóa xung đột khỏi storage
         await AsyncStorage.removeItem(`table_conflict:${tableConflict.tableId}`);
         pendingItemSyncByOrderRef.current.delete(tableConflict.localOrderId);
+        snoozedConflictTablesRef.current.delete(tableConflict.tableId);
         setTableConflict(null);
+        void loadPendingConflicts();
         // Đồng bộ lại dữ liệu bàn
         const updatedTable = tables.find(t => t.id === tableConflict.tableId);
         if (updatedTable) {
@@ -2131,10 +2441,13 @@ export function useTableManager(props: UseTableManagerProps) {
     chargeByMinuteOverride?: boolean
   ) => {
     if (!cartOwnerTable) return;
+    // Chốt MỘT mốc giờ ra duy nhất cho cả luồng thanh toán bàn (tiền giờ, check_out, created_at, khoá thuế)
+    // -> tổng tiền gửi lên luôn khớp dòng tiền giờ (tránh 400 do server kiểm tra toàn vẹn).
+    const frozenCheckoutTime: Date = customCheckoutTime || (cartOwnerTable.checkoutTime ? new Date(cartOwnerTable.checkoutTime) : new Date());
     setIsPayingTableLoading(true);
     try {
       const { isTaxPeriodLocked } = await import('../../lib/utils/tax');
-      const isLocked = await isTaxPeriodLocked(customCheckoutTime || new Date());
+      const isLocked = await isTaxPeriodLocked(frozenCheckoutTime);
       if (isLocked) {
         Alert.alert(
           'Kỳ thuế đã khóa',
@@ -2159,7 +2472,7 @@ export function useTableManager(props: UseTableManagerProps) {
         }
       }
 
-      const billing = calculateBilling(selectedTableForPay, customCheckoutTime, rentalType, chargeByMinuteOverride);
+      const billing = calculateBilling(selectedTableForPay, frozenCheckoutTime, rentalType, chargeByMinuteOverride);
       const rawTableCartItems = overrideCartItems || tableCarts[selectedTableForPay.id] || {};
       // TIME_CHARGE chỉ là dòng ảo để hiển thị trong modal checkout. Phần tiền phòng/giờ
       // được tạo riêng bằng system product bên dưới, nên tuyệt đối không tính/gửi dòng ảo này.
@@ -2234,8 +2547,7 @@ export function useTableManager(props: UseTableManagerProps) {
       const orderId = resolvedCurrentOrderId || `ORD-T-${Date.now()}`;
       const orderNoType = shopVertical === 'lodging' ? 'KS' : (shopVertical === 'sports_court' ? 'SAN' : 'POS');
       const orderNo = `HD-${orderNoType}-${Date.now().toString().substring(9)}`;
-      const nowStr = new Date().toISOString();
-      const checkoutTimeStr = customCheckoutTime ? customCheckoutTime.toISOString() : nowStr;
+      const checkoutTimeStr = frozenCheckoutTime.toISOString();
       let syncSucceeded = false;
       let serverOrderNo = orderNo;
 
@@ -3137,5 +3449,8 @@ export function useTableManager(props: UseTableManagerProps) {
     handleUpdateTableTime,
     tableConflict, setTableConflict,
     resolveTableConflict,
+    dismissTableConflict,
+    openPendingConflict,
+    pendingConflictTableIds,
   };
 }

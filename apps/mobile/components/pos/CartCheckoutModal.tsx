@@ -201,6 +201,21 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   // Thêm các state phục vụ chỉnh sửa giờ ra
   const [customCheckoutTime, setCustomCheckoutTime] = useState<Date | null>(null);
   const [isTimePickerOpen, setIsTimePickerOpen] = useState(false);
+
+  // Chốt MỘT mốc giờ ra duy nhất từ lúc mở modal thanh toán bàn/phòng/sân tới lúc lưu đơn
+  // (tiền giờ hiển thị = tiền giờ lưu đơn = tổng gửi lên). Chỉ áp dụng khi có bàn (cartOwnerTable), bán lẻ không đổi.
+  const frozenCheckoutRef = React.useRef<{ key: string; time: Date } | null>(null);
+  const frozenCheckoutKey = visible && cartOwnerTable?.startTime ? `${cartOwnerTable.id}_${cartOwnerTable.startTime}` : '';
+  if (!frozenCheckoutKey) {
+    frozenCheckoutRef.current = null;
+  } else if (frozenCheckoutRef.current?.key !== frozenCheckoutKey) {
+    frozenCheckoutRef.current = {
+      key: frozenCheckoutKey,
+      time: cartOwnerTable.checkoutTime ? new Date(cartOwnerTable.checkoutTime) : new Date(),
+    };
+  }
+  const frozenCheckoutTime: Date | null = frozenCheckoutRef.current?.time || null;
+  const effectiveCheckoutTime: Date | null = customCheckoutTime || frozenCheckoutTime;
   const [timePickerType, setTimePickerType] = useState<'checkin' | 'checkout'>('checkin');
 
   const calculateBilling = React.useCallback((table: any, customCheckoutTime?: Date, currentRentalType?: 'hourly' | 'overnight' | 'daily') => {
@@ -305,13 +320,13 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     return Object.entries(cart).reduce((sum, [key, item]) => {
       if (key === 'TIME_CHARGE') {
         if (cartOwnerTable && cartOwnerTable.startTime) {
-          const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined, localRentalType);
+          const billing = calculateBilling(cartOwnerTable, effectiveCheckoutTime || undefined, localRentalType);
           return sum + billing.cost;
         }
       }
       return sum + ((item.price + (item.modifier_total || 0)) * item.quantity);
     }, 0);
-  }, [cart, cartOwnerTable, customCheckoutTime, calculateBilling, localRentalType]);
+  }, [cart, cartOwnerTable, effectiveCheckoutTime, calculateBilling, localRentalType]);
 
   const timeChargeTax = React.useMemo(() => {
     const systemProd = productsList.find(p => isSystemTimeChargeProduct(p.id, p.sku, p.name));
@@ -327,7 +342,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       let itemTotal = 0;
       if (isTimeCharge) {
         if (cartOwnerTable && cartOwnerTable.startTime) {
-          const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined, localRentalType);
+          const billing = calculateBilling(cartOwnerTable, effectiveCheckoutTime || undefined, localRentalType);
           itemTotal = billing.cost;
         } else {
           itemTotal = (item.price + (item.modifier_total || 0)) * item.quantity;
@@ -343,7 +358,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       if (isNaN(rate) || rate <= 0) return sum;
       return sum + Math.round(itemTotal * (rate / 100));
     }, 0);
-  }, [cart, cartOwnerTable, customCheckoutTime, calculateBilling, localRentalType, timeChargeTax]);
+  }, [cart, cartOwnerTable, effectiveCheckoutTime, calculateBilling, localRentalType, timeChargeTax]);
 
   const appliedTaxRates = React.useMemo(() => {
     const ratesSet = new Set<number>();
@@ -389,7 +404,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
     const rentalType = localRentalType;
     const checkInDate = new Date(cartOwnerTable.startTime);
-    const actualCheckout = customCheckoutTime || (rmd.actual_checkout_requested_at ? new Date(rmd.actual_checkout_requested_at) : currentTime);
+    const actualCheckout = customCheckoutTime || (rmd.actual_checkout_requested_at ? new Date(rmd.actual_checkout_requested_at) : (frozenCheckoutTime || currentTime));
     const checkOutDate = actualCheckout;
 
     let durationLabel = '';
@@ -428,7 +443,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       duration: durationLabel,
       rentalType
     };
-  }, [cartOwnerTable, currentTime, customCheckoutTime, localRentalType]);
+  }, [cartOwnerTable, currentTime, customCheckoutTime, frozenCheckoutTime, localRentalType]);
   const [selectingFundRow, setSelectingFundRow] = useState<{ rowId: string; idx: number; matchingFunds: any[] } | null>(null);
   const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false);
   const [hideDebtRepaySuggest, setHideDebtRepaySuggest] = useState(false);
@@ -1191,7 +1206,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   const isTimeCharge = item.productId === 'TIME_CHARGE' || isTimeChargeProduct(item.productId, item.name);
                   let itemToRender = item;
                   if (isTimeCharge && cartOwnerTable && cartOwnerTable.startTime) {
-                    const billing = calculateBilling(cartOwnerTable, customCheckoutTime || undefined, localRentalType);
+                    const billing = calculateBilling(cartOwnerTable, effectiveCheckoutTime || undefined, localRentalType);
                     let billingName = '';
                     if (localRentalType === 'overnight') {
                       billingName = `Tiền phòng qua đêm - ${cartOwnerTable.name}`;
@@ -1890,7 +1905,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               const debtOpts = clampedDebtRepay > 0 ? { debtRepayAmount: clampedDebtRepay, ...selectDebtFund() } : undefined;
               const checkoutOpts = {
                 ...debtOpts,
-                customCheckoutTime: customCheckoutTime || undefined,
+                // Bàn: luôn gửi mốc giờ ra đã chốt để luồng lưu đơn tính đúng cùng số tiền giờ. Bán lẻ: giữ nguyên.
+                customCheckoutTime: (cartOwnerTable ? effectiveCheckoutTime : customCheckoutTime) || undefined,
                 rentalType: localRentalType,
                 chargeByMinute: localChargeByMinute
               };

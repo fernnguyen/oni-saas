@@ -45,7 +45,7 @@ function buildAnnualTaxReport(orders: Row[], returns: Row[], year: number) {
 
   let totalReturns = 0
   for (const item of returns) {
-    if (item.status !== 'completed' && item.status !== 'approved') continue
+    if (item.status !== 'processed') continue
     const date = parseDateInVietnam(item.processed_at || item.created_at)
     if (!date || date.getUTCFullYear() !== year) continue
 

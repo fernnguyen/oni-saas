@@ -104,7 +104,7 @@ export function SlideProductSearch({ onSelect }: Props) {
           ) : (
             <ul className="py-1">
               {displayResults.map((p, index) => (
-                <li key={p.product_id}>
+                <li key={`${p.product_id}-${(p as any).unit_id || 'base'}`}>
                   <button
                     type="button"
                     onMouseEnter={() => setHighlightedIndex(index)}

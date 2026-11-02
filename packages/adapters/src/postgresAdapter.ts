@@ -1,6 +1,6 @@
 import { Pool } from 'pg'
 import crypto from 'crypto'
-import type { IDataConnector, ListOptions, ListResult } from './DataSource'
+import type { IDataConnector, ListOptions, ListResult, TransactionClient } from './DataSource'
 import { getGMT7Time } from '@oni/core'
 
 
@@ -85,6 +85,27 @@ export class PostgresConnector implements IDataConnector {
   private async query(text: string, params: unknown[] = []): Promise<any[]> {
     const result = await this.pool.query(text, params)
     return result.rows
+  }
+
+  async withTransaction<T>(fn: (tx: TransactionClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const tx: TransactionClient = {
+        dialect: 'postgres',
+        tenantId: this.tenantId,
+        branchId: this.branchId,
+        query: async (text: string, params: unknown[] = []) => (await client.query(text, params)).rows,
+      }
+      const result = await fn(tx)
+      await client.query('COMMIT')
+      return result
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw err
+    } finally {
+      client.release()
+    }
   }
 
   /** Columns that are JSONB type — empty strings must be null or valid JSON */

@@ -8,11 +8,23 @@ import toast from 'react-hot-toast';
 import { useTableStore } from '@/stores/table-store';
 import type { ResourceFull, TableSession } from '@/stores/table-store';
 import {
+  getOrderDetail,
   updateLocationResource,
   updateOrder,
 } from '@/services/shop-api';
 import { formatCurrency } from '@/utils/format';
 import { calculateBilling } from '@/utils/billing';
+
+const parseMeta = (raw: unknown): Record<string, any> => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw as Record<string, any>;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
 
 interface TransferTableModalProps {
   shopId: string;
@@ -72,30 +84,36 @@ export default function TransferTableModal({
     setSaving(true);
     try {
       const now = new Date().toISOString();
-      // Build new metadata
-      const oldMeta = session;
+      const newCheckIn = includeStayCost ? session.checkInTime : now;
+
+      // 1. Update order metadata (merge with current server metadata, never replace)
+      const order: any = await getOrderDetail(shopId, session.orderId);
+      const rawMeta = order?.metadata ?? order?.data?.metadata;
+      const oldMeta = parseMeta(rawMeta);
       const newMeta = {
         ...oldMeta,
         resource_id: targetTableId,
         resource_name: selectedTarget?.name ?? '',
-        ...(includeStayCost ? {} : { check_in: now }),
+        check_in: newCheckIn || oldMeta.check_in,
       };
-
-      // 1. Free source
-      await updateLocationResource(shopId, sourceTable.id, {
-        status: 'cleaning',
-        current_order_id: '',
+      await updateOrder(shopId, session.orderId, {
+        metadata: JSON.stringify(newMeta),
       });
 
-      // 2. Occupy target
+      // 2. Occupy target (carry session check_in so server keeps the same session)
       await updateLocationResource(shopId, targetTableId, {
         status: 'occupied',
         current_order_id: session.orderId,
+        metadata: JSON.stringify({
+          ...parseMeta(selectedTarget?.metadata),
+          check_in: newMeta.check_in,
+        }),
       });
 
-      // 3. Update order metadata
-      await updateOrder(shopId, session.orderId, {
-        metadata: JSON.stringify(newMeta),
+      // 3. Release source last — releasing first would let the server auto-cancel the order
+      await updateLocationResource(shopId, sourceTable.id, {
+        status: 'cleaning',
+        current_order_id: '',
       });
 
       // 4. Move local state

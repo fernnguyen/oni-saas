@@ -68,6 +68,7 @@ jobs:
             packages/adapters/src/ \
             packages/adapters/package.json \
             packages/adapters/drizzle.pg.config.ts \
+            packages/adapters/sql/ \
             scripts/
 
           echo "Artifact size: $(du -sh oni-release-${VERSION}.tar.gz | cut -f1)"

@@ -1,61 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { IDataConnector } from '@oni/adapters'
 import { requireShopAccess } from '@/lib/server/shopAccess'
-import { shopTag, shopCache } from '@/lib/server/cache'
+import { listAllConnectorRows } from '@/lib/server/listAllConnectorRows'
+import { ReportBusyError, runReport } from '@/lib/server/reports/reportGuard'
+import { isPgDataError, queryOrderDays, queryProcessedReturns, withReportTx } from '@/lib/server/reports/pgReportQueries'
+import { assembleOrderStats, orderDaysFromRows, processedReturnsFromRows, vnDays } from '@/lib/server/reports/salesSummary'
 import { handleApiError } from '../../../_helpers'
 
-type Row = Record<string, string>
+const CACHE_TTL_MS = 30_000
 
-function computeStats(rows: Row[]) {
-  const tzOffset = 7 * 60 * 60 * 1000 // Vietnam is UTC+7
-  const now = new Date()
-  const localNow = new Date(now.getTime() + tzOffset)
-  
-  const todayStart = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate())).getTime() - tzOffset
-  
-  // Yesterday starts 1 day before today and ends right before todayStart
-  const yesterdayStart = todayStart - 24 * 60 * 60 * 1000
-  
-  // Week starts 6 days before today
-  const weekStart = todayStart - 6 * 24 * 60 * 60 * 1000
-  
-  const monthStart = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), 1)).getTime() - tzOffset
+async function computeStats(connector: IDataConnector) {
+  const days = vnDays()
+  const since = days.weekStart < days.monthStart ? days.weekStart : days.monthStart
 
-  const today     = { count: 0, revenue: 0, debt: 0 }
-  const yesterday = { count: 0, revenue: 0, debt: 0 }
-  const week      = { count: 0, revenue: 0, debt: 0 }
-  const month     = { count: 0, revenue: 0, debt: 0 }
-  const returns   = { count: 0, revenue: 0, debt: 0 }
-
-  for (const row of rows) {
-    const t = new Date(row.created_at || 0).getTime()
-    const amount = parseFloat(row.total_amount || '0')
-    const debtAmount = parseFloat(row.debt_amount || '0')
-    const isReturn = row.is_return === 'TRUE'
-
-    if (t >= todayStart) { today.count++;   today.revenue   += amount; today.debt += debtAmount }
-    else if (t >= yesterdayStart && t < todayStart) { yesterday.count++; yesterday.revenue += amount; yesterday.debt += debtAmount }
-    
-    if (t >= weekStart)  { week.count++;    week.revenue    += amount; week.debt += debtAmount }
-    if (t >= monthStart) { month.count++;   month.revenue   += amount; month.debt += debtAmount }
-    if (isReturn)        { returns.count++; returns.revenue += amount; returns.debt += debtAmount }
+  try {
+    const sql = await withReportTx(connector, async (tx) => ({
+      buckets: await queryOrderDays(tx, since),
+      returns: await queryProcessedReturns(tx, days.monthStart),
+    }))
+    if (sql) return assembleOrderStats(sql.buckets, sql.returns, days)
+  } catch (e) {
+    if (!isPgDataError(e)) throw e
+    console.error('[orders/stats] SQL aggregate failed on bad data, using row fallback', e)
   }
 
-  return { today, yesterday, week, month, returns }
+  // Non-Postgres connectors: read every page (a fixed limit silently drops the newest orders)
+  const [orders, returns] = await Promise.all([
+    listAllConnectorRows(connector, 'orders', { sortBy: 'created_at' }),
+    listAllConnectorRows(connector, 'returns').catch(() => []),
+  ])
+  return assembleOrderStats(orderDaysFromRows(orders, since), processedReturnsFromRows(returns, days.monthStart), days)
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ shopId: string }> }
 ) {
   try {
     const { shopId } = await params
     const { connector } = await requireShopAccess(shopId, 'orders.view')
+    const fresh = req.nextUrl.searchParams.get('fresh') === '1'
 
-    const all = await connector.list('orders', { limit: 5000 })
-    const result = computeStats(all.data)
-
+    const result = await runReport(`orders-stats:${shopId}`, { ttlMs: CACHE_TTL_MS, fresh }, () => computeStats(connector))
     return NextResponse.json(result)
   } catch (e) {
+    if (e instanceof ReportBusyError) return NextResponse.json({ error: e.message }, { status: e.status })
     return handleApiError(e, 'GET orders/stats')
   }
 }

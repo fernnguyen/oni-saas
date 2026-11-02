@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Image, Platform, Animated, ActivityIndicator, Alert, Pressable, KeyboardAvoidingView, DeviceEventEmitter } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -448,6 +448,9 @@ export default function PosScreen() {
     handleUpdateTableTime,
     tableConflict, setTableConflict,
     resolveTableConflict,
+    dismissTableConflict,
+    openPendingConflict,
+    pendingConflictTableIds,
   } = useTableManager({
     tables, setTables, shopVertical, activeShopId,
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
@@ -1857,6 +1860,16 @@ export default function PosScreen() {
       ) : (
         // 🎱 PHÂN HỆ ĐẶC THÙ PHÒNG BÀN (BI-A / CAFE / SÂN / PHÒNG NGHỈ)
         <ScrollView className="flex-1 px-4 pt-3" showsVerticalScrollIndicator={false}>
+          {/* Báo mất kết nối máy chủ (luồng bàn) – đơn vẫn lưu trên máy và tự đồng bộ lại */}
+          {!isOnline && (
+            <View className="mb-3 flex-row items-center rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+              <Feather name="wifi-off" size={16} color="#b45309" />
+              <Text className="ml-2 flex-1 text-xs text-amber-800">
+                Mất kết nối máy chủ. Món và đơn vẫn được lưu trên máy này và tự đồng bộ khi có mạng lại.
+              </Text>
+            </View>
+          )}
+
           {/* Header Filter cho sơ đồ phòng bàn */}
           <View className="mb-4">
             <View className="flex-row items-center justify-between mb-3 px-1">
@@ -1869,6 +1882,21 @@ export default function PosScreen() {
                 }
               </Text>
               <View className="flex-row items-center space-x-2">
+                {/* Xung đột đồng bộ đang chờ xử lý (sau khi chọn "Để sau") */}
+                {pendingConflictTableIds.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      void openPendingConflict();
+                    }}
+                    className="flex-row items-center px-2.5 py-1.5 rounded-lg border mr-2 bg-amber-50 border-amber-300 active:bg-amber-100"
+                  >
+                    <Feather name="alert-triangle" size={14} color="#b45309" />
+                    <Text className="text-xs font-medium ml-1 text-amber-800">
+                      {pendingConflictTableIds.length} xung đột
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 {/* Nút QR Order với Badge số lượng chờ duyệt */}
                 <TouchableOpacity
                   onPress={() => {
@@ -4195,7 +4223,7 @@ export default function PosScreen() {
               showToast('Có lỗi xảy ra, vui lòng thử lại!', 'error');
             }
           }}
-          onDismiss={() => setTableConflict(null)}
+          onDismiss={dismissTableConflict}
         />
       )}
     </SafeAreaView>
