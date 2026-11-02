@@ -1618,7 +1618,8 @@ export function useTableManager(props: UseTableManagerProps) {
           setTimeout(() => syncActiveTableSession({ ...updatedTable, current_order_id: data.resolved_order_id }), 500);
         }
       } else {
-        throw new Error('Không thể giải quyết xung đột');
+        const errBody = await res.json().catch(() => ({} as any));
+        throw new Error(errBody?.error || errBody?.message || 'Không thể giải quyết xung đột. Vui lòng thử lại.');
       }
     } catch (err) {
       console.error('[resolveTableConflict] Error:', err);

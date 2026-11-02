@@ -4216,12 +4216,9 @@ export default function PosScreen() {
           conflict={tableConflict}
           tableName={tableConflict ? (tables.find(t => t.id === tableConflict.tableId)?.name || '') : ''}
           onResolve={async (action) => {
-            try {
-              await resolveTableConflict(action);
-              showToast('Đã giải quyết thành công!', 'success');
-            } catch {
-              showToast('Có lỗi xảy ra, vui lòng thử lại!', 'error');
-            }
+            // Errors propagate to the modal's confirmation step, which shows the server's message
+            await resolveTableConflict(action);
+            showToast('Đã xử lý xung đột.', 'success');
           }}
           onDismiss={dismissTableConflict}
         />
