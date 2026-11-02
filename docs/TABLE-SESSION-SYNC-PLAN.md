@@ -99,6 +99,35 @@ Mục tiêu: **ngừng mất dữ liệu** trước, chưa đổi kiến trúc.
 | 1.5 | Server tự broadcast realtime sau mỗi lần ghi (thay vì để client tự broadcast), kèm `cursor`. Client vừa online lại thì gọi `changes?since=` để lấy phần còn thiếu | ⚪ Không còn phụ thuộc máy offline có kịp broadcast hay không |
 | 1.6 | Web/Mobile chuyển luồng bàn sang endpoint mới, có feature flag **theo shop** (`shop_settings.table_sync_v2`) | Rollback bằng cách tắt flag |
 
+#### Tiến độ Phase 1 (cập nhật 2026-11-02)
+
+**Đã xong – nền tảng phía server (Postgres):**
+- **1.1 – Schema:** thêm 3 bảng mới `table_sessions`, `order_item_ops`, `table_sync_events` trong [schema_pg.ts](../packages/adapters/src/schema_pg.ts).
+  - `table_sessions` có unique index một phần: mỗi bàn chỉ có **một** phiên `open`.
+  - **Không** thêm cột vào `orders` hay `order_items`, nên không ảnh hưởng retail.
+  - Thêm migration Supabase tạo cột `shop_settings.table_sync_v2` (mặc định tắt).
+- **1.2 – Adapter:** thêm `withTransaction()` tuỳ chọn vào `IDataConnector`. Đã có cho Postgres; `CachedDataConnector` chuyển tiếp. CRUD cũ không đổi.
+- **1.3 – Endpoint** (chạy khi shop bật cờ **và** connector có transaction, nếu không trả 409 `table_sync_v2_disabled` / `table_sync_v2_unsupported`):
+  - `POST /table-sessions/open`: idempotent theo `session_id` do client tạo. Bàn đã có phiên khác thì trả 409 `resource_occupied`, **không** tự huỷ hay gộp.
+  - `POST /table-sessions/:id/ops`: thao tác delta `add_item` · `change_qty` · `remove_item` · `set_time_charge`.
+    - Idempotent theo `op_id`. Các máy được xếp hàng bằng khoá dòng phiên. Cả lô dùng chung một transaction.
+    - Thao tác gửi vào phiên đã đóng bị ghi `rejected: session_not_open`.
+  - `GET /table-sessions/:id`: snapshot phiên, đơn, món, kèm `cursor`.
+  - `GET /table-sessions/changes?since=`: feed thay đổi theo `seq`, có phân trang.
+- **Test:** `pnpm test:table-sync`.
+  - 13 unit test cho engine.
+  - 8 integration test trên Postgres thật: 10 máy cộng đồng thời, retry trùng `op_id`, rollback, unique index, cô lập tenant, feed thay đổi.
+  - Bản integration cần `TABLE_SYNC_TEST_PG_URI` trỏ tới một DB test.
+
+**Còn lại của Phase 1:**
+- 1.2 cho MySQL: hiện MySQL trả `table_sync_v2_unsupported`, nên shop MySQL vẫn ở luồng Phase 0.
+- 1.3: `transfer`, `merge`. `quote` / `close` thuộc Phase 2.
+- 1.4: outbox bền vững trên client.
+- 1.5: server tự broadcast realtime.
+- 1.6: web/mobile chuyển sang endpoint mới theo cờ.
+
+> **Deploy:** `drizzle-kit push` trong deploy.sh sẽ **tạo thêm** 3 bảng trên Postgres production (chỉ thêm, không sửa bảng cũ). Cần chạy migration Supabase cho cột cờ.
+
 ### Phase 2 – Tiền giờ do server quyết định (≈ 1–2 tuần)
 
 | # | Thay đổi | Tác động |

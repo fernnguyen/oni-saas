@@ -137,6 +137,11 @@ export class CachedDataConnector implements IDataConnector {
     }
   }
 
+  // Transactions bypass the cache: only table-sync entities (never cached) are written this way
+  get withTransaction(): IDataConnector['withTransaction'] {
+    return this.inner.withTransaction ? this.inner.withTransaction.bind(this.inner) : undefined
+  }
+
   async batchCreate(entity: string, rows: Record<string, string>[]): Promise<Record<string, string>[]> {
     // 1. Gọi adapter gốc để thực hiện ghi hàng loạt
     const results = await this.inner.batchCreate(entity, rows)
