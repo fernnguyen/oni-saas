@@ -19,6 +19,7 @@ import {
   updateOrderItem,
   deleteOrderItem,
   updateOrder,
+  getOrderDetail,
   createCustomer,
   getCustomers,
   type OrderItem,
@@ -28,6 +29,20 @@ import { calculateBilling, formatElapsed, formatViDatetime } from '@/utils/billi
 import { formatCurrency } from '@/utils/format';
 import { LodgingGuestsForm } from './LodgingGuestsForm';
 import TransferTableModal from './TransferTableModal';
+
+// Read the order's current server metadata (safe JSON parse) so updates merge instead of replace
+async function getOrderMeta(shopId: string, orderId: string): Promise<Record<string, any>> {
+  const order: any = await getOrderDetail(shopId, orderId);
+  const raw = order?.metadata ?? order?.data?.metadata;
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 interface Props {
   table: ResourceFull;
@@ -345,10 +360,9 @@ export default function TableSessionModal({
 
       if (session.orderId) {
         const newMeta = {
-          ...session,
-          customerName,
-          customerPhone,
-          customerId: customerId || undefined,
+          ...(await getOrderMeta(shopId, session.orderId)),
+          customer_name: customerName || undefined,
+          customer_phone: customerPhone || undefined,
         };
         await updateOrder(shopId, session.orderId, {
           customer_id: customerId || undefined,
@@ -402,10 +416,9 @@ export default function TableSessionModal({
 
       if (session.orderId) {
         const newMeta = {
-          ...session,
-          customerName,
-          customerPhone,
-          customerId: customerId || undefined,
+          ...(await getOrderMeta(shopId, session.orderId)),
+          customer_name: customerName || undefined,
+          customer_phone: customerPhone || undefined,
         };
         await updateOrder(shopId, session.orderId, {
           customer_id: customerId || undefined,
