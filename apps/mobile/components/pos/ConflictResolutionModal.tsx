@@ -93,6 +93,7 @@ export function ConflictResolutionModal({
 
   const server = conflict.existingOrder;
   const serverLabel = `đơn ${server.order_no ? `#${server.order_no} ` : ''}của ${server.customer_name || 'Khách lẻ'}`;
+  const ServerLabel = serverLabel.charAt(0).toUpperCase() + serverLabel.slice(1);
   const localList = conflict.localItems.map((it) => `${it.product_name} x${it.qty}`).join(', ') || 'không có món';
   const serverList = (server.items_summary || []).map((it) => `${it.name} x${it.qty}`).join(', ') || `${server.items_count} món`;
 
@@ -110,7 +111,7 @@ export function ConflictResolutionModal({
     },
     keep_server: {
       title: 'Giữ đơn hệ thống?',
-      gains: [`${serverLabel} giữ nguyên (${serverList}, ${formatCurrencyVN(server.total_amount)}).`],
+      gains: [`${ServerLabel} giữ nguyên (${serverList}, ${formatCurrencyVN(server.total_amount)}).`],
       losses: [
         `${conflict.localItems.length} món chỉ có trên máy này sẽ bị XOÁ VĨNH VIỄN: ${localList} (${formatCurrencyVN(localTotal)}).`,
         'Không thể hoàn tác. Chỉ chọn nếu khách không dùng các món này hoặc đã nhập ở máy khác.',
@@ -122,7 +123,7 @@ export function ConflictResolutionModal({
       title: 'Thay đơn hệ thống bằng đơn trên máy bạn?',
       gains: [`Bàn dùng đơn mới gồm: ${localList} (${formatCurrencyVN(localTotal)}).`],
       losses: [
-        `${serverLabel} bị HUỶ: ${serverList} (${formatCurrencyVN(server.total_amount)}) không còn được tính tiền.`,
+        `${ServerLabel} bị HUỶ: ${serverList} (${formatCurrencyVN(server.total_amount)}) không còn được tính tiền.`,
         'Nếu đó là khách khác đang ngồi ở bàn này, khách đó sẽ mất toàn bộ hoá đơn.',
         'Hệ thống sẽ từ chối nếu đơn đó đã thu tiền (cọc/trả trước).',
       ],
