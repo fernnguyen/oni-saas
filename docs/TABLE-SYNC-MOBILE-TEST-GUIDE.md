@@ -8,6 +8,15 @@ Kịch bản đầy đủ phía web xem ở [TABLE-SYNC-PHASE0-TEST-SCENARIOS.md
 
 ---
 
+> **Cập nhật 2026-11-02 (nhánh `fix/mobile-table-sync`):** mobile đã chạy **table sync v2**, giống web.
+> - Mở bàn, gọi/sửa/xoá món, thanh toán và chuyển bàn đều đi qua `/table-sessions/*`.
+> - Món gửi dạng delta, tiền giờ lấy từ báo giá server.
+> - Gộp bàn tạm khoá ở v2.
+> - Mọi lựa chọn trong bảng xung đột đều có bước xác nhận **Được / Mất**.
+> - Thao tác bị server từ chối hiện trong **hộp xung đột v2**, mở từ nút "N xung đột".
+>
+> Ở M4/M4b với v2, món gọi offline vào bàn đã thanh toán sẽ vào **hộp xung đột v2**, không còn hiện bảng so sánh của luồng cũ.
+
 ## 0. Chuẩn bị (làm một lần)
 
 | Thiết bị | Cách mở |

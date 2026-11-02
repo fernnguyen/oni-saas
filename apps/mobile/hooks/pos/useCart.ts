@@ -5,7 +5,11 @@ import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
 import { eq } from 'drizzle-orm';
 
-export function useCart(isNavReady: boolean, isLoading: boolean) {
+/**
+ * @param persistSuspended While true the `cart` state holds something other than the retail cart
+ *   (e.g. a table "Gọi món" draft), so it must NOT be written into 'temp_cart'.
+ */
+export function useCart(isNavReady: boolean, isLoading: boolean, persistSuspended: boolean = false) {
   const [cart, setCart] = useState<{[cartItemId: string]: any}>({});
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [previewProduct, setPreviewProduct] = useState<any>(null);
@@ -196,7 +200,7 @@ export function useCart(isNavReady: boolean, isLoading: boolean) {
   }, [isNavReady]);
 
   useEffect(() => {
-    if (!isNavReady || isLoading) return;
+    if (!isNavReady || isLoading || persistSuspended) return;
     const saveCartToStorage = async () => {
       try {
         await AsyncStorage.setItem('temp_cart', JSON.stringify(cart));
@@ -205,7 +209,7 @@ export function useCart(isNavReady: boolean, isLoading: boolean) {
       }
     };
     saveCartToStorage();
-  }, [cart, isNavReady, isLoading]);
+  }, [cart, isNavReady, isLoading, persistSuspended]);
 
   useEffect(() => {
     if (!isNavReady || isLoading) return;
