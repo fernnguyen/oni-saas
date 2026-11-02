@@ -114,7 +114,7 @@ const STAT_CARDS: { key: keyof OrderStats; label: string }[] = [
   { key: 'today',   label: 'Hôm nay' },
   { key: 'week',    label: '7 ngày qua' },
   { key: 'month',   label: 'Tháng này' },
-  { key: 'returns', label: 'Trả hàng' },
+  { key: 'returns', label: 'Trả hàng tháng này' },
 ]
 
 export function OrdersClient({ shopId, shopName, permissions = [], canCreateManual = false, manualOrderHref = 'new' }: Props) {
@@ -208,15 +208,16 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
     return total
   }
 
-  // Stats summary
+  // Stats summary (server caches it for 30s; the reload button asks for a fresh one)
+  const fetchStats = async (fresh = false): Promise<OrderStats> => {
+    const res = await fetch(`/api/shops/${shopId}/orders/stats${fresh ? '?fresh=1' : ''}`)
+    if (!res.ok) throw new Error('Không tải được thống kê')
+    return res.json()
+  }
   const { data: stats } = useQuery<OrderStats>({
     queryKey: ['orders-stats', shopId],
-    queryFn: async () => {
-      const res = await fetch(`/api/shops/${shopId}/orders/stats`)
-      if (!res.ok) throw new Error('Không tải được thống kê')
-      return res.json()
-    },
-    staleTime: 0,
+    queryFn: () => fetchStats(),
+    staleTime: 30_000,
   })
 
   // Orders list
@@ -855,7 +856,7 @@ export function OrdersClient({ shopId, shopName, permissions = [], canCreateManu
         <button
           onClick={() => {
             queryClient.invalidateQueries({ queryKey: ['orders'] })
-            queryClient.invalidateQueries({ queryKey: ['order-stats'] })
+            queryClient.fetchQuery({ queryKey: ['orders-stats', shopId], queryFn: () => fetchStats(true), staleTime: 0 }).catch(() => {})
             toast.success('Đang tải lại dữ liệu...')
           }}
           disabled={isFetching}

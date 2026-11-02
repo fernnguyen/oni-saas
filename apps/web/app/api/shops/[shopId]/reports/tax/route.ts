@@ -89,7 +89,7 @@ function buildTaxReport(
 
   let totalReturns = 0
   for (const item of returns) {
-    if (item.status !== 'completed' && item.status !== 'approved') continue
+    if (item.status !== 'processed') continue
     const dateValue = item.processed_at || item.created_at
     const t = new Date(dateValue || 0).getTime()
     if (t < fromMs || t > toMs) continue

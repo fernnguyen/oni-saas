@@ -41,7 +41,10 @@ export const orders = pgTable('orders', {
   override_reason: text('override_reason'),
   shift_id: varchar('shift_id', { length: 255 }),
   metadata: jsonb('metadata'),
-});
+}, (table) => ({
+  // Reports aggregate by branch + date range (orders/stats, reports/overview)
+  tenantBranchCreatedIdx: index('idx_orders_tenant_branch_created_at').on(table.tenant_id, table.branch_id, table.created_at),
+}));
 
 export const order_items = pgTable('order_items', {
   ...getBaseColumns(),
@@ -76,7 +79,9 @@ export const order_items = pgTable('order_items', {
   variant_label: varchar('variant_label', { length: 500 }),
   modifiers: text('modifiers'),
   modifier_total: varchar('modifier_total', { length: 50 }).default('0'),
-});
+}, (table) => ({
+  tenantBranchOrderIdx: index('idx_order_items_tenant_branch_order').on(table.tenant_id, table.branch_id, table.order_id),
+}));
 
 export const payments = pgTable('payments', {
   ...getBaseColumns(),
@@ -92,6 +97,7 @@ export const payments = pgTable('payments', {
   note: text('note'),
 }, (table) => ({
   tenantReferenceIdx: index('idx_payments_tenant_reference_no').on(table.tenant_id, table.reference_no),
+  tenantBranchOrderIdx: index('idx_payments_tenant_branch_order').on(table.tenant_id, table.branch_id, table.order_id),
 }));
 
 export const products = pgTable('products', {
@@ -355,7 +361,9 @@ export const returns = pgTable('returns', {
   previous_order_status: varchar('previous_order_status', { length: 50 }),
   branch_id: varchar('branch_id', { length: 255 }),
   fund_id: varchar('fund_id', { length: 255 }),
-});
+}, (table) => ({
+  tenantBranchCreatedIdx: index('idx_returns_tenant_branch_created_at').on(table.tenant_id, table.branch_id, table.created_at),
+}));
 
 export const return_items = pgTable('return_items', {
   ...getBaseColumns(),

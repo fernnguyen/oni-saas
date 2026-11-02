@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
+import { listAllConnectorRows } from '@/lib/server/listAllConnectorRows'
 import { handleApiError } from '../../../_helpers'
 
 type Row = Record<string, any>
@@ -173,7 +174,7 @@ function buildProfitReport(orders: Row[], orderItems: Row[], products: Row[], ca
 
   // 2. Process Returns
   for (const ret of returns) {
-    if (ret.status !== 'completed' && ret.status !== 'approved') continue 
+    if (ret.status !== 'processed') continue
     const dateStr = ret.processed_at || ret.created_at || new Date().toISOString()
     if (!inRange(dateStr)) continue
     
@@ -272,22 +273,21 @@ export async function GET(
     const fromDate = searchParams.get('from')
     const toDate = searchParams.get('to')
 
-    // Local PSQL queries using connector
-    // Sort descending by created_at to prioritize the latest data
-    const [ordersResult, returnsResult, itemsResult, cashbookResult, productsResult] = await Promise.all([
-      connector.list('orders',      { limit: 10000, sortBy: 'created_at', sortDesc: true }),
-      connector.list('returns',     { limit: 5000, sortBy: 'created_at', sortDesc: true }).catch(() => ({ data: [], total: 0 })),
-      connector.list('order-items', { limit: 20000 }),
-      connector.list('cashbook',    { limit: 10000, sortBy: 'created_at', sortDesc: true }).catch(() => ({ data: [], total: 0 })),
-      connector.list('products',    { limit: 5000 }).catch(() => ({ data: [], total: 0 })),
+    // Read every page: a fixed limit silently drops rows once a branch grows past it.
+    const [orders, returns, items, cashbook, products] = await Promise.all([
+      listAllConnectorRows(connector, 'orders', { sortBy: 'created_at' }),
+      listAllConnectorRows(connector, 'returns').catch(() => []),
+      listAllConnectorRows(connector, 'order-items', { sortBy: 'created_at' }),
+      listAllConnectorRows(connector, 'cashbook', { sortBy: 'created_at' }).catch(() => []),
+      listAllConnectorRows(connector, 'products').catch(() => []),
     ])
 
     const result = buildProfitReport(
-      ordersResult.data,
-      itemsResult.data,
-      productsResult.data,
-      cashbookResult.data,
-      returnsResult.data,
+      orders,
+      items,
+      products,
+      cashbook,
+      returns,
       fromDate && toDate ? { from: fromDate, to: toDate } : undefined
     )
 

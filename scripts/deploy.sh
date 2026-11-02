@@ -45,6 +45,7 @@ export NODE_PATH="${STANDALONE_NODE_MODULES}:${GLOBAL_NODE_MODULES}:${NODE_PATH:
 HEALTH_CHECK_RETRIES=12    # 12 × 5s = 60 giây tối đa
 HEALTH_CHECK_INTERVAL=5    # giây giữa mỗi retry
 MIGRATION_TIMEOUT=120      # giây tối đa cho drizzle-kit push
+SQL_APPLY_TIMEOUT=900      # giây tối đa cho sql/apply.mjs (CREATE INDEX CONCURRENTLY)
 
 # [M1] Khởi tạo MIGRATION_MSG với giá trị mặc định — tránh unbound variable
 MIGRATION_MSG="ℹ️ No migration info"
@@ -304,6 +305,28 @@ echo "🗄️  [5/8] Checking database schema..."
 MIGRATION_LOG="/tmp/oni-migration-${VERSION}.log"
 
 cd "${RELEASE_DIR}/packages/adapters"
+
+# Hand-written SQL first (CREATE INDEX CONCURRENTLY: no write lock on big tables);
+# drizzle-kit push below then finds those indexes and skips them.
+SQL_APPLY_LOG="/tmp/oni-sql-apply-${VERSION}.log"
+if [ -f sql/apply.mjs ]; then
+  if timeout "${SQL_APPLY_TIMEOUT}" node sql/apply.mjs > "${SQL_APPLY_LOG}" 2>&1; then
+    cat "${SQL_APPLY_LOG}"
+    echo "   ✅ SQL indexes applied"
+  else
+    SQL_APPLY_EXIT=$?
+    cat "${SQL_APPLY_LOG}"
+    if [ "${SQL_APPLY_EXIT}" -eq 124 ]; then
+      echo "❌ SQL apply TIMEOUT sau ${SQL_APPLY_TIMEOUT}s!"
+    else
+      echo "❌ SQL apply thất bại!"
+    fi
+    echo "  Deploy đã DỪNG lại trước drizzle-kit push. Chạy lại thủ công:"
+    echo "  cd ${RELEASE_DIR}/packages/adapters && node sql/apply.mjs"
+    send_telegram "❌ <b>ONI ${VERSION} — SQL index apply thất bại!</b>"$'\n'"Deploy đã dừng trước khi switch release. Kiểm tra log: <code>${SQL_APPLY_LOG}</code>"
+    exit 1
+  fi
+fi
 
 # [H3] timeout 120s: chặn hang vô hạn nếu DB đang bị lock.
 # Thay đổi additive/an toàn được Drizzle tự áp dụng. Thay đổi destructive hoặc
