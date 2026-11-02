@@ -144,7 +144,21 @@ Mục tiêu: **ngừng mất dữ liệu** trước, chưa đổi kiến trúc.
 - 2.5: lease.
 - MySQL: chưa cần.
 
-> **Deploy:** `drizzle-kit push` trong deploy.sh sẽ **tạo thêm** 3 bảng trên Postgres production (chỉ thêm, không sửa bảng cũ). Cần chạy migration Supabase cho cột cờ.
+> **Deploy:** `drizzle-kit push` trong deploy.sh sẽ **tạo thêm** 3 bảng trên Postgres production (chỉ thêm, không sửa bảng cũ).
+
+#### Quyết định 2026-11-02: bật v2 mặc định, bỏ cờ theo shop
+
+Chưa shop nào dùng luồng bàn, nên v2 **bật mặc định** cho mọi shop dùng connector Postgres. Bỏ cờ `shop_settings.table_sync_v2` và migration Supabase tương ứng.
+- **Shop không dùng Postgres** (Sheets/MySQL): server trả 409 `table_sync_v2_unsupported`, web tự dùng luồng cũ.
+- **Công tắc khẩn cấp:** đặt biến môi trường `TABLE_SYNC_V2_DISABLED=true` rồi restart thì toàn bộ web quay về luồng cũ. Thao tác còn trong hàng đợi được giữ lại, không mất.
+- **Web tự thăm dò** `GET table-sessions/changes?limit=1` mỗi lần mở sơ đồ bàn:
+  - nhận 200 thì dùng v2, còn lại dùng luồng cũ;
+  - kết quả được nhớ lại trong localStorage cho những lần mở app khi đang offline.
+  Vì vậy nếu deploy chưa tạo kịp bảng, web không bị lỗi.
+- **Chạy lẫn với mobile/Zalo** (chưa dùng v2):
+  - Mở bàn v2 lên một bàn đang có đơn `in_progress` của luồng cũ thì bị chặn (409), không tạo đơn trùng.
+  - Đơn mở bằng luồng cũ vẫn đi luồng cũ trên web.
+  - Mobile thanh toán một đơn v2 mà không gửi kèm `session_id`: phiên v2 được tự dọn ở lần mở bàn kế tiếp.
 
 ### Phase 2 – Tiền giờ do server quyết định (≈ 1–2 tuần)
 

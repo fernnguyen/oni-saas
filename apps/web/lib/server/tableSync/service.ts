@@ -9,18 +9,22 @@ import { createPgTableSyncRepo, mapSessionRow } from './pgRepository'
 import { broadcastTableSync } from './broadcast'
 
 // Table sync v2 service (docs/TABLE-SESSION-SYNC-PLAN.md Phase 1): sessions, idempotent ops,
-// change feed. Only for shops with `shop_settings.table_sync_v2` on a transactional connector.
+// change feed. On by default for every shop whose connector supports transactions (Postgres);
+// other connectors keep the legacy flow. Emergency kill switch: TABLE_SYNC_V2_DISABLED=true.
 
 type TxConnector = IDataConnector & { withTransaction: NonNullable<IDataConnector['withTransaction']> }
 
-export async function requireTableSyncV2(shopId: string, connector: IDataConnector): Promise<TxConnector> {
+export function isTableSyncV2KillSwitchOn(): boolean {
+  return process.env.TABLE_SYNC_V2_DISABLED === 'true'
+}
+
+/** Clients treat any non-200 here (409 disabled/unsupported) as "use the legacy table flow". */
+export async function requireTableSyncV2(_shopId: string, connector: IDataConnector): Promise<TxConnector> {
+  if (isTableSyncV2KillSwitchOn()) {
+    throw new TableSyncError(409, 'table_sync_v2_disabled', 'Đồng bộ bàn v2 đang tạm tắt')
+  }
   if (typeof connector.withTransaction !== 'function') {
     throw new TableSyncError(409, 'table_sync_v2_unsupported', 'Nguồn dữ liệu của cửa hàng chưa hỗ trợ đồng bộ bàn v2')
-  }
-  const admin = getSupabaseAdminClient()
-  const { data } = await admin.from('shop_settings').select('table_sync_v2').eq('shop_id', shopId).maybeSingle()
-  if (!data?.table_sync_v2) {
-    throw new TableSyncError(409, 'table_sync_v2_disabled', 'Cửa hàng chưa bật đồng bộ bàn v2')
   }
   return connector as TxConnector
 }
@@ -100,6 +104,18 @@ export async function openTableSession(connector: TxConnector, shopId: string, i
   const resource = await connector.findById('location-resources', resourceId)
   if (!resource || (resource.branch_id && resource.branch_id !== shopId)) {
     throw new TableSyncError(404, 'resource_not_found', 'Không tìm thấy bàn/phòng')
+  }
+
+  // Mixed fleet (mobile/Zalo still on the legacy flow): never open a v2 session on top of a table
+  // that a legacy client already occupies with a live order.
+  const occupiedStatuses = ['occupied', 'playing', 'checking_out']
+  if (occupiedStatuses.includes(String(resource.status || '')) && resource.current_order_id) {
+    const liveOrder = await connector.findById('orders', String(resource.current_order_id)).catch(() => null)
+    if (liveOrder && liveOrder.status === 'in_progress' && parseMetadataSafe(liveOrder.metadata).session_id !== sessionId) {
+      throw Object.assign(new TableSyncError(409, 'resource_occupied', 'Bàn đang có phiên khác'), {
+        details: { existing_session: null, legacy_order_id: String(resource.current_order_id) },
+      })
+    }
   }
 
   // Reuse an order left by an earlier attempt of this same open (crash between steps)

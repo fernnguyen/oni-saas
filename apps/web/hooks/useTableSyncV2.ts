@@ -6,13 +6,36 @@ import { getWebTableSyncClient, type WebTableSyncClient } from '@/lib/pos/tableS
 
 const RETRY_INTERVAL_MS = 15_000
 
+const availabilityKey = (shopId: string) => `table_sync_v2:${shopId}:available`
+
 /**
- * Table sync v2 for the web POS. Inert (returns `enabled: false`, no timers, no channel) unless
- * the shop has `table_sync_v2` on. `changeTick` increments whenever the server reports changes
- * for this shop, so table views can refetch.
+ * Table sync v2 for the web POS. v2 is on by default, but only where the server supports it:
+ * the hook probes `table-sessions/changes` once per mount (200 → v2; 409 unsupported/disabled or
+ * any error → legacy flow) and remembers the answer for offline starts. While not available it is
+ * inert (no timers, no channel). `changeTick` increments whenever the server reports changes.
  */
-export function useTableSyncV2(shopId: string, enabled: boolean) {
+export function useTableSyncV2(shopId: string, allowed: boolean) {
   const clientRef = useRef<WebTableSyncClient | null>(null)
+  const [available, setAvailable] = useState(false)
+
+  useEffect(() => {
+    if (!allowed || !shopId) return
+    let cancelled = false
+    try {
+      if (window.localStorage.getItem(availabilityKey(shopId)) === 'true') setAvailable(true)
+    } catch {}
+    fetch(`/api/shops/${shopId}/table-sessions/changes?since=0&limit=1`)
+      .then((res) => {
+        if (cancelled) return
+        const ok = res.status === 200
+        setAvailable(ok)
+        try { window.localStorage.setItem(availabilityKey(shopId), ok ? 'true' : 'false') } catch {}
+      })
+      .catch(() => { /* offline: keep the remembered answer */ })
+    return () => { cancelled = true }
+  }, [allowed, shopId])
+
+  const enabled = allowed && available
   const [inbox, setInbox] = useState<InboxItem[]>([])
   const [outbox, setOutbox] = useState<OutboxEntry[]>([])
   const [changeTick, setChangeTick] = useState(0)

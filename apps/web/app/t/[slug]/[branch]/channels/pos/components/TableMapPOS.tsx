@@ -317,8 +317,8 @@ export function TableMapPOS({
   const [hasDismissedShiftOpen, setHasDismissedShiftOpen] = useState(false)
 
   const isShiftEnabled = shopSettings?.enable_shift_management ?? false
-  // Table sync v2 (per-shop flag, off by default) – docs/TABLE-SESSION-SYNC-PLAN.md 1.6
-  const tableSync = useTableSyncV2(shopId, shopSettings?.table_sync_v2 === true)
+  // Table sync v2 – on wherever the server supports it (Postgres), legacy flow otherwise
+  const tableSync = useTableSyncV2(shopId, true)
   const [inboxPanelOpen, setInboxPanelOpen] = useState(false)
 
   const { data: openShiftData, isLoading: isOpenShiftLoading, refetch: refetchOpenShift } = useQuery({
