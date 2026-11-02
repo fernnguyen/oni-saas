@@ -105,6 +105,9 @@ const DEFAULT_TEMPLATE: import('@oni/core').ResourceTemplate = {
   metaLabels: { expectedReturn: 'Dự kiến trả phòng', sessionInfo: 'Thông tin thuê', tabServices: 'Phòng & Dịch vụ' },
 }
 
+// Single-flight guard: only one offline replay per order at a time (survives re-renders/remounts)
+const offlineReplayInFlight = new Map<string, Promise<void>>()
+
 function pushOfflineAction(orderId: string, action: any) {
   if (typeof window === 'undefined') return
   const queueKey = `offline_table_actions:${orderId}`
@@ -222,7 +225,17 @@ export function ResourceSlideOver({
   const fetchingRef = useRef('')
 
   // --- Offline Sync Actions ---
-  const syncOfflineActions = useCallback(async (orderId: string) => {
+  const syncOfflineActions = useCallback((orderId: string): Promise<void> => {
+    const inFlight = offlineReplayInFlight.get(orderId)
+    if (inFlight) return inFlight
+    const run = replayOfflineActions(orderId).finally(() => {
+      offlineReplayInFlight.delete(orderId)
+    })
+    offlineReplayInFlight.set(orderId, run)
+    return run
+  }, [shopId, broadcastSyncEvent, resource.id])
+
+  async function replayOfflineActions(orderId: string) {
     const queueKey = `offline_table_actions:${orderId}`
     const queueStr = localStorage.getItem(queueKey)
     if (!queueStr) return
@@ -230,8 +243,19 @@ export function ResourceSlideOver({
     let actions = JSON.parse(queueStr)
     if (actions.length === 0) return
 
+    // Never replay into an order that is already closed on the server; keep the queue for manual handling
+    const statusRes = await fetch(`/api/shops/${shopId}/orders/${orderId}`)
+    if (!statusRes.ok) return
+    const serverOrder = await statusRes.json()
+    if (serverOrder?.status === 'completed' || serverOrder?.status === 'cancelled') {
+      toast.warning(`Bàn đã được đóng/thanh toán trên máy chủ. ${actions.length} thao tác món offline chưa được gửi.`)
+      return
+    }
+
     console.log(`Replaying ${actions.length} offline actions for order ${orderId}`)
     const remainingActions = []
+    const replayedCount = actions.length
+    const tempIdMap = new Map<string, string>()
     let syncedAny = false
 
     for (let i = 0; i < actions.length; i++) {
@@ -253,6 +277,7 @@ export function ResourceSlideOver({
 
           const tempId = action.tempId
           const serverId = savedItem.id
+          if (tempId && serverId) tempIdMap.set(tempId, serverId)
           for (let j = i + 1; j < actions.length; j++) {
             if (actions[j].itemId === tempId) {
               actions[j].itemId = serverId
@@ -307,6 +332,18 @@ export function ResourceSlideOver({
       }
     }
 
+    // Keep actions queued by pushOfflineAction while this replay was running (remap their temp ids)
+    let appendedActions: any[] = []
+    try {
+      const latestQueue = JSON.parse(localStorage.getItem(queueKey) || '[]')
+      appendedActions = Array.isArray(latestQueue) ? latestQueue.slice(replayedCount) : []
+    } catch {}
+    for (const act of appendedActions) {
+      if (act.itemId && tempIdMap.has(act.itemId)) act.itemId = tempIdMap.get(act.itemId)
+      if (act.tempId && tempIdMap.has(act.tempId)) act.tempId = tempIdMap.get(act.tempId)
+    }
+    remainingActions.push(...appendedActions)
+
     if (remainingActions.length > 0) {
       localStorage.setItem(queueKey, JSON.stringify(remainingActions))
     } else {
@@ -317,7 +354,7 @@ export function ResourceSlideOver({
     if (syncedAny && broadcastSyncEvent) {
       broadcastSyncEvent('ITEMS_UPDATED', { tableId: resource.id })
     }
-  }, [shopId, broadcastSyncEvent, resource.id])
+  }
 
   // --- Data Loading (Occupied) ---
   const fetchOrder = useCallback(async () => {
