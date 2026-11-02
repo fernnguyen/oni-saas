@@ -20,6 +20,8 @@ function parseProductMetadata(value: string | null | undefined): Record<string, 
 }
 
 export class SyncManager {
+  /** Local order ids whose direct sync-batch request is still in flight (table checkout) */
+  static inFlightOrderIds = new Set<string>();
   private static cashbookRetries: Record<string, number> = {};
 
   static clearCashbookRetry(id: string) {
@@ -188,6 +190,8 @@ export class SyncManager {
             try {
               cloudMeta = cloudTable?.metadata ? (typeof cloudTable.metadata === 'string' ? JSON.parse(cloudTable.metadata) : cloudTable.metadata) : {};
             } catch {}
+            // Table sync v2: session-owned rows are reconciled by the server, never deleted here
+            if (poMeta?.session_id) continue;
             const lastCheckoutMs = cloudMeta?.last_checkout_time ? new Date(cloudMeta.last_checkout_time).getTime() : 0;
             const poCheckInIso = poMeta?.check_in || po.created_at || '';
             const poCheckInMs = poCheckInIso ? new Date(poCheckInIso).getTime() : 0;
@@ -640,6 +644,12 @@ export class SyncManager {
               }
             } catch (e) {}
           }
+
+          // Table sync v2: items of an open session travel through the table-sessions outbox,
+          // never through sync-batch; such rows are skipped (and never deleted) here.
+          if (order.status === 'in_progress' && parsedOrderMetadata?.session_id) continue;
+          // A direct checkout request for this order is still in flight (avoid double submission)
+          if (SyncManager.inFlightOrderIds.has(order.id)) continue;
 
           // CHỐNG HỒI SINH BÀN ĐÃ ĐÓNG (Zombie Table Resurrection Guard):
           // Nếu đơn trong hàng đợi có status = 'in_progress' gắn với bàn vật lý, nhưng bàn cục bộ đã về available
@@ -1625,6 +1635,8 @@ export class SyncManager {
             try {
               cloudMeta = cloudTable?.metadata ? (typeof cloudTable.metadata === 'string' ? JSON.parse(cloudTable.metadata) : cloudTable.metadata) : {};
             } catch {}
+            // Table sync v2: session-owned rows are reconciled by the server, never deleted here
+            if (poMeta?.session_id) continue;
             const lastCheckoutMs = cloudMeta?.last_checkout_time ? new Date(cloudMeta.last_checkout_time).getTime() : 0;
             const poCheckInIso = poMeta?.check_in || po.created_at || '';
             const poCheckInMs = poCheckInIso ? new Date(poCheckInIso).getTime() : 0;

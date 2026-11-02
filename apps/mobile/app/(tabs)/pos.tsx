@@ -40,6 +40,8 @@ import { PosToast } from '../../components/pos/PosToast';
 import { useCart } from '../../hooks/pos/useCart';
 import { usePosData } from '../../hooks/pos/usePosData';
 import { useTableManager } from '../../hooks/pos/useTableManager';
+import { useTableSyncV2 } from '../../hooks/pos/useTableSyncV2';
+import TableSyncInboxModal from '../../components/pos/TableSyncInboxModal';
 import { usePosToast } from '../../hooks/pos/usePosToast';
 import { usePermissions } from '../../lib/auth/PermissionsContext';
 import { useRealtimeSync } from '../../hooks/pos/useRealtimeSync';
@@ -400,6 +402,10 @@ export default function PosScreen() {
     setSyncTriggerTick(prev => prev + 1);
   });
 
+  // Table sync v2 (table/room/court flows only; retail never enables it)
+  const tableSync = useTableSyncV2(activeShopId, shopVertical !== 'retail', isOnline);
+  const [isTableSyncInboxOpen, setIsTableSyncInboxOpen] = useState(false);
+
   const {
     activeTable, setActiveTable,
     tableCarts, setTableCarts,
@@ -451,12 +457,21 @@ export default function PosScreen() {
     dismissTableConflict,
     openPendingConflict,
     pendingConflictTableIds,
+    isV2Table,
+    beginTableOrdering,
+    takeOrderingBaseCart,
+    cancelV2Table,
+    tableNameOfSession,
+    itemNameOfSession,
+    lockedTimeCharge,
   } = useTableManager({
     tables, setTables, shopVertical, activeShopId,
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
     isNavReady, isLoading, isOnline, checkIsQrPayment, currentUserEmail, productsList, paymentFundsList,
     customersList, selectedCustomer, setPaymentRows, handleCheckoutPress, setIsCartModalOpen, setQrPayload, setIsQrModalOpen,
     broadcastSync,
+    tableSync,
+    refreshTables: () => setSyncTriggerTick(prev => prev + 1),
   });
 
   // State thêm nhanh khách hàng cho sơ đồ phòng bàn
@@ -1666,7 +1681,7 @@ export default function PosScreen() {
                           tables.find(t => t.id === targetTable.id)?.current_order_id ||
                           targetTable.current_order_id ||
                           '';
-                        const success = await syncOrderItemsOnline(latestOrderId, targetCart, targetTable.id);
+                        const success = await syncOrderItemsOnline(latestOrderId, targetCart, targetTable.id, takeOrderingBaseCart(targetTable.id));
                         if (success) {
                           showToast(`Đã đồng bộ món ăn cho ${targetTable.name} thành công!`, "success");
                         } else {
@@ -1883,17 +1898,21 @@ export default function PosScreen() {
               </Text>
               <View className="flex-row items-center space-x-2">
                 {/* Xung đột đồng bộ đang chờ xử lý (sau khi chọn "Để sau") */}
-                {pendingConflictTableIds.length > 0 && (
+                {(pendingConflictTableIds.length + tableSync.inbox.length) > 0 && (
                   <TouchableOpacity
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      if (tableSync.inbox.length > 0) {
+                        setIsTableSyncInboxOpen(true);
+                        return;
+                      }
                       void openPendingConflict();
                     }}
                     className="flex-row items-center px-2.5 py-1.5 rounded-lg border mr-2 bg-amber-50 border-amber-300 active:bg-amber-100"
                   >
                     <Feather name="alert-triangle" size={14} color="#b45309" />
                     <Text className="text-xs font-medium ml-1 text-amber-800">
-                      {pendingConflictTableIds.length} xung đột
+                      {pendingConflictTableIds.length + tableSync.inbox.length} xung đột
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -2474,7 +2493,7 @@ export default function PosScreen() {
                       tables.find(t => t.id === targetTable.id)?.current_order_id ||
                       targetTable.current_order_id ||
                       '';
-                    const success = await syncOrderItemsOnline(latestOrderId, targetCart, targetTable.id);
+                    const success = await syncOrderItemsOnline(latestOrderId, targetCart, targetTable.id, takeOrderingBaseCart(targetTable.id));
                     if (success) {
                       showToast(`Đã đồng bộ món ăn cho ${targetTable.name} thành công!`, "success");
                     } else {
@@ -3292,6 +3311,7 @@ export default function PosScreen() {
                         className="w-[47%] bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex-row items-center active:bg-slate-100"
                         onPress={() => {
                           // Đồng bộ giỏ hàng và khóa bàn
+                          beginTableOrdering(activeTable);
                           setCart(tableCarts[activeTable.id] || {});
                           setCartOwnerTable(activeTable);
                           setActiveVertical('retail'); // Switch to product catalog
@@ -3391,6 +3411,17 @@ export default function PosScreen() {
                               tables.find(t => t.id === activeTable.id)?.current_order_id ||
                               activeTable.current_order_id ||
                               '';
+
+                            // Table sync v2: online-only cancel through the order cancel endpoint (ends the session)
+                            if (isV2Table(activeTable)) {
+                              const cancelled = await cancelV2Table(activeTable, cleanedCancelledMeta);
+                              if (cancelled) {
+                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+                                setActiveTable(null);
+                                showToast("Hủy đơn & Giải phóng phòng/bàn thành công!", "success");
+                              }
+                              return;
+                            }
 
                             // Dọn dẹp ngay lập tức tableCart & tableCustomers trước khi gọi mạng
                             setTableCarts(prev => {
@@ -4024,6 +4055,7 @@ export default function PosScreen() {
         loading={isPayingTableLoading || isPayingCartLoading}
         cartOwnerTable={cartOwnerTable}
         shopVertical={shopVertical}
+        lockedTimeCharge={cartOwnerTable ? lockedTimeCharge : undefined}
         onCheckout={(opts) => handlePayCart(selectedCustomer, discountAmount, orderNote, paymentRows, opts)}
         onUpdateTime={(type, iso) => cartOwnerTable?.id && handleUpdateTableTime(cartOwnerTable.id, type, iso)}
         onEditItemSave={(cartItemId, finalPrice, originalPriceFromModal, discountAmt, discountPct) => {
@@ -4221,6 +4253,23 @@ export default function PosScreen() {
             showToast('Đã xử lý xung đột.', 'success');
           }}
           onDismiss={dismissTableConflict}
+        />
+      )}
+      {shopVertical !== 'retail' && (
+        <TableSyncInboxModal
+          visible={isTableSyncInboxOpen && tableSync.inbox.length > 0}
+          items={tableSync.inbox}
+          tableNameOf={tableNameOfSession}
+          itemNameOf={itemNameOfSession}
+          onResolve={async (ids) => {
+            await tableSync.resolveInbox(ids);
+            showToast('Đã gỡ các thao tác bị từ chối khỏi máy này.', 'success');
+          }}
+          onClose={() => {
+            setIsTableSyncInboxOpen(false);
+            // Legacy (pre-v2) conflicts share the same button: show them next
+            if (pendingConflictTableIds.length > 0) void openPendingConflict();
+          }}
         />
       )}
     </SafeAreaView>

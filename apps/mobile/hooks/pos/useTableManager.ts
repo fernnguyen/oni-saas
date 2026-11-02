@@ -37,11 +37,18 @@ export interface UseTableManagerProps {
   selectedCustomer: any;
   customersList: any[];
   broadcastSync?: (payload: any) => void;
+  /** Table sync v2 client (useTableSyncV2). Inert/absent → legacy table flow. */
+  tableSync?: MobileTableSyncV2Api;
+  /** Re-pull the table layout from the server (used by table sync v2) */
+  refreshTables?: () => void;
 }
 
 import { CartItem } from '../../app/(tabs)/pos';
 import { TableConflict } from '../../components/pos/ConflictResolutionModal';
-import { calculateHourlyBilling, isTimeChargeProduct, getTimeChargeProductId } from '@oni/core';
+import { calculateHourlyBilling, isTimeChargeProduct, getTimeChargeProductId, buildTablePricingSnapshot, computeTableTimeCharge, generateClientId } from '@oni/core';
+import { callTableSessionApi } from '../../lib/pos/tableSyncV2';
+import { diffCartToOps, v2LinesToCart } from '../../lib/pos/tableCartV2';
+import type { MobileTableSyncV2Api } from './useTableSyncV2';
 import { LodgingGuest } from '../../components/pos/LodgingGuestsForm';
 
 // Phân tích mốc check_in (ms). Chuỗi naive (không Z/offset) có thể là giờ GMT+7 hoặc UTC
@@ -103,7 +110,7 @@ export function useTableManager(props: UseTableManagerProps) {
   const { 
     tables, setTables, shopVertical, activeShopId, 
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
-    isNavReady, isLoading, isOnline, checkIsQrPayment, currentUserEmail, productsList, paymentFundsList, customersList, selectedCustomer, setPaymentRows, handleCheckoutPress, setIsCartModalOpen, setQrPayload, setIsQrModalOpen, broadcastSync } = props;
+    isNavReady, isLoading, isOnline, checkIsQrPayment, currentUserEmail, productsList, paymentFundsList, customersList, selectedCustomer, setPaymentRows, handleCheckoutPress, setIsCartModalOpen, setQrPayload, setIsQrModalOpen, broadcastSync, tableSync, refreshTables } = props;
 
   const [activeTable, setActiveTable] = useState<any>(null);
 
@@ -141,6 +148,84 @@ export function useTableManager(props: UseTableManagerProps) {
   // Theo dõi các order_id đã thanh toán/hủy trên máy này để chặn poll ngầm đang bay ghi đè lại món của khách cũ
   const closedOrderIdsRef = React.useRef<Set<string>>(new Set());
 
+  // ── Table sync v2 (docs/MOBILE-TABLE-SYNC-PLAN.md đợt 2) ─────────────────────────────
+  // A table is "v2" when the shop runs v2 AND its session id is known (server order/resource
+  // metadata.session_id, or table.metadata.session_id for a table opened offline on this device).
+  // Every other table keeps the legacy flow below untouched.
+  const v2 = tableSync?.enabled ? tableSync : null;
+  const v2SessionsRef = React.useRef<Record<string, { sessionId: string; orderId: string }>>({});
+  const v2SessionTableNameRef = React.useRef<Record<string, string>>({});
+  // Cart the server + pending ops last produced for each v2 table (base for delta ops)
+  const lastV2CartRef = React.useRef<Record<string, any>>({});
+  // Snapshot of the table cart taken when "Gọi món" starts (base for "Lưu món", fixes #4)
+  const orderingBaseCartRef = React.useRef<Record<string, any>>({});
+  // Per-table checkout guard (#13)
+  const payingTableIdsRef = React.useRef<Set<string>>(new Set());
+  const activeTableIdRef = React.useRef<string | null>(null);
+  activeTableIdRef.current = activeTable?.id || null;
+  const tableCartsRef = React.useRef<{ [tableId: string]: { [cartItemId: string]: CartItem } }>({});
+  tableCartsRef.current = tableCarts;
+  type V2CheckoutLock = {
+    tableId: string;
+    sessionId: string;
+    orderId: string;
+    quoteId: string;
+    provisional: boolean;
+    amount: number;
+    label: string;
+    checkoutAt: string;
+  };
+  const [v2Checkout, setV2Checkout] = useState<V2CheckoutLock | null>(null);
+
+  const parseMetaSafe = (raw: any): Record<string, any> => {
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {});
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const rememberV2Session = (tableId: string, sessionId: string, orderId: string, tableName?: string) => {
+    if (!tableId || !sessionId) return;
+    v2SessionsRef.current[tableId] = { sessionId, orderId: orderId || '' };
+    if (tableName) v2SessionTableNameRef.current[sessionId] = tableName;
+  };
+
+  const forgetV2Session = (tableId: string) => {
+    delete v2SessionsRef.current[tableId];
+    delete lastV2CartRef.current[tableId];
+    delete orderingBaseCartRef.current[tableId];
+  };
+
+  /** v2 session of a table, or null when the table must run the legacy flow */
+  const getV2Session = (tableOrId: any): { sessionId: string; orderId: string } | null => {
+    if (!v2 || !tableOrId) return null;
+    const table = typeof tableOrId === 'string' ? tables.find(t => t.id === tableOrId) : tableOrId;
+    const tableId = typeof tableOrId === 'string' ? tableOrId : tableOrId.id;
+    const known = v2SessionsRef.current[tableId];
+    const sessionId = String(parseMetaSafe(table?.metadata).session_id || known?.sessionId || '');
+    if (!sessionId) return null;
+    const currentOrderId = table?.current_order_id && !String(table.current_order_id).startsWith('ORD-T-INPROG-')
+      ? String(table.current_order_id)
+      : '';
+    const orderId = known && known.sessionId === sessionId && known.orderId ? known.orderId : currentOrderId;
+    return { sessionId, orderId };
+  };
+
+  const withoutTimeCharge = (cart: Record<string, any> | undefined) =>
+    Object.fromEntries(
+      Object.entries(cart || {}).filter(([cartItemId, it]: [string, any]) => !isTimeChargeProduct(it?.productId || cartItemId, it?.name))
+    );
+
+  const lastLayoutRefreshRef = React.useRef(0);
+  const refreshTablesThrottled = () => {
+    const now = Date.now();
+    if (now - lastLayoutRefreshRef.current < 3000) return;
+    lastLayoutRefreshRef.current = now;
+    refreshTables?.();
+  };
+
   const [tableConflict, setTableConflict] = useState<TableConflict | null>(null);
 
   const cleanStaticResourceMeta = useCallback((rawMeta: any, extraFields: Record<string, any> = {}) => {
@@ -150,6 +235,7 @@ export function useTableManager(props: UseTableManagerProps) {
     } catch (e) {}
     const cleaned: Record<string, any> = { ...parsed, ...extraFields };
     delete cleaned.check_in;
+    delete cleaned.session_id;
     delete cleaned.temp_checkout_time;
     delete cleaned.original_start_time;
     delete cleaned.original_temp_checkout_time;
@@ -232,6 +318,8 @@ export function useTableManager(props: UseTableManagerProps) {
       console.warn('Cannot parse table metadata:', e);
     }
     if (rmd.actual_checkout_requested_at) return;
+    // Table sync v2: the time charge is locked by the server quote (or the provisional amount)
+    if (v2Checkout && v2Checkout.tableId === cartOwnerTable.id) return;
 
     const updateRealtimeBilliardTime = () => {
       const now = new Date();
@@ -269,7 +357,7 @@ export function useTableManager(props: UseTableManagerProps) {
     const interval = setInterval(updateRealtimeBilliardTime, 10000);
 
     return () => clearInterval(interval);
-  }, [cartOwnerTable, timeTicker, isNavReady]);
+  }, [cartOwnerTable, timeTicker, isNavReady, v2Checkout]);
 
 
 
@@ -418,12 +506,26 @@ export function useTableManager(props: UseTableManagerProps) {
       // Quan trọng: Phải luôn ưu tiên ID từ Cloud thay vì ID cũ từ SQLite
       let resolvedOrderId = latestResource?.current_order_id || orderId;
 
+      // Table sync v2: session id from the server resource first (it may have been reopened elsewhere),
+      // then what this device knows about the table.
+      const v2LocalSession = getV2Session(tableId);
+      const v2SessionId = v2
+        ? String(parseMetaSafe(latestResource?.metadata).session_id || v2LocalSession?.sessionId || '')
+        : '';
+
       // Nếu Cloud trả về available hoặc dirty/cleaning và không có order:
       // KIỂM TRA BẢO VỆ: Nếu bàn đang trong quá trình mở hoặc có đơn in_progress cục bộ chưa đồng bộ xong (ORD-T-INPROG- / pending),
       // tuyệt đối KHÔNG được đánh dấu isFinished = true (tránh lỗi đang dùng bị tự động thoát bàn!).
       if (latestResource && (latestResource.status === 'available' || latestResource.status === 'dirty' || latestResource.status === 'cleaning') && !latestResource.current_order_id) {
         if (openingTableIdsRef.current.has(tableId)) {
           return null;
+        }
+
+        // v2: no SQLite self-heal / local deletion / 12h rule. A session opened offline on this
+        // device stays until its queued `open` is sent; otherwise the server says the table is free.
+        if (v2 && v2SessionId) {
+          if (v2.pendingFor(v2SessionId).some(e => e.kind === 'open')) return null;
+          return { isFinished: true, resourceStatus: latestResource.status };
         }
 
         if (Platform.OS !== 'web') {
@@ -551,7 +653,28 @@ export function useTableManager(props: UseTableManagerProps) {
         return { isFinished: true, resourceStatus: latestResource.status };
       }
 
-      
+      // v2: one snapshot call returns the session, its order and its lines (#17)
+      if (v2 && v2SessionId) {
+        const snap = await callTableSessionApi(shopId, `/${encodeURIComponent(v2SessionId)}`, 'GET');
+        const snapSession = snap.body?.session;
+        if (snap.status === 200 && snapSession) {
+          const snapOrderId = String(snapSession.order_id || '');
+          const resourceOrderId = String(latestResource?.current_order_id || '');
+          const tableNowHasOtherOrder = !!resourceOrderId && resourceOrderId !== snapOrderId;
+          if (!tableNowHasOtherOrder) {
+            if (snapSession.status !== 'open' || (snapSession.resource_id && snapSession.resource_id !== tableId)) {
+              return { isFinished: true, resourceStatus: latestResource?.status === 'occupied' ? 'available' : (latestResource?.status || 'available') };
+            }
+            return { order: snap.body.order || null, items: snap.body.items || [], resource: latestResource, isFinished: false, v2SessionId };
+          }
+          // The table now holds another order (legacy or other session): read it below
+        } else if (snap.status === 404 && v2.pendingFor(v2SessionId).some(e => e.kind === 'open')) {
+          return null;
+        } else if (snap.status !== 404) {
+          return null;
+        }
+      }
+
       let orderData: any = null;
 
       // TỰ ĐỘNG CHỮA LÀNH (Self-heal): Nếu không có orderId cục bộ nhưng trạng thái là đang ở/chơi
@@ -696,7 +819,24 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   };
 
-  const syncOrderItemsOnline = async (orderId: string, cartItems: any, tableId?: string) => {
+  const syncOrderItemsOnline = async (orderId: string, cartItems: any, tableId?: string, baseCart?: any) => {
+    // Table sync v2: send only the DIFFERENCE between the cart the user started from and the cart
+    // they saved, through the persistent outbox (no SQLite rows, no absolute PUT/POST/DELETE).
+    const v2Session = tableId ? getV2Session(tableId) : null;
+    if (v2 && v2Session && tableId) {
+      try {
+        const base = withoutTimeCharge(baseCart ?? lastV2CartRef.current[tableId] ?? {});
+        const next = withoutTimeCharge(cartItems);
+        const ops = diffCartToOps(base as any, next as any);
+        if (ops.length > 0) await v2.enqueueOps(v2Session.sessionId, ops);
+        lastV2CartRef.current[tableId] = next;
+        return true;
+      } catch (err) {
+        console.warn('[TableSyncV2] Không thể ghi thao tác vào hàng đợi:', err);
+        return false;
+      }
+    }
+
     const initialOrderId =
       orderId ||
       (tableId ? tables.find(t => t.id === tableId)?.current_order_id : '') ||
@@ -1145,6 +1285,8 @@ export function useTableManager(props: UseTableManagerProps) {
           }
 
           // B. Cập nhật state cục bộ sang trống
+          if (getV2Session(table)) refreshTablesThrottled(); // v2: closed/moved elsewhere → layout changed too
+          forgetV2Session(table.id);
           setTables(prev => prev.map(t => t.id === table.id ? { ...t, status: newStatus, current_order_id: null, startTime: null, metadata: cleanedMeta } : t));
           setTableCarts(prev => {
             const copy = { ...prev };
@@ -1196,6 +1338,11 @@ export function useTableManager(props: UseTableManagerProps) {
                   (tableMetaObj.guests_list && tableMetaObj.guests_list.length > 0) ? tableMetaObj.guests_list :
                     (tableMetaObj.guests && tableMetaObj.guests.length > 0) ? tableMetaObj.guests : [];
 
+        // Table sync v2: this table runs on a session (server lines + this device's pending ops)
+        const v2SessionId = v2
+          ? String(parsedMeta.session_id || resourceMeta.session_id || getV2Session(table)?.sessionId || '')
+          : '';
+
         const rentalType = parsedMeta.rental_type || resourceMeta.rental_type || tableMetaObj.rental_type || 'hourly';
         const numGuests = (onlineGuests.length > 0) ? onlineGuests.length : (parsedMeta.num_guests || resourceMeta.num_guests || tableMetaObj.num_guests || 1);
         const checkInVal = parsedMeta.check_in || resourceMeta.check_in || tableMetaObj.check_in;
@@ -1216,35 +1363,52 @@ export function useTableManager(props: UseTableManagerProps) {
             num_guests: numGuests,
             check_in: checkInVal || new Date(checkInTime).toISOString(),
             guests_list: onlineGuests,
-            guests: onlineGuests
+            guests: onlineGuests,
+            ...(v2SessionId ? { session_id: v2SessionId } : {})
           })
         };
+        if (v2SessionId) {
+          rememberV2Session(table.id, v2SessionId, resolvedRemoteOrderId, table.name);
+        }
 
         // Gán khách hàng cho phòng bàn cục bộ
         if (order && order.customer_id) {
           const localCust = customersList.find(c => c.id === order.customer_id);
           const phoneVal = localCust?.phone || parsedMeta.customer_phone || "";
           const addressVal = localCust?.address || parsedMeta.customer_address || "";
-          setTableCustomers(prev => ({
-            ...prev,
-            [table.id]: {
-              id: order.customer_id,
-              name: order.customer_name || 'Khách lẻ',
-              phone: phoneVal,
-              address: addressVal
-            }
-          }));
+          const nextCustomer = {
+            id: order.customer_id,
+            name: order.customer_name || 'Khách lẻ',
+            phone: phoneVal,
+            address: addressVal
+          };
+          setTableCustomers(prev => (
+            v2SessionId && JSON.stringify(prev[table.id] || null) === JSON.stringify(nextCustomer)
+              ? prev
+              : { ...prev, [table.id]: nextCustomer }
+          ));
         } else if (order) {
           setTableCustomers(prev => {
+            if (v2SessionId && !prev[table.id]) return prev;
             const copy = { ...prev };
             delete copy[table.id];
             return copy;
           });
         }
 
+        // v2: skip identical writes so the 15s refresh does not re-render the whole layout (#17)
+        const currentLocalTable = tables.find(t => t.id === table.id);
+        const tableUnchanged =
+          !!v2SessionId &&
+          !!currentLocalTable &&
+          currentLocalTable.status === updatedTable.status &&
+          String(currentLocalTable.current_order_id || '') === String(updatedTable.current_order_id || '') &&
+          Number(currentLocalTable.startTime) === Number(updatedTable.startTime) &&
+          currentLocalTable.metadata === updatedTable.metadata;
+
         // Cập nhật tables list state cục bộ và ghi SQLite ngoại tuyến để tự chữa lành
-        setTables(prev => prev.map(t => t.id === table.id ? updatedTable : t));
-        if (Platform.OS !== 'web') {
+        if (!tableUnchanged) setTables(prev => prev.map(t => t.id === table.id ? updatedTable : t));
+        if (Platform.OS !== 'web' && !tableUnchanged) {
           try {
             await db
               .update(schema.location_resources)
@@ -1254,7 +1418,19 @@ export function useTableManager(props: UseTableManagerProps) {
         }
 
         // Chỉ đồng bộ giỏ hàng về state cục bộ khi đã tải được order hợp lệ từ Server
-        if (order && Array.isArray(items)) {
+        if (v2 && v2SessionId) {
+          // v2: cart = server lines + this device's pending ops. No legacy push / conflict block.
+          if (order && Array.isArray(items)) {
+            const pendingOps = await v2.pendingOpsFor(v2SessionId);
+            const v2Cart = v2LinesToCart(items, pendingOps, (id) => productsList.find(p => p.id === id)) as any;
+            lastV2CartRef.current[table.id] = v2Cart;
+            const serialized = JSON.stringify(v2Cart);
+            if (JSON.stringify(tableCartsRef.current[table.id] || null) !== serialized) {
+              tableCartsRef.current = { ...tableCartsRef.current, [table.id]: v2Cart };
+              setTableCarts(prev => (JSON.stringify(prev[table.id] || null) === serialized ? prev : { ...prev, [table.id]: v2Cart }));
+            }
+          }
+        } else if (order && Array.isArray(items)) {
           const mappedCart: any = {};
           for (const item of items) {
             if (isTimeChargeProduct(item.product_id, item.product_name)) continue;
@@ -1365,7 +1541,8 @@ export function useTableManager(props: UseTableManagerProps) {
           }
         }
 
-        // Khôi phục thông tin khách lưu trú từ Cloud
+        // Khôi phục thông tin khách lưu trú từ Cloud — chỉ cho bàn đang mở trên màn hình (#7)
+        if (activeTableIdRef.current === table.id) {
         setRoomGuestCount(numGuests);
         setLodgingGuests(onlineGuests.length > 0
           ? onlineGuests.map((g: any) => ({
@@ -1382,9 +1559,15 @@ export function useTableManager(props: UseTableManagerProps) {
             note: g.note || ''
           }))
           : [{ name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' }]);
+        }
 
         setActiveTable((prev: any) => {
           if (prev && prev.id === table.id) {
+            if (v2SessionId && prev.metadata === updatedTable.metadata && prev.status === updatedTable.status
+              && String(prev.current_order_id || '') === String(updatedTable.current_order_id || '')
+              && Number(prev.startTime) === Number(updatedTable.startTime)) {
+              return prev;
+            }
             return updatedTable;
           }
           return prev;
@@ -1467,12 +1650,52 @@ export function useTableManager(props: UseTableManagerProps) {
     for (const t of occupiedTables) {
       const syncKey = `${t.id}_${t.current_order_id || ''}`;
       const lastAt = lastOccupiedSyncRef.current[syncKey] || 0;
-      if (now - lastAt > 8000) {
+      // v2 tables are refreshed by change events (changeTick); the poll is only a slow safety net
+      const minGapMs = getV2Session(t) ? 60000 : 8000;
+      if (now - lastAt > minGapMs) {
         lastOccupiedSyncRef.current[syncKey] = now;
         void syncActiveTableSession(t);
       }
     }
   }, [tables, isNavReady, isOnline, shopVertical, timeTicker]);
+
+  // Table sync v2: the server reported changes → re-sync exactly the tables of those sessions
+  const syncActiveTableSessionRef = React.useRef(syncActiveTableSession);
+  syncActiveTableSessionRef.current = syncActiveTableSession;
+  const tablesRef = React.useRef(tables);
+  tablesRef.current = tables;
+  useEffect(() => {
+    if (!v2 || !tableSync?.changeTick) return;
+    const changed = new Set(tableSync.lastChangedSessions || []);
+    const handled = new Set<string>();
+    for (const t of tablesRef.current) {
+      const session = getV2Session(t);
+      if (session && changed.has(session.sessionId)) {
+        handled.add(session.sessionId);
+        void syncActiveTableSessionRef.current(t);
+      }
+    }
+    // A session this device does not show yet (opened / moved on another device) changes the layout
+    if (Array.from(changed).some(sid => !handled.has(sid))) refreshTablesThrottled();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableSync?.changeTick]);
+
+  // Table sync v2: when a session's queue drains (>0 → 0), reload that table from the server
+  const prevPendingCountsRef = React.useRef<Record<string, number>>({});
+  useEffect(() => {
+    if (!v2) return;
+    const counts: Record<string, number> = {};
+    for (const e of tableSync?.outbox || []) counts[e.session_id] = (counts[e.session_id] || 0) + 1;
+    const prev = prevPendingCountsRef.current;
+    prevPendingCountsRef.current = counts;
+    const drained = Object.keys(prev).filter(sid => prev[sid] > 0 && !counts[sid]);
+    if (drained.length === 0) return;
+    for (const t of tablesRef.current) {
+      const session = getV2Session(t);
+      if (session && drained.includes(session.sessionId)) void syncActiveTableSessionRef.current(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableSync?.outbox]);
 
   // Xung đột bàn được lưu bền trong AsyncStorage (`table_conflict:<tableId>`) bởi SyncManager / syncOrderItemsOnline.
   // "Để sau" chỉ tạm ẩn (snooze) bàn đó trong phiên app; xung đột KHÔNG bao giờ tự xoá — món trên máy chỉ mất
@@ -1675,6 +1898,7 @@ export function useTableManager(props: UseTableManagerProps) {
     if (table.status === 'playing' || table.status === 'occupied') {
       // 1. Mở modal ngay lập tức với dữ liệu cục bộ hiện có để mang lại trải nghiệm tức thì (Zero-Lag)
       setActiveTable(table);
+      activeTableIdRef.current = table.id;
       setIsSyncingTableSession(true);
       setActiveTableTab('billing'); // Reset tab về billing mặc định khi mở phòng bàn
 
@@ -1977,6 +2201,88 @@ export function useTableManager(props: UseTableManagerProps) {
         guests: normalizedGuests,
       });
 
+      // Table sync v2: open through table-sessions/open (online) or the outbox (offline).
+      // No SQLite in_progress order row and no deletion of other local orders (#2).
+      if (v2) {
+        const roomLabelV2 = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn';
+        const sessionId = generateClientId();
+        const openPayload = {
+          session_id: sessionId,
+          resource_id: targetTableForOpen.id,
+          check_in: nowIso,
+          customer_id: targetCustomer?.id || '',
+          customer_name: targetCustomer?.name || 'Khách lẻ',
+          rental_type: targetRoomRentalType,
+          metadata: JSON.parse(openTableMeta) as Record<string, unknown>,
+        };
+        let openedOrderId = '';
+        let openedOffline = false;
+        try {
+          if (!isOnline) throw new Error('offline');
+          const shopIdForOpen = activeShopId || await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+          const r = await callTableSessionApi(shopIdForOpen, '/open', 'POST', { ...openPayload, device_id: v2.deviceId });
+          if (r.status === 409 && r.body?.error === 'resource_occupied') {
+            openingTableIdsRef.current.delete(targetTableForOpen.id);
+            showToast(`${roomLabelV2} vừa được mở trên thiết bị khác. Đang tải lại…`, 'error');
+            setIsTableOpenDialogVisible(false);
+            setSelectedTableForOpen(null);
+            refreshTablesThrottled();
+            return;
+          }
+          if (r.status < 200 || r.status >= 300) {
+            openingTableIdsRef.current.delete(targetTableForOpen.id);
+            showToast(r.body?.message || `Không thể mở ${roomLabelV2.toLowerCase()} (${r.status})`, 'error');
+            return;
+          }
+          openedOrderId = String(r.body?.session?.order_id || '');
+        } catch {
+          // Network failure: open offline through the outbox (same session id)
+          await v2.openSession(openPayload);
+          openedOffline = true;
+        }
+
+        const v2OpenMeta = JSON.stringify({ ...JSON.parse(openTableMeta), session_id: sessionId });
+        rememberV2Session(targetTableForOpen.id, sessionId, openedOrderId, targetTableForOpen.name);
+        lastV2CartRef.current[targetTableForOpen.id] = {};
+        const openedFields = { status: 'occupied', current_order_id: openedOrderId, startTime: nowTime, metadata: v2OpenMeta };
+        setTables(prev => prev.map(t => t.id === targetTableForOpen.id ? { ...t, ...openedFields } : t));
+        if (Platform.OS !== 'web') {
+          await db
+            .update(schema.location_resources)
+            .set(openedFields)
+            .where(eq(schema.location_resources.id, targetTableForOpen.id))
+            .catch(() => {});
+        }
+        tableCartsRef.current = { ...tableCartsRef.current, [targetTableForOpen.id]: {} };
+        setTableCarts(prev => {
+          const copy = { ...prev };
+          delete copy[targetTableForOpen.id];
+          return copy;
+        });
+        setTableCustomers(prev => {
+          const copy = { ...prev };
+          if (targetCustomer) {
+            copy[targetTableForOpen.id] = targetCustomer;
+          } else {
+            delete copy[targetTableForOpen.id];
+          }
+          return copy;
+        });
+        setIsTableOpenDialogVisible(false);
+        setSelectedTableForOpen(null);
+        setCheckInTab('info');
+        if (openedOffline) {
+          showToast(`Mất mạng: đã mở ${roomLabelV2} ${targetTableForOpen.name} trên máy này, sẽ đồng bộ khi có mạng lại.`, 'info');
+        } else {
+          showToast(`Đã nhận ${roomLabelV2} ${targetTableForOpen.name}!`, 'success');
+          broadcastSync?.({ event: 'TABLE_OPENED', tableId: targetTableForOpen.id, orderId: openedOrderId });
+        }
+        setTimeout(() => {
+          openingTableIdsRef.current.delete(targetTableForOpen.id);
+        }, 4000);
+        return;
+      }
+
       // 2. Ghi đè vào DB Cục bộ hoặc State cục bộ lập tức (Offline-First)
       if (Platform.OS === 'web') {
         setTables(prev => prev.map(t => t.id === targetTableForOpen.id ? {
@@ -2193,8 +2499,25 @@ export function useTableManager(props: UseTableManagerProps) {
   };
 
   // Thay đổi số lượng món ăn/dịch vụ của phòng bàn trực tiếp
+  /** v2: apply an edit to a table cart and enqueue its delta (no side effects inside setState) */
+  const applyV2TableCartEdit = (tableId: string, edit: (cart: Record<string, any>) => Record<string, any> | null) => {
+    const base = tableCartsRef.current[tableId] || {};
+    const next = edit(base);
+    if (!next) return;
+    tableCartsRef.current = { ...tableCartsRef.current, [tableId]: next };
+    setTableCarts(prev => ({ ...prev, [tableId]: next }));
+    void syncOrderItemsOnline('', next, tableId, base);
+  };
+
   const handleIncreaseTableItemQty = (tableId: string, cartItemId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
+    if (getV2Session(tableId)) {
+      applyV2TableCartEdit(tableId, (cart) => {
+        const item = cart[cartItemId];
+        return item ? { ...cart, [cartItemId]: { ...item, quantity: item.quantity + 1 } } : null;
+      });
+      return;
+    }
     setTableCarts(prev => {
       const tableCart = prev[tableId] || {};
       const item = tableCart[cartItemId];
@@ -2221,6 +2544,15 @@ export function useTableManager(props: UseTableManagerProps) {
 
   const handleDecreaseTableItemQty = (tableId: string, cartItemId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
+    if (getV2Session(tableId)) {
+      applyV2TableCartEdit(tableId, (cart) => {
+        const item = cart[cartItemId];
+        if (!item) return null;
+        const newQty = Math.max(1, item.quantity - 1);
+        return newQty === item.quantity ? null : { ...cart, [cartItemId]: { ...item, quantity: newQty } };
+      });
+      return;
+    }
     setTableCarts(prev => {
       const tableCart = prev[tableId] || {};
       const item = tableCart[cartItemId];
@@ -2248,6 +2580,15 @@ export function useTableManager(props: UseTableManagerProps) {
 
   const handleRemoveTableItem = (tableId: string, cartItemId: string) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => { });
+    if (getV2Session(tableId)) {
+      applyV2TableCartEdit(tableId, (cart) => {
+        if (!cart[cartItemId]) return null;
+        const next = { ...cart };
+        delete next[cartItemId];
+        return next;
+      });
+      return;
+    }
     setTableCarts(prev => {
       const tableCart = { ...(prev[tableId] || {}) };
       delete tableCart[cartItemId];
@@ -2353,18 +2694,134 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   };
 
+  /**
+   * Table sync v2 checkout preparation: flush the outbox, then lock the time charge with a server
+   * quote (online, nothing pending) or a provisional amount from the shared formula (offline / ops
+   * still queued). Returns null when checkout must not continue.
+   */
+  const prepareV2Checkout = async (
+    table: any,
+    session: { sessionId: string; orderId: string }
+  ): Promise<{ lock: V2CheckoutLock; cart: Record<string, any> } | null> => {
+    if (!v2) return null;
+    if (payingTableIdsRef.current.has(table.id)) {
+      showToast('Đang xử lý thanh toán cho bàn này...', 'info');
+      return null;
+    }
+    if (!session.orderId) {
+      showToast('Phiên bàn chưa lên máy chủ. Cần có mạng một lần để đồng bộ trước khi thanh toán.', 'error');
+      return null;
+    }
+    payingTableIdsRef.current.add(table.id);
+    try {
+      await v2.flush().catch(() => {});
+      const pending = await v2.pendingCount(session.sessionId);
+      const shopId = activeShopId || await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      const lookup = (id: string) => productsList.find(p => p.id === id);
+
+      if (pending > 0 || !isOnline) {
+        const ok = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            'Đóng tạm khi mất mạng',
+            `Còn ${pending} thao tác chưa gửi được lên máy chủ. Bạn vẫn có thể thu tiền; đơn được ghi "đóng tạm" và máy chủ sẽ đối soát tiền giờ khi có mạng lại.`,
+            [
+              { text: 'Huỷ', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Đóng tạm', onPress: () => resolve(true) },
+            ],
+            { cancelable: false }
+          );
+        });
+        if (!ok) return null;
+        const checkoutAt = new Date();
+        const meta = parseMetaSafe(table.metadata);
+        const checkInIso = meta.check_in || (table.startTime ? new Date(table.startTime).toISOString() : checkoutAt.toISOString());
+        const charge = computeTableTimeCharge(buildTablePricingSnapshot(table, meta), new Date(checkInIso), checkoutAt);
+        // Lines the device knows: last server lines + this device's still-queued ops
+        const cart = lastV2CartRef.current[table.id] || tableCartsRef.current[table.id] || {};
+        return {
+          lock: {
+            tableId: table.id,
+            sessionId: session.sessionId,
+            orderId: session.orderId,
+            quoteId: '',
+            provisional: true,
+            amount: Math.round(Number(charge.amount) || 0),
+            label: charge.duration_label,
+            checkoutAt: checkoutAt.toISOString(),
+          },
+          cart,
+        };
+      }
+
+      const r = await callTableSessionApi(shopId, `/${encodeURIComponent(session.sessionId)}/quote`, 'POST', { device_id: v2.deviceId });
+      if (r.status === 409 && r.body?.error === 'session_not_open') {
+        showToast('Bàn này đã được thanh toán hoặc đóng trên thiết bị khác.', 'info');
+        void syncActiveTableSession(table);
+        refreshTablesThrottled();
+        return null;
+      }
+      if (r.status < 200 || r.status >= 300) {
+        showToast(r.body?.message || 'Không lấy được báo giá tiền giờ', 'error');
+        return null;
+      }
+      const quote = r.body || {};
+      // Bill exactly the server lines (lines added by other devices included, #8)
+      let cart: Record<string, any> = lastV2CartRef.current[table.id] || tableCartsRef.current[table.id] || {};
+      try {
+        const snap = await callTableSessionApi(shopId, `/${encodeURIComponent(session.sessionId)}`, 'GET');
+        if (snap.status === 200 && Array.isArray(snap.body?.items)) {
+          cart = v2LinesToCart(snap.body.items, [], lookup) as any;
+          lastV2CartRef.current[table.id] = cart;
+          tableCartsRef.current = { ...tableCartsRef.current, [table.id]: cart as any };
+          setTableCarts(prev => ({ ...prev, [table.id]: cart as any }));
+        }
+      } catch {}
+      return {
+        lock: {
+          tableId: table.id,
+          sessionId: session.sessionId,
+          orderId: session.orderId,
+          quoteId: String(quote.quote_id || ''),
+          provisional: false,
+          amount: Math.round(Number(quote.time_charge?.amount) || 0),
+          label: String(quote.time_charge?.duration_label || ''),
+          checkoutAt: String(quote.checkout_at || new Date().toISOString()),
+        },
+        cart,
+      };
+    } catch (err) {
+      console.warn('[TableSyncV2] Không thể chuẩn bị thanh toán:', err);
+      showToast('Không lấy được báo giá tiền giờ. Vui lòng kiểm tra kết nối và thử lại.', 'error');
+      return null;
+    } finally {
+      payingTableIdsRef.current.delete(table.id);
+    }
+  };
+
   const triggerPayTable = async (table: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
 
+    // Table sync v2: lock the time charge first (quote / provisional) and bill the server lines
+    const v2Session = getV2Session(table);
+    let v2Prepared: { lock: V2CheckoutLock; cart: Record<string, any> } | null = null;
+    if (v2 && v2Session) {
+      v2Prepared = await prepareV2Checkout(table, v2Session);
+      if (!v2Prepared) return;
+    } else {
+      setV2Checkout(null);
+    }
+
     // 1. Tính toán tiền giờ/qua đêm lưu trú nâng cao sử dụng @oni/core
-    const billing = calculateBilling(table);
+    const billing = v2Prepared
+      ? { cost: v2Prepared.lock.amount, label: v2Prepared.lock.label }
+      : calculateBilling(table);
 
     // 2. Chuyển tiền giờ thành sản phẩm TIME_CHARGE ảo đặc biệt
     const billingName = table.type === 'room'
       ? `Tiền phòng - ${table.name} (${billing.label})`
       : `Tiền giờ - ${table.name} (${billing.label})`;
 
-    const tableCartItems = tableCarts[table.id] || {};
+    const tableCartItems = v2Prepared ? withoutTimeCharge(v2Prepared.cart) : (tableCarts[table.id] || {});
     const newCart: any = { ...tableCartItems };
 
     const activeIndustry = await AsyncStorage.getItem('active_shop_industry') || 'retail';
@@ -2400,6 +2857,7 @@ export function useTableManager(props: UseTableManagerProps) {
     }
 
     // 3. Thiết lập giỏ hàng bán lẻ dùng chung
+    if (v2Prepared) setV2Checkout(v2Prepared.lock);
     setCart(newCart);
     setCartOwnerTable(table);
     setSelectedCustomer(tableCustomers[table.id] || null);
@@ -2442,9 +2900,26 @@ export function useTableManager(props: UseTableManagerProps) {
     chargeByMinuteOverride?: boolean
   ) => {
     if (!cartOwnerTable) return;
+    // Table sync v2: checkout only with the time charge locked by triggerPayTable (quote / provisional)
+    const v2Lock = v2 && v2Checkout && v2Checkout.tableId === cartOwnerTable.id ? v2Checkout : null;
+    if (!v2Lock && getV2Session(cartOwnerTable)) {
+      showToast('Vui lòng bấm "Thanh toán" lại trên bàn để lấy báo giá tiền giờ.', 'error');
+      return;
+    }
+    const v2GuardTableId = cartOwnerTable.id;
+    let releaseV2GuardInBackground = false;
+    if (v2Lock) {
+      if (payingTableIdsRef.current.has(v2GuardTableId)) {
+        showToast('Đang xử lý thanh toán cho bàn này...', 'info');
+        return;
+      }
+      payingTableIdsRef.current.add(v2GuardTableId);
+    }
     // Chốt MỘT mốc giờ ra duy nhất cho cả luồng thanh toán bàn (tiền giờ, check_out, created_at, khoá thuế)
     // -> tổng tiền gửi lên luôn khớp dòng tiền giờ (tránh 400 do server kiểm tra toàn vẹn).
-    const frozenCheckoutTime: Date = customCheckoutTime || (cartOwnerTable.checkoutTime ? new Date(cartOwnerTable.checkoutTime) : new Date());
+    const frozenCheckoutTime: Date = v2Lock
+      ? new Date(v2Lock.checkoutAt)
+      : (customCheckoutTime || (cartOwnerTable.checkoutTime ? new Date(cartOwnerTable.checkoutTime) : new Date()));
     setIsPayingTableLoading(true);
     try {
       const { isTaxPeriodLocked } = await import('../../lib/utils/tax');
@@ -2473,7 +2948,25 @@ export function useTableManager(props: UseTableManagerProps) {
         }
       }
 
-      const billing = calculateBilling(selectedTableForPay, frozenCheckoutTime, rentalType, chargeByMinuteOverride);
+      const v2CheckInIso = v2Lock
+        ? String(parsedTableMeta?.check_in || (selectedTableForPay.startTime ? new Date(selectedTableForPay.startTime).toISOString() : ''))
+        : '';
+      const v2DurationMin = v2Lock && v2CheckInIso
+        ? Math.max(0, Math.ceil((frozenCheckoutTime.getTime() - new Date(v2CheckInIso).getTime()) / 60000))
+        : 0;
+      const billing = v2Lock
+        ? { hours: Math.floor(v2DurationMin / 60), minutes: v2DurationMin % 60, cost: v2Lock.amount, label: v2Lock.label }
+        : calculateBilling(selectedTableForPay, frozenCheckoutTime, rentalType, chargeByMinuteOverride);
+      // v2: extra order metadata so sync-batch closes the session (server reconciles the time charge)
+      const v2OrderMeta = v2Lock
+        ? {
+            session_id: v2Lock.sessionId,
+            quote_id: v2Lock.quoteId || undefined,
+            check_in: v2CheckInIso || undefined,
+            check_out: v2Lock.checkoutAt,
+            provisional_close: v2Lock.provisional ? true : undefined,
+          }
+        : {};
       const rawTableCartItems = overrideCartItems || tableCarts[selectedTableForPay.id] || {};
       // TIME_CHARGE chỉ là dòng ảo để hiển thị trong modal checkout. Phần tiền phòng/giờ
       // được tạo riêng bằng system product bên dưới, nên tuyệt đối không tính/gửi dòng ảo này.
@@ -2545,7 +3038,9 @@ export function useTableManager(props: UseTableManagerProps) {
           }
         } catch (e) {}
       }
-      const orderId = resolvedCurrentOrderId || `ORD-T-${Date.now()}`;
+      if (v2Lock) resolvedCurrentOrderId = v2Lock.orderId;
+      // v2: stable local id per session so a retried checkout is idempotent
+      const orderId = v2Lock ? `v2-checkout-${v2Lock.sessionId}` : (resolvedCurrentOrderId || `ORD-T-${Date.now()}`);
       const orderNoType = shopVertical === 'lodging' ? 'KS' : (shopVertical === 'sports_court' ? 'SAN' : 'POS');
       const orderNo = `HD-${orderNoType}-${Date.now().toString().substring(9)}`;
       const checkoutTimeStr = frozenCheckoutTime.toISOString();
@@ -2646,6 +3141,10 @@ export function useTableManager(props: UseTableManagerProps) {
         setTables(prev => prev.map(t => t.id === selectedTableForPay.id ? { ...t, status: releaseStatusAfterPay, startTime: null, current_order_id: null, metadata: cleanedPaidTableMeta } : t));
       } else {
         const oldOrderIdsToClean = new Set<string>();
+        if (v2Lock) {
+          // v2: never delete other local orders of the table (#2); only replace this checkout's own row
+          oldOrderIdsToClean.add(orderId);
+        } else {
         if (selectedTableForPay.current_order_id) oldOrderIdsToClean.add(selectedTableForPay.current_order_id);
         if (resolvedCurrentOrderId) oldOrderIdsToClean.add(resolvedCurrentOrderId);
         try {
@@ -2662,6 +3161,7 @@ export function useTableManager(props: UseTableManagerProps) {
             if (o.id) oldOrderIdsToClean.add(o.id);
           }
         } catch (e) {}
+        }
 
         for (const oldId of oldOrderIdsToClean) {
           await db.delete(schema.orders).where(eq(schema.orders.id, oldId));
@@ -2699,7 +3199,8 @@ export function useTableManager(props: UseTableManagerProps) {
             check_out: checkoutTimeStr,
             original_check_out: parsedTableMeta?.original_temp_checkout_time,
             rental_type: rentalType,
-            server_order_id: resolvedCurrentOrderId || ''
+            server_order_id: resolvedCurrentOrderId || '',
+            ...v2OrderMeta
           }),
         });
 
@@ -2756,6 +3257,13 @@ export function useTableManager(props: UseTableManagerProps) {
       setSelectedCustomer(null);
       setCartOwnerTable(null);
 
+      if (v2Lock) {
+        // A provisional close already billed the queued lines: never replay them after the session closed
+        if (v2Lock.provisional) await v2?.discardSession(v2Lock.sessionId).catch(() => {});
+        forgetV2Session(selectedTableForPay.id);
+        setV2Checkout(null);
+      }
+
       setIsCartModalOpen(false);
       setIsPayingTableLoading(false); // UI unblocked!
 
@@ -2782,7 +3290,9 @@ export function useTableManager(props: UseTableManagerProps) {
       }
 
       // B. Đồng bộ hóa trong nền không làm nghẽn giao diện chính
+      releaseV2GuardInBackground = !!v2Lock;
       (async () => {
+        try {
         const currentUrl = isOnline ? getApiBaseUrl() : null;
         if (!currentUrl) {
           if (Platform.OS !== 'web') {
@@ -2798,7 +3308,7 @@ export function useTableManager(props: UseTableManagerProps) {
         try {
           const headers = await getApiHeaders();
           const payload = {
-            local_order_id: resolvedCurrentOrderId || orderId,
+            local_order_id: v2Lock ? orderId : (resolvedCurrentOrderId || orderId),
             server_order_id: resolvedCurrentOrderId || '',
             order: {
               status: 'completed',
@@ -2828,7 +3338,8 @@ export function useTableManager(props: UseTableManagerProps) {
                 check_out: checkoutTimeStr,
                 original_check_out: parsedTableMeta?.original_temp_checkout_time,
                 rental_type: rentalType,
-                server_order_id: resolvedCurrentOrderId || ''
+                server_order_id: resolvedCurrentOrderId || '',
+                ...v2OrderMeta
               }),
               shift_id: shiftId,
             },
@@ -2883,11 +3394,15 @@ export function useTableManager(props: UseTableManagerProps) {
               }))
           };
 
+          // v2: SyncManager must not push this order while the direct request is in flight (#13)
+          if (v2Lock) SyncManager.inFlightOrderIds.add(orderId);
           const syncRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/sync-batch`, {
             method: 'POST',
             headers: { ...headers, 'Content-Type': 'application/json' },
             signal: syncController.signal,
             body: JSON.stringify(payload),
+          }).finally(() => {
+            if (v2Lock) SyncManager.inFlightOrderIds.delete(orderId);
           });
 
           if (syncRes.ok) {
@@ -2957,11 +3472,16 @@ export function useTableManager(props: UseTableManagerProps) {
         } finally {
           clearTimeout(syncTimeoutId);
         }
+        } finally {
+          if (v2Lock) payingTableIdsRef.current.delete(v2GuardTableId);
+        }
       })();
     } catch (err) {
       console.error('Lỗi thanh toán phòng bàn:', err);
       showToast("Lỗi khi xử lý thanh toán!", "error");
       setIsPayingTableLoading(false);
+    } finally {
+      if (v2Lock && !releaseV2GuardInBackground) payingTableIdsRef.current.delete(v2GuardTableId);
     }
   };
 
@@ -2971,6 +3491,74 @@ export function useTableManager(props: UseTableManagerProps) {
       const sourceTable = tables.find(t => t.id === sourceTableId);
       const targetTable = tables.find(t => t.id === targetTableId);
       if (!sourceTable || !targetTable) return;
+
+      // Table sync v2: the server moves the session atomically (online only, #16)
+      const v2Source = getV2Session(sourceTable);
+      if (v2 && v2Source) {
+        if (!isOnline) {
+          showToast('Chuyển bàn cần có mạng (tránh hai máy cùng chuyển một phiên).', 'error');
+          return;
+        }
+        const shopIdForTransfer = activeShopId || await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+        const r = await callTableSessionApi(shopIdForTransfer, `/${encodeURIComponent(v2Source.sessionId)}/transfer`, 'POST', {
+          target_resource_id: targetTableId,
+          device_id: v2.deviceId,
+        });
+        if (r.status < 200 || r.status >= 300) {
+          showToast(
+            r.body?.error === 'target_occupied'
+              ? `${targetTable.name} vừa có khách trên thiết bị khác`
+              : (r.body?.message || 'Lỗi khi chuyển phòng bàn'),
+            'error'
+          );
+          return;
+        }
+        const releaseStatusV2 = shopVertical === 'lodging' ? 'dirty' : 'available';
+        const sourceMetaV2 = parseMetaSafe(sourceTable.metadata);
+        const targetMetaV2 = JSON.stringify({
+          ...parseMetaSafe(targetTable.metadata),
+          check_in: sourceMetaV2.check_in || (sourceTable.startTime ? new Date(sourceTable.startTime).toISOString() : new Date().toISOString()),
+          session_id: v2Source.sessionId,
+        });
+        const cleanedSourceMetaV2 = cleanStaticResourceMeta(sourceTable.metadata);
+        const movedCart = tableCartsRef.current[sourceTableId];
+        forgetV2Session(sourceTableId);
+        rememberV2Session(targetTableId, v2Source.sessionId, v2Source.orderId, targetTable.name);
+        if (movedCart) lastV2CartRef.current[targetTableId] = movedCart;
+        setTables(prev => prev.map(t => {
+          if (t.id === sourceTableId) return { ...t, status: releaseStatusV2, current_order_id: null, startTime: null, metadata: cleanedSourceMetaV2 };
+          if (t.id === targetTableId) return { ...t, status: 'occupied', current_order_id: v2Source.orderId, startTime: sourceTable.startTime, metadata: targetMetaV2 };
+          return t;
+        }));
+        if (Platform.OS !== 'web') {
+          await db.update(schema.location_resources)
+            .set({ status: releaseStatusV2, current_order_id: null, startTime: null, metadata: cleanedSourceMetaV2 })
+            .where(eq(schema.location_resources.id, sourceTableId)).catch(() => {});
+          await db.update(schema.location_resources)
+            .set({ status: 'occupied', current_order_id: v2Source.orderId, startTime: sourceTable.startTime, metadata: targetMetaV2 })
+            .where(eq(schema.location_resources.id, targetTableId)).catch(() => {});
+        }
+        setTableCarts(prev => {
+          const copy = { ...prev };
+          if (copy[sourceTableId]) {
+            copy[targetTableId] = copy[sourceTableId];
+            delete copy[sourceTableId];
+          }
+          return copy;
+        });
+        setTableCustomers(prev => {
+          const copy = { ...prev };
+          if (copy[sourceTableId]) {
+            copy[targetTableId] = copy[sourceTableId];
+            delete copy[sourceTableId];
+          }
+          return copy;
+        });
+        broadcastSync?.({ event: 'TABLE_TRANSFERRED', tableId: targetTableId, sourceTableId });
+        refreshTablesThrottled();
+        showToast(`Đã chuyển sang ${targetTable.name}`, 'success');
+        return;
+      }
 
       const orderId = sourceTable.current_order_id;
       if (!orderId) return;
@@ -3137,6 +3725,11 @@ export function useTableManager(props: UseTableManagerProps) {
       const sourceTable = tables.find(t => t.id === sourceTableId);
       const targetTable = tables.find(t => t.id === targetTableId);
       if (!sourceTable || !targetTable) return;
+
+      if (v2 && (getV2Session(sourceTable) || getV2Session(targetTable))) {
+        showToast('Gộp bàn chưa hỗ trợ ở chế độ đồng bộ v2', 'info');
+        return;
+      }
 
       const sourceOrderId = sourceTable.current_order_id;
       const targetOrderId = targetTable.current_order_id;
@@ -3376,6 +3969,116 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   };
 
+  // ── Table sync v2 helpers used by the POS screen ─────────────────────────────────
+  const isV2Table = (table: any) => !!getV2Session(table);
+
+  /** "Gọi món": snapshot the table cart the user starts editing from (base for "Lưu món", #4) */
+  const beginTableOrdering = (table: any) => {
+    if (!table) return;
+    orderingBaseCartRef.current[table.id] = tableCartsRef.current[table.id] || tableCarts[table.id] || {};
+    setV2Checkout(null);
+  };
+
+  /** "Lưu món": the snapshot taken by beginTableOrdering (consumed once) */
+  const takeOrderingBaseCart = (tableId: string) => {
+    const base = orderingBaseCartRef.current[tableId];
+    delete orderingBaseCartRef.current[tableId];
+    return base;
+  };
+
+  /**
+   * Cancel / release a v2 table: online only (#6). The existing order cancel endpoint also ends
+   * the v2 session server-side. Only this table's own state is cleared (#2).
+   */
+  const cancelV2Table = async (table: any, cleanedMeta: string): Promise<boolean> => {
+    const session = getV2Session(table);
+    if (!v2 || !session) return false;
+    if (!isOnline) {
+      showToast('Huỷ bàn cần có mạng để tránh bàn tự mở lại trên thiết bị khác.', 'error');
+      return false;
+    }
+    if (!session.orderId) {
+      showToast('Phiên bàn chưa lên máy chủ. Vui lòng chờ đồng bộ rồi thử lại.', 'error');
+      return false;
+    }
+    try {
+      const currentUrl = getApiBaseUrl();
+      const shopId = activeShopId || await AsyncStorage.getItem('active_shop_id') || 'default-shop';
+      const headers = await getApiHeaders();
+      const cancelRes = await fetch(`${currentUrl}/api/shops/${shopId}/orders/${session.orderId}/cancel`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Hủy từ di động' })
+      });
+      if (!cancelRes.ok) {
+        const body = await cancelRes.json().catch(() => ({} as any));
+        showToast(body?.error || body?.message || `Không thể huỷ bàn (${cancelRes.status})`, 'error');
+        return false;
+      }
+      await fetch(`${currentUrl}/api/shops/${shopId}/location-resources/${table.id}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'available', current_order_id: '', startTime: null, metadata: cleanedMeta }),
+      }).catch(() => {});
+      closedOrderIdsRef.current.add(session.orderId);
+      // The cancelled session's queued ops are dropped on purpose
+      await v2.discardSession(session.sessionId).catch(() => {});
+      forgetV2Session(table.id);
+      setTableCarts(prev => {
+        const copy = { ...prev };
+        delete copy[table.id];
+        return copy;
+      });
+      setTableCustomers(prev => {
+        const copy = { ...prev };
+        delete copy[table.id];
+        return copy;
+      });
+      setTables(prev => prev.map(t => t.id === table.id ? { ...t, status: 'available', startTime: null, current_order_id: null, metadata: cleanedMeta } : t));
+      if (Platform.OS !== 'web') {
+        await db
+          .update(schema.location_resources)
+          .set({ status: 'available', startTime: null, current_order_id: null, metadata: cleanedMeta })
+          .where(eq(schema.location_resources.id, table.id))
+          .catch(() => {});
+      }
+      broadcastSync?.({ event: 'TABLE_UPDATED', tableId: table.id });
+      return true;
+    } catch (err) {
+      console.warn('[TableSyncV2] Huỷ bàn thất bại:', err);
+      showToast('Mất kết nối khi huỷ bàn. Vui lòng thử lại.', 'error');
+      return false;
+    }
+  };
+
+  /** Readable table name of a v2 session (inbox) */
+  const tableNameOfSession = (sessionId: string) => {
+    const table = tables.find(t => getV2Session(t)?.sessionId === sessionId);
+    if (table) return table.name || '';
+    const known = v2SessionTableNameRef.current[sessionId];
+    if (known) return known;
+    const openEntry = (tableSync?.inbox || []).find(i => i.session_id === sessionId && i.entry.kind === 'open');
+    const resourceId = openEntry && openEntry.entry.kind === 'open' ? openEntry.entry.payload.resource_id : '';
+    return (resourceId && tables.find(t => t.id === resourceId)?.name) || '';
+  };
+
+  /** Readable product name for an inbox op reference */
+  const itemNameOfSession = (_sessionId: string, ref: { item_id?: string; line_key?: string }) => {
+    if (!ref.item_id) return undefined;
+    for (const cart of Object.values(lastV2CartRef.current)) {
+      const hit = Object.values(cart || {}).find((it: any) => it?._serverItemId === ref.item_id) as any;
+      if (hit) return hit.name;
+    }
+    return undefined;
+  };
+
+  const lockedTimeCharge = React.useMemo(
+    () => (v2Checkout && cartOwnerTable && v2Checkout.tableId === cartOwnerTable.id
+      ? { amount: v2Checkout.amount, label: v2Checkout.label, checkoutAt: v2Checkout.checkoutAt }
+      : undefined),
+    [v2Checkout, cartOwnerTable]
+  );
+
   // Thanh toán Bán lẻ
 
   // Khôi phục cache local
@@ -3453,5 +4156,13 @@ export function useTableManager(props: UseTableManagerProps) {
     dismissTableConflict,
     openPendingConflict,
     pendingConflictTableIds,
+    // Table sync v2
+    isV2Table,
+    beginTableOrdering,
+    takeOrderingBaseCart,
+    cancelV2Table,
+    tableNameOfSession,
+    itemNameOfSession,
+    lockedTimeCharge,
   };
 }

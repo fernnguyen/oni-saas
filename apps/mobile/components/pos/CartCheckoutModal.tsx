@@ -46,6 +46,8 @@ interface CartCheckoutModalProps {
   shopVertical?: string;
   onUpdateTime?: (type: 'checkin' | 'checkout', iso: string) => void;
   onEditItemSave?: (cartItemId: string, finalPrice: number, originalPrice: number, discountAmt: number, discountPct: number) => void;
+  /** Table sync v2: time charge locked by a server quote (or an offline provisional close). Retail never passes it. */
+  lockedTimeCharge?: { amount: number; label: string; checkoutAt: string };
 }
 
 export function formatCurrency(value: number): string {
@@ -92,7 +94,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     cartOwnerTable,
     shopVertical,
     onUpdateTime,
-    onEditItemSave
+    onEditItemSave,
+    lockedTimeCharge
   } = props;
   const checkoutSessionLabels = getCheckoutSessionLabels(shopVertical);
 
@@ -215,10 +218,14 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     };
   }
   const frozenCheckoutTime: Date | null = frozenCheckoutRef.current?.time || null;
-  const effectiveCheckoutTime: Date | null = customCheckoutTime || frozenCheckoutTime;
+  const lockedCheckoutTime = React.useMemo(
+    () => (lockedTimeCharge?.checkoutAt ? new Date(lockedTimeCharge.checkoutAt) : null),
+    [lockedTimeCharge?.checkoutAt]
+  );
+  const effectiveCheckoutTime: Date | null = lockedCheckoutTime || customCheckoutTime || frozenCheckoutTime;
   const [timePickerType, setTimePickerType] = useState<'checkin' | 'checkout'>('checkin');
 
-  const calculateBilling = React.useCallback((table: any, customCheckoutTime?: Date, currentRentalType?: 'hourly' | 'overnight' | 'daily') => {
+  const calculateBillingLocal = React.useCallback((table: any, customCheckoutTime?: Date, currentRentalType?: 'hourly' | 'overnight' | 'daily') => {
     if (!table.startTime) return { hours: 0, minutes: 0, cost: 0, label: '0h 0p', details: '' };
 
     let rmd: any = {};
@@ -316,6 +323,22 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     };
   }, [localChargeByMinute]);
 
+  // Table sync v2: the server quote (or provisional amount) is the only time charge; never recompute it here
+  const calculateBilling = React.useCallback((table: any, customCheckoutTime?: Date, currentRentalType?: 'hourly' | 'overnight' | 'daily') => {
+    if (lockedTimeCharge) {
+      return {
+        hours: 0,
+        minutes: 0,
+        cost: lockedTimeCharge.amount,
+        qty: 1,
+        unitPrice: lockedTimeCharge.amount,
+        label: lockedTimeCharge.label,
+        details: '',
+      };
+    }
+    return calculateBillingLocal(table, customCheckoutTime, currentRentalType);
+  }, [lockedTimeCharge, calculateBillingLocal]);
+
   const localCartTotal = React.useMemo(() => {
     return Object.entries(cart).reduce((sum, [key, item]) => {
       if (key === 'TIME_CHARGE') {
@@ -383,12 +406,13 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
       console.warn('Cannot parse table metadata:', e);
     }
     if (rmd.actual_checkout_requested_at) return;
+    if (lockedTimeCharge) return;
 
     const interval = setInterval(() => {
       setCurrentTime(new Date());
     }, 10000);
     return () => clearInterval(interval);
-  }, [visible, cartOwnerTable]);
+  }, [visible, cartOwnerTable, lockedTimeCharge]);
 
   const billingInfo = React.useMemo(() => {
     if (!cartOwnerTable || !cartOwnerTable.startTime) return null;
@@ -404,7 +428,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
     const rentalType = localRentalType;
     const checkInDate = new Date(cartOwnerTable.startTime);
-    const actualCheckout = customCheckoutTime || (rmd.actual_checkout_requested_at ? new Date(rmd.actual_checkout_requested_at) : (frozenCheckoutTime || currentTime));
+    const actualCheckout = lockedCheckoutTime || customCheckoutTime || (rmd.actual_checkout_requested_at ? new Date(rmd.actual_checkout_requested_at) : (frozenCheckoutTime || currentTime));
     const checkOutDate = actualCheckout;
 
     let durationLabel = '';
@@ -440,10 +464,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     return {
       checkIn: formatDateTime(checkInDate),
       checkOut: formatDateTime(checkOutDate),
-      duration: durationLabel,
+      duration: lockedTimeCharge ? lockedTimeCharge.label : durationLabel,
       rentalType
     };
-  }, [cartOwnerTable, currentTime, customCheckoutTime, frozenCheckoutTime, localRentalType]);
+  }, [cartOwnerTable, currentTime, customCheckoutTime, frozenCheckoutTime, localRentalType, lockedTimeCharge, lockedCheckoutTime]);
   const [selectingFundRow, setSelectingFundRow] = useState<{ rowId: string; idx: number; matchingFunds: any[] } | null>(null);
   const [hidePrepaidSuggest, setHidePrepaidSuggest] = useState(false);
   const [hideDebtRepaySuggest, setHideDebtRepaySuggest] = useState(false);
@@ -1058,7 +1082,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
                   </View>
 
-                   {shopVertical === 'lodging' && (
+                   {shopVertical === 'lodging' && !lockedTimeCharge && (
                     <View className="flex-row bg-slate-200/50 p-0.5 rounded-lg border border-slate-200 mb-3">
                       <Pressable
                         onPress={() => setLocalRentalType('hourly')}
@@ -1136,14 +1160,14 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                   <View className="space-y-2 mt-2">
                     <View className="flex-row justify-between items-center bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                       <Text className="text-xs font-semibold text-slate-500">Giờ vào:</Text>
-                      <TouchableOpacity onPress={() => { setTimePickerType('checkin'); setIsTimePickerOpen(true); }} className="flex-row items-center gap-2 active:opacity-60 bg-white px-3 py-1.5 rounded-md border border-slate-200">
+                      <TouchableOpacity disabled={!!lockedTimeCharge} onPress={() => { setTimePickerType('checkin'); setIsTimePickerOpen(true); }} className="flex-row items-center gap-2 active:opacity-60 bg-white px-3 py-1.5 rounded-md border border-slate-200">
                         <Text className="text-xs font-bold text-slate-800">{billingInfo?.checkIn || 'N/A'}</Text>
                         <Ionicons name="pencil" size={12} color="#94a3b8" />
                       </TouchableOpacity>
                     </View>
                     <View className="flex-row justify-between items-center bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                       <Text className="text-xs font-semibold text-slate-500">Giờ ra:</Text>
-                      <TouchableOpacity onPress={() => { setTimePickerType('checkout'); setIsTimePickerOpen(true); }} className="flex-row items-center gap-2 active:opacity-60 bg-white px-3 py-1.5 rounded-md border border-slate-200">
+                      <TouchableOpacity disabled={!!lockedTimeCharge} onPress={() => { setTimePickerType('checkout'); setIsTimePickerOpen(true); }} className="flex-row items-center gap-2 active:opacity-60 bg-white px-3 py-1.5 rounded-md border border-slate-200">
                         <Text className="text-xs font-bold text-slate-800">{billingInfo?.checkOut || 'N/A'}</Text>
                         <Ionicons name="pencil" size={12} color="#94a3b8" />
                       </TouchableOpacity>
@@ -1152,7 +1176,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                       <Text className="text-xs text-slate-500">Tổng thời gian:</Text>
                       <Text className="text-xs font-bold text-emerald-600">{billingInfo?.duration || '0'}</Text>
                     </View>
-                    {localRentalType === 'hourly' && (Number(cartOwnerTable?.hourly_rate) > 0 || parsedRoomMeta?.advanced_pricing?.enabled) && (
+                    {!lockedTimeCharge && localRentalType === 'hourly' && (Number(cartOwnerTable?.hourly_rate) > 0 || parsedRoomMeta?.advanced_pricing?.enabled) && (
                       <View className="flex-row justify-between items-center border-t border-slate-200 pt-2.5 mt-1">
                         <Text className="text-xs font-medium text-slate-700">Tính tiền theo từng phút thực tế:</Text>
                         <Switch value={localChargeByMinute} onValueChange={setLocalChargeByMinute} />
