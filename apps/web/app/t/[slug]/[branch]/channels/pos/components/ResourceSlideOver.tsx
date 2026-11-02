@@ -176,6 +176,8 @@ export function ResourceSlideOver({
   const [order, setOrder] = useState<OrderData | null>(null)
   const [existingItems, setExistingItems] = useState<OrderItem[]>([])
   const [loadingOrder, setLoadingOrder] = useState(false)
+  // Skeletons only for the first load; background refreshes (poll, realtime, sync) stay silent
+  const showOrderSkeleton = loadingOrder && !order
   const [elapsed, setElapsed] = useState(0)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [customCheckoutTime, setCustomCheckoutTime] = useState<string>('')
@@ -2261,7 +2263,7 @@ export function ResourceSlideOver({
                                     Thay đổi
                                   </button>
                                 </div>
-                                {loadingOrder ? (
+                                {showOrderSkeleton ? (
                                   <div className="h-5 w-32 bg-slate-200 rounded animate-pulse mt-1" />
                                 ) : (
                                   <p className="text-sm font-bold text-slate-900">
@@ -2273,7 +2275,7 @@ export function ResourceSlideOver({
                               {!resource.id.startsWith('takeaway') && (
                                 <div className="text-right">
                                   <p className="text-xs text-slate-500 mb-0.5">Đã sử dụng</p>
-                                  {loadingOrder ? (
+                                  {showOrderSkeleton ? (
                                     <div className="h-5 w-16 bg-slate-200 rounded animate-pulse ml-auto" />
                                   ) : (
                                     <p className="text-sm font-bold text-slate-900">{fmtDuration(elapsed)}</p>
@@ -2345,13 +2347,13 @@ export function ResourceSlideOver({
                           </div>
 
                           <div className="space-y-3 flex-1 overflow-y-auto">
-                            {loadingOrder && (
+                            {showOrderSkeleton && (
                               <div className="space-y-2">
                                 <div className="h-16 w-full bg-slate-100 rounded-xl animate-pulse" />
                                 <div className="h-16 w-full bg-slate-100 rounded-xl animate-pulse" />
                               </div>
                             )}
-                            {!loadingOrder && existingItems.length === 0 && (
+                            {!showOrderSkeleton && existingItems.length === 0 && (
                               <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-400">
                                 Chưa gọi món nào
                               </div>
@@ -2462,7 +2464,7 @@ export function ResourceSlideOver({
                           </div>
 
                           <div className="flex-1 overflow-y-auto min-h-[50px] max-h-[200px]">
-                            {loadingOrder ? (
+                            {showOrderSkeleton ? (
                               <div className="space-y-2">
                                 <div className="h-12 w-full bg-slate-100 rounded-lg animate-pulse" />
                               </div>
