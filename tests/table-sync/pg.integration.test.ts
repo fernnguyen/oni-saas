@@ -13,6 +13,7 @@ import {
   applyTableSessionOps,
   cancelTableSession,
   closeTableSessionForOrder,
+  endTableSessionForCancelledOrder,
   getTableSyncChanges,
   quoteTableSession,
   transferTableSession,
@@ -371,4 +372,20 @@ test('e2e: B checks out while A is offline → A\'s late items go to A\'s confli
   assert.equal(storeA.state.inbox[0].reason, 'session_not_open')
   const beer = (await pool.query(`SELECT count(*)::int AS n FROM order_items WHERE order_id = 'O-e2e2' AND product_id = 'P-BIA'`)).rows[0]
   assert.equal(beer.n, 0, 'late offline items never land in the paid order')
+})
+
+test('pg: cancelling an order through the legacy route ends its v2 session', { skip }, async () => {
+  await seedResource('T-lc1')
+  await seedSession('S-legacy-01', 'O-lc1', 'T-lc1', 'open')
+  await apply('S-legacy-01', 'dev-A', [add('lc1-beer')])
+  await pool.query(`UPDATE orders SET status = 'cancelled' WHERE id = 'O-lc1'`)
+  assert.equal(await endTableSessionForCancelledOrder(connector, BRANCH, 'O-lc1', { session_id: 'S-legacy-01' }), true)
+  assert.equal((await one(`SELECT status FROM table_sessions WHERE id = 'S-legacy-01'`)).status, 'cancelled')
+  // retail / legacy orders without session_id: no-op
+  assert.equal(await endTableSessionForCancelledOrder(connector, BRANCH, 'O-retail', { channel: 'pos' }), false)
+  // order still in progress: never ended
+  await seedResource('T-lc2')
+  await seedSession('S-legacy-02', 'O-lc2', 'T-lc2', 'open')
+  assert.equal(await endTableSessionForCancelledOrder(connector, BRANCH, 'O-lc2', { session_id: 'S-legacy-02' }), false)
+  assert.equal((await one(`SELECT status FROM table_sessions WHERE id = 'S-legacy-02'`)).status, 'open')
 })

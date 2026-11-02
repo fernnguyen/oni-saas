@@ -94,6 +94,8 @@ interface Props {
   existingOrder?: LocalOrder | null
   isAccommodation?: boolean
   roomMetadata?: Record<string, any>
+  /** Table sync v2 only: server-quoted time charge; when set, TIME_CHARGE is not recomputed here */
+  lockedTimeCharge?: { amount: number; label: string; qty?: number; unitPrice?: number }
 }
 
 const METHODS = [
@@ -229,6 +231,7 @@ export function CheckoutModal({
   existingOrder = null,
   isAccommodation = false,
   roomMetadata,
+  lockedTimeCharge,
 }: Props) {
   const confirm = useConfirm()
   const [localCustomer, setLocalCustomer] = useState(customer)
@@ -406,7 +409,17 @@ export function CheckoutModal({
     let result = items
     const roomName = metadata?.resource_name || roomMetadata?.name || ''
 
-    if (localRentalType === 'overnight') {
+    if (lockedTimeCharge) {
+      result = items.map(item => item.product_id === 'TIME_CHARGE'
+        ? {
+            ...item,
+            qty: lockedTimeCharge.qty ?? 1,
+            unit_price: lockedTimeCharge.unitPrice ?? lockedTimeCharge.amount,
+            line_total: lockedTimeCharge.amount,
+            variant_label: lockedTimeCharge.label,
+          }
+        : item)
+    } else if (localRentalType === 'overnight') {
       const overnightRate = Number(metadata?.overnight_rate) || Number(roomMetadata?.overnight_rate) || Number(hourlyRate * 3) || 200000
       const overnightGraceHours = Number(metadata?.overnight_grace_hours) || Number(roomMetadata?.overnight_grace_hours) || 0
       const checkInDate = new Date(metadata?.check_in || new Date())
@@ -509,7 +522,7 @@ export function CheckoutModal({
       if (b.product_id === 'TIME_CHARGE') return 1
       return 0
     })
-  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType, localChargeByMinute, timeTicker, roomMetadata, existingOrder])
+  }, [items, localCheckoutTime, customCheckoutTime, metadata, hourlyRate, localRentalType, localChargeByMinute, timeTicker, roomMetadata, existingOrder, lockedTimeCharge])
 
   const computedSubtotal = computedItems.reduce((s, it) => s + (it.line_total || 0), 0)
 
@@ -2009,6 +2022,8 @@ export function CheckoutModal({
         entity: 'order',
         payload: syncPayload,
         local_order_id: local_id,
+        // Table checkouts settle an existing order; retail has no orderId (stays undefined)
+        server_order_id: existingOrder?.server_id || orderId || undefined,
         retry_count: 0,
         created_at: now,
       }

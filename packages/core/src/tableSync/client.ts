@@ -329,7 +329,17 @@ export function createTableSyncOutbox(options: {
     })
   }
 
-  return { enqueueOpen, enqueueOps, flush, pending, resolveInbox, inbox: () => storage.loadInbox() }
+  /**
+   * Drop every queued entry of a session. Only for when those ops are already carried by another
+   * write (e.g. an offline provisional checkout that billed the same items).
+   */
+  function discardSession(sessionId: string) {
+    return locked(async () => {
+      await saveOutbox((await storage.loadOutbox()).filter((e) => e.session_id !== sessionId))
+    })
+  }
+
+  return { enqueueOpen, enqueueOps, flush, pending, resolveInbox, discardSession, inbox: () => storage.loadInbox() }
 }
 
 export type TableSyncOutbox = ReturnType<typeof createTableSyncOutbox>

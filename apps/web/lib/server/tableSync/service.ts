@@ -81,7 +81,8 @@ export async function openTableSession(connector: TxConnector, shopId: string, i
   const pre = await connector.withTransaction(async (tx) => {
     const existing = await findSessionById(tx, sessionId)
     if (existing) return { existing }
-    const occupied = await findOpenSessionForResource(tx, shopId, resourceId)
+    let occupied = await findOpenSessionForResource(tx, shopId, resourceId)
+    if (occupied && (await healSessionIfOrderClosed(tx, occupied))) occupied = null
     return { occupied }
   })
   if (pre.existing) {
@@ -196,6 +197,49 @@ export async function openTableSession(connector: TxConnector, shopId: string, i
   void broadcastTableSync(shopId, { session_id: sessionId, resource_id: resourceId, kind: 'session_opened', version: 1 })
 
   return { session: sessionResponse(outcome.row), created: true }
+}
+
+/**
+ * A session left `open` although its order was settled/cancelled through a legacy path (old app
+ * build, manual release…) would block the table forever. Close it to match the order.
+ * Returns true when the session was healed.
+ */
+async function healSessionIfOrderClosed(tx: TransactionClient, sessionRow: any): Promise<boolean> {
+  const orderId = String(sessionRow.order_id || '')
+  const [order] = orderId
+    ? await tx.query(`SELECT status FROM orders WHERE id = $1 AND tenant_id = $2`, [orderId, tx.tenantId ?? ''])
+    : []
+  const orderStatus = String(order?.status || '')
+  if (order && orderStatus !== 'completed' && orderStatus !== 'cancelled') return false
+  const nextStatus = orderStatus === 'completed' ? 'closed' : 'cancelled'
+  await tx.query(
+    `UPDATE table_sessions SET status = $1, check_out = COALESCE(check_out, $2), version = version + 1, updated_at = $3
+      WHERE id = $4 AND tenant_id = $5 AND status = 'open'`,
+    [nextStatus, new Date().toISOString(), getGMT7Time(), sessionRow.id, tx.tenantId ?? '']
+  )
+  await tx.query(
+    `INSERT INTO table_sync_events (tenant_id, branch_id, session_id, resource_id, kind, payload) VALUES ($1, $2, $3, $4, 'session_healed', $5)`,
+    [tx.tenantId ?? '', sessionRow.branch_id, sessionRow.id, sessionRow.resource_id, JSON.stringify({ order_id: orderId, order_status: orderStatus || 'missing', status: nextStatus })]
+  )
+  return true
+}
+
+/**
+ * Called by the legacy cancel route (`POST /orders/:id/cancel`) so a v2 session never outlives
+ * its cancelled order. No-op for orders without metadata.session_id.
+ */
+export async function endTableSessionForCancelledOrder(connector: IDataConnector, shopId: string, orderId: string, orderMetadata: unknown) {
+  const sessionId = String(parseMetadataSafe(orderMetadata).session_id || '')
+  if (!sessionId || typeof connector.withTransaction !== 'function') return false
+  const healed = await connector.withTransaction(async (tx) => {
+    const [row] = await tx.query(
+      `SELECT * FROM table_sessions WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND order_id = $4 AND status = 'open' FOR UPDATE`,
+      [sessionId, tx.tenantId ?? '', shopId, orderId]
+    )
+    return row ? healSessionIfOrderClosed(tx, row) : false
+  })
+  if (healed) void broadcastTableSync(shopId, { session_id: sessionId, kind: 'session_cancelled' })
+  return healed
 }
 
 export async function applyTableSessionOps(

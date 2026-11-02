@@ -5,7 +5,8 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CustomerSearch } from './CustomerSearch'
 import { SlideProductSearch } from './SlideProductSearch'
-import { getVerticalConfig, calculateHourlyBilling } from '@oni/core'
+import { getVerticalConfig, calculateHourlyBilling, generateClientId, isTimeChargeProduct, projectTableLines, tableSyncLineKey } from '@oni/core'
+import type { TableSyncV2Api } from '@/hooks/useTableSyncV2'
 import { CheckoutModal } from './CheckoutModal'
 import { ResourceIcon } from '@/app/components/layout/IndustryIcon'
 import { CustomerCreateModal } from './CustomerCreateModal'
@@ -83,6 +84,8 @@ interface Props {
   enableRealtimeSync?: boolean
   broadcastSyncEvent?: (eventAction?: string, payloadOverrides?: any) => void
   syncTick?: number
+  /** Table sync v2 client; null/disabled → legacy flow unchanged */
+  tableSync?: TableSyncV2Api | null
 }
 
 import { fmtDateTimeVN } from './CheckoutModal'
@@ -137,7 +140,8 @@ export function ResourceSlideOver({
   enableRealtimeSync = false,
   broadcastSyncEvent,
   syncTick = 0,
-  onOpenShiftModal
+  onOpenShiftModal,
+  tableSync = null,
 }: Props) {
   const tpl = resourceTemplate ?? DEFAULT_TEMPLATE
   const sec = tpl.sections
@@ -217,6 +221,51 @@ export function ResourceSlideOver({
   })
 
   function safeParse(str: any) { try { return JSON.parse(str || '{}') } catch { return {} } }
+
+  // ── Table sync v2 (docs/TABLE-SESSION-SYNC-PLAN.md 1.6) ──────────────────────
+  // Active only when the shop enabled table_sync_v2 AND this order belongs to a v2 session.
+  const v2 = tableSync?.enabled ? tableSync : null
+  const [v2OfflineSessionId, setV2OfflineSessionId] = useState('')
+  const [v2Quote, setV2Quote] = useState<any>(null)
+  const lastServerItemsRef = useRef<OrderItem[]>([])
+  const v2SessionId = v2 ? String(safeParse(order?.metadata).session_id || v2OfflineSessionId || '') : ''
+  const v2PendingOps = v2 && v2SessionId
+    ? v2.pendingFor(v2SessionId).flatMap((e) => (e.kind === 'op' ? [e.op] : []))
+    : []
+
+  /** Server lines (minus the quoted time-charge line) with this device's pending ops applied */
+  function mergeV2Items(serverItems: OrderItem[]): OrderItem[] {
+    const base = serverItems.filter((it) => !isTimeChargeProduct(it.product_id, it.product_name))
+    if (v2PendingOps.length === 0) return base
+    const byId = new Map(base.map((it) => [String(it.id), it]))
+    return projectTableLines(base as any[], v2PendingOps).map((l) => {
+      const lineTotal = String((l.unit_price + l.modifier_total) * l.qty)
+      const orig = l.item_id ? byId.get(l.item_id) : undefined
+      if (orig) return l.pending ? { ...orig, qty: String(l.qty), line_total: lineTotal } : orig
+      return {
+        id: `pending-${l.line_key}`, product_id: l.product_id, product_name: l.product_name, sku: '',
+        qty: String(l.qty), unit_price: String(l.unit_price), line_total: lineTotal,
+        variant_label: l.variant_label, modifiers: l.modifiers, modifier_total: String(l.modifier_total),
+      } as OrderItem
+    })
+  }
+  const mergeV2ItemsRef = useRef(mergeV2Items)
+  mergeV2ItemsRef.current = mergeV2Items
+
+  const v2LineRef = (i: OrderItem): { item_id?: string; line_key?: string } => {
+    const id = String(i.id || '')
+    return id && !id.startsWith('pending-') && !id.startsWith('temp-')
+      ? { item_id: id }
+      : { line_key: tableSyncLineKey(i.product_id, (i as any).variant_label, (i as any).modifiers) }
+  }
+
+  async function v2Enqueue(ops: Parameters<TableSyncV2Api['enqueueOps']>[1]) {
+    if (!v2 || !v2SessionId) return
+    await v2.enqueueOps(v2SessionId, ops)
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.warning('Mất mạng: thao tác được lưu trên máy này và tự gửi khi có mạng lại.', { id: 'v2-offline' })
+    }
+  }
 
   const meta = safeParse(resource.metadata)
   const isOccupied = resource.status === 'occupied' || resource.status === 'checking_out'
@@ -424,13 +473,25 @@ export function ResourceSlideOver({
       if (meta.note || oData.note) setNote(meta.note || oData.note || '')
       if (meta.expected_checkout) setExpectedCheckout(meta.expected_checkout)
     }
-    setExistingItems(items)
+    lastServerItemsRef.current = items
+    setExistingItems(tableSync?.enabled ? mergeV2ItemsRef.current(items) : items)
     setInstallments(payments)
 
     if (isOffline) {
       toast.warning("Mất kết nối mạng. Dữ liệu bàn được lấy từ bộ nhớ tạm cục bộ.")
     }
   }, [isOccupied, resource.current_order_id, shopId, syncOfflineActions])
+
+  // v2: re-read the server once this session's queued ops are all acknowledged
+  const v2PendingCount = v2PendingOps.length
+  const prevV2PendingRef = useRef(0)
+  useEffect(() => {
+    if (prevV2PendingRef.current > 0 && v2PendingCount === 0 && open) {
+      fetchingRef.current = ''
+      void fetchOrder()
+    }
+    prevV2PendingRef.current = v2PendingCount
+  }, [v2PendingCount, open, fetchOrder])
 
   const handleManualRefresh = useCallback(async () => {
     onRefresh?.()
@@ -616,6 +677,61 @@ export function ResourceSlideOver({
         bed_type: resourceMeta.bed_type,
       }
 
+      if (v2) {
+        const sessionId = generateClientId()
+        const openPayload = {
+          session_id: sessionId,
+          resource_id: resource.id,
+          check_in: checkInMeta.check_in,
+          customer_id: customer?.customer_id?.startsWith('virtual:') ? '' : (customer?.customer_id || ''),
+          customer_name: customerName,
+          rental_type: rentalType,
+          metadata: checkInMeta as Record<string, unknown>,
+        }
+        let openedOrderId = ''
+        try {
+          const r = await fetch(`/api/shops/${shopId}/table-sessions/open`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...openPayload, device_id: v2.deviceId }),
+          })
+          const body = await r.json().catch(() => ({}))
+          if (r.status === 409 && body?.error === 'resource_occupied') {
+            toast.error(`${resource.name} vừa được mở trên thiết bị khác. Đang tải lại…`)
+            onRefresh?.()
+            return
+          }
+          if (!r.ok) throw Object.assign(new Error(body?.message || 'Lỗi mở bàn'), { isHttp: true })
+          openedOrderId = String(body?.session?.order_id || '')
+        } catch (err: any) {
+          if (err?.isHttp) throw err
+          // Network failure: open offline through the outbox (session id stays the same)
+          await v2.openSession(openPayload)
+          setV2OfflineSessionId(sessionId)
+          setOrder({
+            id: '', order_no: '', status: 'in_progress', customer_id: openPayload.customer_id, customer_name: customerName,
+            subtotal: '0', total_amount: '0', paid_amount: '0', debt_amount: '0',
+            metadata: JSON.stringify({ ...checkInMeta, session_id: sessionId }), created_at: checkInMeta.check_in,
+          } as any)
+          lastServerItemsRef.current = []
+          setExistingItems([])
+          setInstallments([])
+          toast.warning(`Mất mạng: đã mở ${resource.name} trên máy này, sẽ đồng bộ khi có mạng lại.`)
+          onCheckInSuccess('')
+          return
+        }
+        const orderRes = await fetch(`/api/shops/${shopId}/orders/${openedOrderId}`).catch(() => null)
+        const openedOrder = orderRes?.ok ? await orderRes.json() : { id: openedOrderId, metadata: JSON.stringify({ ...checkInMeta, session_id: sessionId }) }
+        fetchingRef.current = openedOrderId
+        setOrder(openedOrder)
+        lastServerItemsRef.current = []
+        setExistingItems([])
+        setInstallments([])
+        toast.success(`${tpl.actions.checkIn}: ${resource.name}`)
+        onCheckInSuccess(openedOrderId)
+        return
+      }
+
       const res = await fetch(`/api/shops/${shopId}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -769,6 +885,32 @@ export function ResourceSlideOver({
     const unitPrice = Number(item.unit_price) + (item.modifier_total || 0)
     const sig = getSig(item)
 
+    if (v2 && v2SessionId) {
+      const modifiersStr = typeof item.modifiers === 'string' ? item.modifiers : JSON.stringify(item.modifiers || [])
+      const existingLine = existingItems.find(i => getSig(i) === sig)
+      setExistingItems(existingLine
+        ? existingItems.map(i => getSig(i) === sig ? { ...i, qty: String(Number(i.qty) + item.qty), line_total: String((Number(i.qty) + item.qty) * unitPrice) } : i)
+        : [...existingItems, {
+            id: `pending-${tableSyncLineKey(item.product_id, item.variant_label, modifiersStr)}`,
+            product_id: item.product_id, product_name: item.product_name, sku: item.sku || '',
+            qty: String(item.qty), unit_price: String(item.unit_price), line_total: String(unitPrice * item.qty),
+            variant_label: item.variant_label || '', modifiers: modifiersStr, modifier_total: String(item.modifier_total || 0),
+          } as OrderItem])
+      await v2Enqueue([{
+        type: 'add_item',
+        product_id: item.product_id,
+        product_name: item.product_name,
+        sku: item.sku || '',
+        unit_price: Number(item.unit_price),
+        qty: item.qty,
+        variant_label: item.variant_label || '',
+        modifiers: item.modifiers || '',
+        modifier_total: Number(item.modifier_total || 0),
+      }])
+      toast.success(`Đã thêm ${item.product_name}`)
+      return
+    }
+
     const existingInDb = existingItems.find(i => getSig(i) === sig)
     if (existingInDb) {
       const newQty = Number(existingInDb.qty) + item.qty
@@ -886,6 +1028,11 @@ export function ResourceSlideOver({
     const newLineTotal = newQty * up
     clone[idx] = { ...p, qty: String(newQty), line_total: String(newLineTotal) }
     setExistingItems(clone)
+
+    if (v2 && v2SessionId) {
+      await v2Enqueue([{ type: 'change_qty', ...v2LineRef(p), delta }])
+      return
+    }
     localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(clone))
 
     try {
@@ -914,6 +1061,27 @@ export function ResourceSlideOver({
     if (!order) return
     const dirtyIds = Object.keys(dirtyItems)
     if (dirtyIds.length === 0) return
+
+    if (v2 && v2SessionId) {
+      // Inline edits are absolute quantities; send the difference vs. the last server state
+      const ops: Parameters<TableSyncV2Api['enqueueOps']>[1] = []
+      for (const id of dirtyIds) {
+        const item = existingItems.find(i => i.id === id)
+        if (!item) continue
+        const server = lastServerItemsRef.current.find(i => i.id === id)
+        const target = Number(item.qty) || 0
+        if (target <= 0) ops.push({ type: 'remove_item', ...v2LineRef(item) })
+        else {
+          const delta = target - (Number(server?.qty) || 0)
+          if (delta !== 0) ops.push({ type: 'change_qty', ...v2LineRef(item), delta })
+        }
+      }
+      setDirtyItems({})
+      if (ops.length > 0) await v2Enqueue(ops)
+      toast.success('Đã cập nhật số lượng')
+      return
+    }
+
     setSavingDirty(true)
     try {
       for (const id of dirtyIds) {
@@ -1018,6 +1186,15 @@ export function ResourceSlideOver({
       return newD
     })
 
+    if (v2 && v2SessionId) {
+      const item = existingItems.find(i => i.id === itemId)
+      if (item) await v2Enqueue([{ type: 'remove_item', ...v2LineRef(item) }])
+      toast.success('Đã xóa món')
+      setDeletingItemId(null)
+      setConfirmDeleteId(null)
+      return
+    }
+
     try {
       if (itemId.startsWith('temp-')) {
         pushOfflineAction(order.id, { type: 'DELETE', itemId })
@@ -1045,6 +1222,10 @@ export function ResourceSlideOver({
       onOpenShiftModal?.()
       return
     }
+    if (v2 && v2SessionId) {
+      await handleV2PayClick()
+      return
+    }
     const queueKey = `offline_table_actions:${order.id}`
     const queueStr = localStorage.getItem(queueKey)
     if (queueStr) {
@@ -1067,7 +1248,54 @@ export function ResourceSlideOver({
     setCheckoutOpen(true)
   }
 
+  async function handleV2PayClick() {
+    if (!v2 || !order) return
+    if (!order.id) {
+      toast.error('Phiên bàn chưa lên máy chủ. Cần có mạng một lần để đồng bộ trước khi thanh toán.')
+      return
+    }
+    await v2.flush().catch(() => {})
+    const remaining = await v2.pendingCount(v2SessionId)
+    const offline = typeof navigator !== 'undefined' && !navigator.onLine
+    if (remaining > 0 || offline) {
+      const ok = await confirm({
+        title: 'Đóng tạm khi mất mạng',
+        description: `Còn ${remaining} thao tác chưa gửi được lên máy chủ. Bạn vẫn có thể thu tiền; đơn được ghi "đóng tạm" và máy chủ sẽ đối soát tiền giờ khi có mạng lại.`,
+        variant: 'default',
+      })
+      if (!ok) return
+      setV2Quote({ provisional: true })
+      setCheckoutOpen(true)
+      return
+    }
+    try {
+      const r = await fetch(`/api/shops/${shopId}/table-sessions/${v2SessionId}/quote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: v2.deviceId }),
+      })
+      const body = await r.json().catch(() => ({}))
+      if (r.status === 409 && body?.error === 'session_not_open') {
+        toast.info('Bàn này đã được thanh toán hoặc đóng trên thiết bị khác.')
+        onSessionClosed()
+        return
+      }
+      if (!r.ok) throw new Error(body?.message || 'Không lấy được báo giá tiền giờ')
+      setV2Quote(body)
+      fetchingRef.current = ''
+      await fetchOrder()
+      setCheckoutOpen(true)
+    } catch (e: any) {
+      toast.error(e?.message || 'Không lấy được báo giá tiền giờ')
+    }
+  }
+
   async function handleCheckoutSuccess() {
+    if (v2 && v2SessionId && v2Quote?.provisional) {
+      // The provisional checkout already billed the pending lines; don't replay them later
+      await v2.discardSession(v2SessionId).catch(() => {})
+    }
+    setV2Quote(null)
     if (!resource.id.startsWith('takeaway')) {
       try {
         const releaseStatus = (isAccommodation && !settings?.skip_cleaning_process) ? 'cleaning' : 'available'
@@ -1144,6 +1372,35 @@ export function ResourceSlideOver({
       variant: 'default',
     })
     if (!confirmed) return
+
+    if (v2 && v2SessionId) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        toast.error('Chuyển bàn cần có mạng (tránh hai máy cùng chuyển một phiên).')
+        return
+      }
+      setTransferring(true)
+      try {
+        const r = await fetch(`/api/shops/${shopId}/table-sessions/${v2SessionId}/transfer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_resource_id: targetId, device_id: v2.deviceId }),
+        })
+        const body = await r.json().catch(() => ({}))
+        if (!r.ok) {
+          toast.error(body?.error === 'target_occupied' ? `${targetResource?.name} vừa có khách trên thiết bị khác` : (body?.message || 'Lỗi khi chuyển'))
+          return
+        }
+        broadcastSyncEvent?.('TABLE_TRANSFERRED', { sourceTableId: resource.id, targetTableId: targetId, tableId: targetId })
+        toast.success(`Đã chuyển sang ${targetResource?.name}`)
+        setTransferModalOpen(false)
+        fetchingRef.current = ''
+        onRefresh?.()
+        onClose()
+      } finally {
+        setTransferring(false)
+      }
+      return
+    }
 
     setTransferring(true)
     try {
@@ -1226,6 +1483,7 @@ export function ResourceSlideOver({
 
   async function handleSplit(targetId: string) {
     if (!order || !resource.current_order_id) return
+    if (v2 && v2SessionId) { toast.info('Tách bàn chưa hỗ trợ ở chế độ đồng bộ v2.'); return }
     if (splitSelectedItems.size === 0) { toast.error('Vui lòng chọn ít nhất 1 món để tách'); return }
     setTransferring(true)
     const targetResource = allResources.find(r => r.id === targetId)
@@ -1323,6 +1581,7 @@ export function ResourceSlideOver({
 
   async function handleMerge(sourceId: string) {
     if (!order || !resource.current_order_id) return
+    if (v2 && v2SessionId) { toast.info('Gộp bàn chưa hỗ trợ ở chế độ đồng bộ v2.'); return }
     setTransferring(true)
     const sourceResource = allResources.find(r => r.id === sourceId)
     if (!sourceResource?.current_order_id) return
@@ -1497,16 +1756,18 @@ export function ResourceSlideOver({
         tax_group: (it as any).tax_group,
       }
     })
-    if (timeCharge > 0) {
+    const quotedCharge = v2Quote?.time_charge
+    const effectiveTimeCharge = quotedCharge ? Number(quotedCharge.amount) || 0 : timeCharge
+    if (effectiveTimeCharge > 0) {
       items.push({
         product_id: 'TIME_CHARGE',
-        product_name: activeRentalType === 'overnight' ? 'Tiền phòng (Qua đêm)' : `Tiền giờ sử dụng (${durationLabel})`,
+        product_name: activeRentalType === 'overnight' ? 'Tiền phòng (Qua đêm)' : `Tiền giờ sử dụng (${quotedCharge?.duration_label || durationLabel})`,
         sku: 'TIME_CHARGE',
         qty: 1,
-        unit_price: timeCharge,
+        unit_price: effectiveTimeCharge,
         cost_price: 0,
         discount_amount: 0,
-        line_total: timeCharge,
+        line_total: effectiveTimeCharge,
       })
     }
     return items
@@ -2554,7 +2815,7 @@ export function ResourceSlideOver({
         <CheckoutModal
           open={checkoutOpen}
           orderId={order.id}
-          onClose={() => setCheckoutOpen(false)}
+          onClose={() => { setCheckoutOpen(false); setV2Quote(null) }}
           onSuccess={handleCheckoutSuccess}
           onMinimize={() => {
             setCheckoutOpen(false)
@@ -2566,7 +2827,11 @@ export function ResourceSlideOver({
             phone: orderMeta?.customer_phone || ''
           } : null}
           onCustomerChange={handleCustomerSelect}
-          metadata={orderMeta || undefined}
+          metadata={orderMeta
+            ? (v2 && v2SessionId
+                ? { ...orderMeta, quote_id: v2Quote?.quote_id || undefined, provisional_close: v2Quote?.provisional ? true : undefined }
+                : orderMeta)
+            : undefined}
           roomMetadata={resource ? { name: resource.name, ...safeParse(resource.metadata) } : undefined}
           items={buildCheckoutItems() as any}
           subtotal={buildCheckoutItems().reduce((a, b) => a + b.line_total, 0)}
@@ -2580,9 +2845,17 @@ export function ResourceSlideOver({
           employeeId={employeeId}
           isOnline={true}
           autoPrintReceipt={autoPrintReceipt}
-          customCheckoutTime={customCheckoutTime}
+          customCheckoutTime={v2Quote?.checkout_at || customCheckoutTime}
           hourlyRate={hourlyRate}
           isAccommodation={resource.type === 'room'}
+          lockedTimeCharge={v2Quote?.time_charge ? {
+            amount: Number(v2Quote.time_charge.amount) || 0,
+            label: v2Quote.time_charge.duration_label,
+            qty: v2Quote.time_charge.unit === 'hour' ? 1 : Number(v2Quote.time_charge.qty) || 1,
+            unitPrice: v2Quote.time_charge.unit === 'hour'
+              ? Number(v2Quote.time_charge.amount) || 0
+              : (Number(v2Quote.time_charge.amount) || 0) / (Number(v2Quote.time_charge.qty) || 1),
+          } : undefined}
         />
       )}
       {/* Resource Picker Modal for Transfer */}
@@ -2850,6 +3123,10 @@ export function ResourceSlideOver({
         item={editingItem ? { product_name: editingItem.product_name, qty: Number(editingItem.qty), unit_price: Number(editingItem.unit_price), discount_amount: Number(editingItem.discount_amount || 0) } : null}
         onConfirm={async (up, da) => {
           if (!editingItem) return
+          if (v2 && String(editingItem.id || '').startsWith('pending-')) {
+            toast.error('Món này chưa đồng bộ lên máy chủ. Vui lòng sửa giá sau khi có mạng.')
+            return
+          }
           const newLineTotal = (up - da + Number(editingItem.modifier_total || 0)) * Number(editingItem.qty)
           
           const newItems = existingItems.map(i => i.id === editingItem.id ? { ...i, unit_price: String(up), discount_amount: String(da), line_total: String(newLineTotal) } : i)

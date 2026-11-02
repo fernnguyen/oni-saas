@@ -233,6 +233,16 @@ export async function POST(
       }).catch(() => {})
     })
 
+    // Table sync v2: end the session of this order (no-op without metadata.session_id)
+    if (parseMetadataSafe((order as Record<string, any>).metadata).session_id) {
+      try {
+        const { endTableSessionForCancelledOrder } = await import('@/lib/server/tableSync/service')
+        await endTableSessionForCancelledOrder(connector, shopId, id, (order as Record<string, any>).metadata)
+      } catch (err) {
+        console.error('[cancel] Failed to end table sync v2 session:', err)
+      }
+    }
+
     // 4. Auto-release physical resource if this cancelled order was occupying a table/room
     const cancelledResId = resolveOrderResourceId(order as Record<string, any>)
     if (cancelledResId && !cancelledResId.startsWith('takeaway')) {
