@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform, Alert } from 'react-native';
+import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { db } from '../../lib/db/client';
 import * as schema from '../../lib/db/schema';
@@ -41,6 +41,8 @@ export interface UseTableManagerProps {
   tableSync?: MobileTableSyncV2Api;
   /** Re-pull the table layout from the server (used by table sync v2) */
   refreshTables?: () => void;
+  /** In-app dialog (PosDialog) used instead of native Alert in the table / checkout flows */
+  dialog: PosDialogApi;
 }
 
 import { CartItem } from '../../app/(tabs)/pos';
@@ -50,6 +52,8 @@ import { callTableSessionApi } from '../../lib/pos/tableSyncV2';
 import { diffCartToOps, v2LinesToCart } from '../../lib/pos/tableCartV2';
 import type { MobileTableSyncV2Api } from './useTableSyncV2';
 import { LodgingGuest } from '../../components/pos/LodgingGuestsForm';
+import type { PosDialogApi } from '../../components/pos/PosDialog';
+import { getResourceDisplayName, getResourceNouns } from '../../lib/pos/resourceLabels';
 
 // Phân tích mốc check_in (ms). Chuỗi naive (không Z/offset) có thể là giờ GMT+7 hoặc UTC
 // tuỳ nơi ghi -> trả về cả 2 cách hiểu để so sánh không bị lệch 7 tiếng.
@@ -110,7 +114,8 @@ export function useTableManager(props: UseTableManagerProps) {
   const { 
     tables, setTables, shopVertical, activeShopId, 
     showToast, setCart, setDiscountAmount, setOrderNote, setSelectedCustomer, setIsPreviewModalOpen,
-    isNavReady, isLoading, isOnline, checkIsQrPayment, currentUserEmail, productsList, paymentFundsList, customersList, selectedCustomer, setPaymentRows, handleCheckoutPress, setIsCartModalOpen, setQrPayload, setIsQrModalOpen, broadcastSync, tableSync, refreshTables } = props;
+    isNavReady, isLoading, isOnline, checkIsQrPayment, currentUserEmail, productsList, paymentFundsList, customersList, selectedCustomer, setPaymentRows, handleCheckoutPress, setIsCartModalOpen, setQrPayload, setIsQrModalOpen, broadcastSync, tableSync, refreshTables, dialog } = props;
+  const resourceNouns = getResourceNouns(shopVertical);
 
   const [activeTable, setActiveTable] = useState<any>(null);
 
@@ -139,6 +144,15 @@ export function useTableManager(props: UseTableManagerProps) {
   const [lodgingGuests, setLodgingGuests] = useState<LodgingGuest[]>([{ name: '', id_type: 'CCCD', id_number: '', expiry_date: '', nationality: 'Việt Nam', dob: '', gender: '', address: '', note: '' }]);
   const [isSyncingTableSession, setIsSyncingTableSession] = useState<boolean>(false);
   const [isOpeningTable, setIsOpeningTable] = useState<boolean>(false);
+  // "Nhận bàn" dialog: inline error + double-tap guard + hand-off to the table detail modal
+  const [openTableError, setOpenTableError] = useState<string | null>(null);
+  const openTableInFlightRef = React.useRef(false);
+  const openHandoffTableRef = React.useRef<any>(null);
+  const openHandoffTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tableOpenHandoff, setTableOpenHandoff] = useState(false);
+  // "Thanh toán" on a table: flush + server quote before the checkout modal appears
+  const [isPreparingTablePay, setIsPreparingTablePay] = useState(false);
+  const payPrepInFlightRef = React.useRef(false);
   // Theo dõi các bàn đang trong quá trình mở/chuyển để chống race condition thoát bàn khi Cloud chưa kịp cập nhật
   const openingTableIdsRef = React.useRef<Set<string>>(new Set());
   // Theo dõi các bàn đang đẩy món lên Server để tránh poll ngầm ghi đè lúc đang lưu
@@ -1113,7 +1127,7 @@ export function useTableManager(props: UseTableManagerProps) {
       }
 
       if (!effectiveOrderId) {
-        throw new Error('Không tìm thấy mã đơn hàng của phòng/bàn để đồng bộ món');
+        throw new Error(`Không tìm thấy mã đơn hàng của ${resourceNouns.noun} để đồng bộ món`);
       }
 
       const serverItemsRes = await fetch(`${currentUrl}/api/shops/${shopId}/order-items?order_id=${effectiveOrderId}&limit=200&t=${Date.now()}`, {
@@ -1310,7 +1324,7 @@ export function useTableManager(props: UseTableManagerProps) {
             return copy;
           });
 
-          showToast("Phòng/bàn đã được thanh toán và trả trên hệ thống!", "info");
+          showToast(`${getResourceDisplayName(table, shopVertical)} đã được thanh toán và trả trên hệ thống!`, "info");
           return { isFinished: true };
         }
 
@@ -1947,9 +1961,49 @@ export function useTableManager(props: UseTableManagerProps) {
       await syncActiveTableSession(table);
       setIsSyncingTableSession(false);
     } else {
+      if (openTableInFlightRef.current) return;
+      setOpenTableError(null);
       setSelectedTableForOpen(table);
       setIsTableOpenDialogVisible(true);
     }
+  };
+
+  /**
+   * After a successful open: close the "Nhận bàn" dialog, then present the table detail modal
+   * (billing tab, "Gọi món / Dịch vụ"). iOS can present only one RN Modal at a time, so the detail
+   * modal is opened from the dialog Modal's onDismiss (completeOpenTableHandoff); a timer is the
+   * safety net (and the trigger on Android/web, which have no such restriction).
+   * tableOpenHandoff keeps a dimmed layer over the table map in between (no flash of the map).
+   */
+  const handOffToOpenedTable = (openedTable: any) => {
+    openHandoffTableRef.current = openedTable;
+    setTableOpenHandoff(true);
+    // Next frame: the dialog switches to a fade-out first, then closes
+    requestAnimationFrame(() => setIsTableOpenDialogVisible(false));
+    if (openHandoffTimerRef.current) clearTimeout(openHandoffTimerRef.current);
+    openHandoffTimerRef.current = setTimeout(() => completeOpenTableHandoff(), Platform.OS === 'ios' ? 900 : 120);
+  };
+
+  const completeOpenTableHandoff = () => {
+    if (openHandoffTimerRef.current) {
+      clearTimeout(openHandoffTimerRef.current);
+      openHandoffTimerRef.current = null;
+    }
+    const openedTable = openHandoffTableRef.current;
+    if (!openedTable) return;
+    openHandoffTableRef.current = null;
+    setSelectedTableForOpen(null);
+    setCheckInTab('info');
+    setIsOpeningTable(false);
+    openTableInFlightRef.current = false;
+    void handleTablePress(openedTable);
+    // Safety: never leave the dimmed hand-off layer up if the detail modal never reports onShow
+    setTimeout(() => setTableOpenHandoff(false), 1500);
+  };
+
+  /** Table detail modal finished presenting: drop the hand-off dim layer */
+  const onActiveTableModalShown = () => {
+    setTableOpenHandoff(false);
   };
 
   // Cập nhật thông tin khách lưu trú của phòng đang ở
@@ -1963,16 +2017,16 @@ export function useTableManager(props: UseTableManagerProps) {
     // Dialog xác nhận an toàn trước khi cập nhật
     const confirmUpdate = Platform.OS === 'web'
       ? window.confirm("Bạn có chắc chắn muốn cập nhật thông tin khách lưu trú này?")
-      : await new Promise<boolean>((resolve) => {
-        Alert.alert(
-          "Xác nhận Cập nhật",
-          "Bạn có muốn cập nhật danh sách khách lưu trú này lên hệ thống?",
-          [
-            { text: "Hủy bỏ", onPress: () => resolve(false), style: "cancel" },
-            { text: "Đồng ý", onPress: () => resolve(true) }
-          ]
-        );
-      });
+      : (await dialog.confirm({
+        title: 'Xác nhận cập nhật',
+        message: `Cập nhật danh sách khách lưu trú của ${getResourceDisplayName(targetTable, shopVertical, false)} lên hệ thống?`,
+        tone: 'info',
+        icon: 'users',
+        actions: [
+          { key: 'cancel', label: 'Hủy bỏ', style: 'secondary' },
+          { key: 'ok', label: 'Đồng ý', style: 'primary' },
+        ],
+      })) === 'ok';
 
     if (!confirmUpdate) return;
 
@@ -2174,11 +2228,22 @@ export function useTableManager(props: UseTableManagerProps) {
   // Mở bàn
   const handleConfirmOpenTable = async () => {
     if (!selectedTableForOpen) return;
+    // Double-tap guard for the whole open (the request takes 1–2 s)
+    if (openTableInFlightRef.current) return;
+    openTableInFlightRef.current = true;
+    setIsOpeningTable(true);
+    setOpenTableError(null);
+    let handedOff = false;
     const targetTableForOpen = selectedTableForOpen;
     const targetCustomer = selectedCustomer;
     const targetGuestCount = roomGuestCount;
     const targetRoomRentalType = roomRentalType;
     const targetLodgingGuests = lodgingGuests;
+    const targetDisplayName = getResourceDisplayName(targetTableForOpen, shopVertical);
+    const failOpen = (message: string) => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => { });
+      setOpenTableError(message);
+    };
 
     try {
       const nowTime = Date.now();
@@ -2223,7 +2288,6 @@ export function useTableManager(props: UseTableManagerProps) {
       // Table sync v2: open through table-sessions/open (online) or the outbox (offline).
       // No SQLite in_progress order row and no deletion of other local orders (#2).
       if (v2) {
-        const roomLabelV2 = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn';
         const sessionId = generateClientId();
         const openPayload = {
           session_id: sessionId,
@@ -2242,15 +2306,13 @@ export function useTableManager(props: UseTableManagerProps) {
           const r = await callTableSessionApi(shopIdForOpen, '/open', 'POST', { ...openPayload, device_id: v2.deviceId });
           if (r.status === 409 && r.body?.error === 'resource_occupied') {
             openingTableIdsRef.current.delete(targetTableForOpen.id);
-            showToast(`${roomLabelV2} vừa được mở trên thiết bị khác. Đang tải lại…`, 'error');
-            setIsTableOpenDialogVisible(false);
-            setSelectedTableForOpen(null);
+            failOpen(`${targetDisplayName} vừa được mở trên thiết bị khác. Hãy đóng hộp thoại và chọn lại ${resourceNouns.noun} trên sơ đồ.`);
             refreshTablesThrottled();
             return;
           }
           if (r.status < 200 || r.status >= 300) {
             openingTableIdsRef.current.delete(targetTableForOpen.id);
-            showToast(r.body?.message || `Không thể mở ${roomLabelV2.toLowerCase()} (${r.status})`, 'error');
+            failOpen(r.body?.message || `Không thể mở ${targetDisplayName} (lỗi ${r.status}). Vui lòng thử lại.`);
             return;
           }
           openedOrderId = String(r.body?.session?.order_id || '');
@@ -2287,13 +2349,12 @@ export function useTableManager(props: UseTableManagerProps) {
           }
           return copy;
         });
-        setIsTableOpenDialogVisible(false);
-        setSelectedTableForOpen(null);
-        setCheckInTab('info');
+        handedOff = true;
+        handOffToOpenedTable({ ...targetTableForOpen, ...openedFields });
         if (openedOffline) {
-          showToast(`Mất mạng: đã mở ${roomLabelV2} ${targetTableForOpen.name} trên máy này, sẽ đồng bộ khi có mạng lại.`, 'info');
+          showToast(`Mất mạng: đã mở ${targetDisplayName} trên máy này, sẽ đồng bộ khi có mạng lại.`, 'info');
         } else {
-          showToast(`Đã nhận ${roomLabelV2} ${targetTableForOpen.name}!`, 'success');
+          showToast(`Đã nhận ${targetDisplayName}!`, 'success');
           broadcastSync?.({ event: 'TABLE_OPENED', tableId: targetTableForOpen.id, orderId: openedOrderId });
         }
         setTimeout(() => {
@@ -2385,12 +2446,16 @@ export function useTableManager(props: UseTableManagerProps) {
         return copy;
       });
 
-      setIsTableOpenDialogVisible(false);
-      setSelectedTableForOpen(null);
-      setCheckInTab('info');
+      handedOff = true;
+      handOffToOpenedTable({
+        ...targetTableForOpen,
+        status: 'occupied',
+        current_order_id: orderId,
+        startTime: nowTime,
+        metadata: openTableMeta,
+      });
 
-      const roomLabel = shopVertical === 'lodging' ? 'Phòng' : shopVertical === 'sports_court' ? 'Sân' : 'Bàn';
-      showToast(`Đã nhận ${roomLabel} ${targetTableForOpen.name}! Đang đồng bộ...`, 'info');
+      showToast(`Đã nhận ${targetDisplayName}! Đang đồng bộ...`, 'info');
 
       // 3. Đồng bộ trực tuyến lên Server Next.js ở chế độ nền
       if (isOnline) {
@@ -2493,7 +2558,7 @@ export function useTableManager(props: UseTableManagerProps) {
               setCartOwnerTable((prev: any) => prev && prev.id === targetTableForOpen.id ? { ...prev, current_order_id: serverOrderId, metadata: openTableMeta } : prev);
 
               if (patchRes.ok) {
-                showToast(`Đồng bộ thành công ${roomLabel} ${targetTableForOpen.name}!`, 'success');
+                showToast(`Đã đồng bộ ${targetDisplayName}!`, 'success');
               }
               broadcastSync?.({ event: 'TABLE_OPENED', tableId: targetTableForOpen.id, orderId: serverOrderId });
             }
@@ -2513,7 +2578,13 @@ export function useTableManager(props: UseTableManagerProps) {
     } catch (err) {
       openingTableIdsRef.current.delete(targetTableForOpen.id);
       console.error('Không thể mở bàn bi-a:', err);
-      showToast('Có lỗi xảy ra khi nhận phòng!', 'error');
+      failOpen(`Có lỗi xảy ra khi mở ${targetDisplayName}. Vui lòng thử lại.`);
+    } finally {
+      // Success keeps the loading state until the hand-off finishes (completeOpenTableHandoff)
+      if (!handedOff) {
+        openTableInFlightRef.current = false;
+        setIsOpeningTable(false);
+      }
     }
   };
 
@@ -2739,18 +2810,20 @@ export function useTableManager(props: UseTableManagerProps) {
       const lookup = (id: string) => productsList.find(p => p.id === id);
 
       if (pending > 0 || !isOnline) {
-        const ok = await new Promise<boolean>((resolve) => {
-          Alert.alert(
-            'Đóng tạm khi mất mạng',
-            `Còn ${pending} thao tác chưa gửi được lên máy chủ. Bạn vẫn có thể thu tiền; đơn được ghi "đóng tạm" và máy chủ sẽ đối soát tiền giờ khi có mạng lại.`,
-            [
-              { text: 'Huỷ', style: 'cancel', onPress: () => resolve(false) },
-              { text: 'Đóng tạm', onPress: () => resolve(true) },
-            ],
-            { cancelable: false }
-          );
+        const choice = await dialog.confirm({
+          title: 'Đóng tạm khi mất mạng',
+          message: pending > 0
+            ? `Còn ${pending} thao tác của ${getResourceDisplayName(table, shopVertical, false)} chưa gửi được lên máy chủ. Bạn vẫn có thể thu tiền; đơn được ghi "đóng tạm" và máy chủ sẽ đối soát tiền giờ khi có mạng lại.`
+            : `Máy đang mất mạng. Bạn vẫn có thể thu tiền ${getResourceDisplayName(table, shopVertical, false)}; đơn được ghi "đóng tạm" và máy chủ sẽ đối soát tiền giờ khi có mạng lại.`,
+          tone: 'warning',
+          icon: 'wifi-off',
+          dismissable: false,
+          actions: [
+            { key: 'cancel', label: 'Huỷ', style: 'secondary' },
+            { key: 'close', label: 'Đóng tạm', style: 'primary' },
+          ],
         });
-        if (!ok) return null;
+        if (choice !== 'close') return null;
         const checkoutAt = new Date();
         const meta = parseMetaSafe(table.metadata);
         const checkInIso = meta.check_in || (table.startTime ? new Date(table.startTime).toISOString() : checkoutAt.toISOString());
@@ -2817,7 +2890,33 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   };
 
+  /**
+   * "Thanh toán" on a table: shows a loading state on the button while the outbox is flushed and the
+   * time charge is quoted, and ignores repeated taps until the checkout modal is up.
+   */
   const triggerPayTable = async (table: any) => {
+    if (payPrepInFlightRef.current) return;
+    payPrepInFlightRef.current = true;
+    setIsPreparingTablePay(true);
+    let handedToCheckout = false;
+    try {
+      handedToCheckout = await preparePayTable(table);
+    } catch (err) {
+      console.warn('[POS] Không thể chuẩn bị thanh toán bàn:', err);
+      showToast('Không thể chuẩn bị thanh toán. Vui lòng thử lại.', 'error');
+    } finally {
+      const release = () => {
+        payPrepInFlightRef.current = false;
+        setIsPreparingTablePay(false);
+      };
+      // Keep the guard until the checkout modal has been asked to open (preparePayTable waits 400 ms)
+      if (handedToCheckout) setTimeout(release, 450);
+      else release();
+    }
+  };
+
+  /** Returns true when the checkout modal is being opened for the table. */
+  const preparePayTable = async (table: any): Promise<boolean> => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
 
     // Table sync v2: lock the time charge first (quote / provisional) and bill the server lines
@@ -2825,7 +2924,7 @@ export function useTableManager(props: UseTableManagerProps) {
     let v2Prepared: { lock: V2CheckoutLock; cart: Record<string, any> } | null = null;
     if (v2 && v2Session) {
       v2Prepared = await prepareV2Checkout(table, v2Session);
-      if (!v2Prepared) return;
+      if (!v2Prepared) return false;
     } else {
       setV2Checkout(null);
     }
@@ -2905,6 +3004,7 @@ export function useTableManager(props: UseTableManagerProps) {
         setIsCartModalOpen(true);
       });
     }, 400);
+    return true;
   };
 
   // Xác nhận Thanh toán bàn chơi / phòng lưu trú (Unified Flow)
@@ -2944,11 +3044,12 @@ export function useTableManager(props: UseTableManagerProps) {
       const { isTaxPeriodLocked } = await import('../../lib/utils/tax');
       const isLocked = await isTaxPeriodLocked(frozenCheckoutTime);
       if (isLocked) {
-        Alert.alert(
-          'Kỳ thuế đã khóa',
-          'Thời điểm thanh toán nằm trong kỳ thuế đã bị khóa sổ. Không thể tạo hóa đơn mới!'
-        );
         setIsPayingTableLoading(false);
+        void dialog.alert(
+          'Kỳ thuế đã khóa',
+          'Thời điểm thanh toán nằm trong kỳ thuế đã bị khóa sổ. Không thể tạo hóa đơn mới!',
+          'danger'
+        );
         return;
       }
       const selectedTableForPay = cartOwnerTable;
@@ -3343,7 +3444,7 @@ export function useTableManager(props: UseTableManagerProps) {
               paid_amount: Math.min(totalAmount, paidSum),
               debt_amount: Math.max(0, totalAmount - Math.min(totalAmount, paidSum)),
               resource_id: selectedTableForPay.id,
-              note: note || `Thanh toán phòng/bàn từ di động.`,
+              note: note || `Thanh toán ${resourceNouns.noun} từ di động.`,
               created_at: checkoutTimeStr,
               metadata: JSON.stringify({
                 resource_id: selectedTableForPay.id,
@@ -3527,7 +3628,7 @@ export function useTableManager(props: UseTableManagerProps) {
           showToast(
             r.body?.error === 'target_occupied'
               ? `${targetTable.name} vừa có khách trên thiết bị khác`
-              : (r.body?.message || 'Lỗi khi chuyển phòng bàn'),
+              : (r.body?.message || `Lỗi khi chuyển ${resourceNouns.noun}`),
             'error'
           );
           return;
@@ -3734,7 +3835,7 @@ export function useTableManager(props: UseTableManagerProps) {
     } catch (err) {
       openingTableIdsRef.current.delete(targetTableId);
       console.error('Lỗi chuyển phòng bàn:', err);
-      showToast("Có lỗi xảy ra khi chuyển phòng bàn", "error");
+      showToast(`Có lỗi xảy ra khi chuyển ${resourceNouns.noun}`, "error");
     }
   };
 
@@ -3753,7 +3854,7 @@ export function useTableManager(props: UseTableManagerProps) {
       const sourceOrderId = sourceTable.current_order_id;
       const targetOrderId = targetTable.current_order_id;
       if (!sourceOrderId || !targetOrderId) {
-        showToast("Cả hai phòng/bàn phải đang hoạt động để gộp!", "error");
+        showToast(`Cả hai ${resourceNouns.noun} phải đang hoạt động để gộp!`, "error");
         return;
       }
 
@@ -3984,7 +4085,7 @@ export function useTableManager(props: UseTableManagerProps) {
       showToast(`Đã gộp thành công từ ${sourceTable.name} sang ${targetTable.name}`, "success");
     } catch (err) {
       console.error('Lỗi gộp phòng bàn:', err);
-      showToast("Có lỗi xảy ra khi gộp phòng bàn", "error");
+      showToast(`Có lỗi xảy ra khi gộp ${resourceNouns.noun}`, "error");
     }
   };
 
@@ -4154,6 +4255,11 @@ export function useTableManager(props: UseTableManagerProps) {
     activeTableTab, setActiveTableTab,
     cartOwnerTable, setCartOwnerTable,
     isOpeningTable, setIsOpeningTable,
+    openTableError, setOpenTableError,
+    tableOpenHandoff,
+    completeOpenTableHandoff,
+    onActiveTableModalShown,
+    isPreparingTablePay,
     isSyncingTableSession, setIsSyncingTableSession,
     isPayingTableLoading,
     isUpdatingGuestsLoading,

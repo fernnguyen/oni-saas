@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Platform, Modal, Alert, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Platform, Modal, Pressable, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../ui/Button';
@@ -13,6 +13,7 @@ import { calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct 
 import { PosItemEditModal } from './PosItemEditModal';
 import { getCheckoutSessionLabels } from '../../lib/utils/resource-billing-presentation';
 import { PosDateTimePicker } from './PosDateTimePicker';
+import { PosDialogHost, usePosDialog } from './PosDialog';
 
 interface CartCheckoutModalProps {
   visible: boolean;
@@ -34,7 +35,7 @@ interface CartCheckoutModalProps {
   paymentFundsList: any[];
   productsList: any[];
   getCartCount: () => number;
-  onCheckout: (opts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date; rentalType?: 'hourly' | 'overnight' | 'daily'; chargeByMinute?: boolean }) => void; // Called to trigger final payment or show QR
+  onCheckout: (opts?: { debtRepayAmount?: number; debtFundId?: string; debtMethod?: string; customCheckoutTime?: Date; rentalType?: 'hourly' | 'overnight' | 'daily'; chargeByMinute?: boolean }) => void | Promise<void>; // Called to trigger final payment or show QR
   // Tích hợp realtime khách hàng
   shopId?: string;
   isOnline?: boolean;
@@ -89,7 +90,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     discountAmount, setDiscountAmount, orderNote, setOrderNote,
     selectedCustomer, setSelectedCustomer, customersList, setCustomersList,
     paymentRows, setPaymentRows, paymentFundsList, productsList, getCartCount, onCheckout,
-    shopId, isOnline = true, apiBaseUrl, apiHeaders, loading = false,
+    shopId, isOnline = true, apiBaseUrl, apiHeaders, loading: loadingProp = false,
     paymentMethodsList = [],
     cartOwnerTable,
     shopVertical,
@@ -97,6 +98,12 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     onEditItemSave,
     lockedTimeCharge
   } = props;
+  const dialog = usePosDialog();
+  // Chặn bấm thanh toán 2 lần: khoá từ lúc bấm "Xác nhận" tới khi onCheckout xong (kể cả 400 ms chờ đóng dialog)
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = React.useRef(false);
+  // `loading` = parent đang xử lý thanh toán HOẶC modal đang gửi → khoá đóng modal + mọi thao tác
+  const loading = loadingProp || isSubmitting;
   const checkoutSessionLabels = getCheckoutSessionLabels(shopVertical);
 
   const resolvedMethods = React.useMemo(() => {
@@ -513,7 +520,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
   const handleSaveQuickCustomer = async () => {
     if (!quickCustName || !quickCustPhone) {
-      Alert.alert('Thông báo', 'Vui lòng nhập Tên và Số điện thoại!');
+      void dialog.alert('Thiếu thông tin', 'Vui lòng nhập Tên và Số điện thoại!', 'warning');
       return;
     }
 
@@ -636,10 +643,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
         }
       }
       
-      Alert.alert('Thành công', 'Đã tạo và chọn khách hàng mới.');
+      void dialog.alert('Thành công', 'Đã tạo và chọn khách hàng mới.', 'success');
     } catch (err) {
       console.error('[CartCheckoutModal] Quick add customer error:', err);
-      Alert.alert('Lỗi', 'Không thể tạo khách hàng mới.');
+      void dialog.alert('Lỗi', 'Không thể tạo khách hàng mới.', 'danger');
     } finally {
       setIsQuickSaving(false);
     }
@@ -841,8 +848,9 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
   };
 
   const handlePressCheckout = () => {
+    if (loading || submittingRef.current) return;
     if (finalTotal <= 0) {
-      Alert.alert('Lỗi thanh toán', 'Không thể thanh toán hóa đơn 0 đồng.');
+      void dialog.alert('Lỗi thanh toán', 'Không thể thanh toán hóa đơn 0 đồng.', 'danger');
       return;
     }
     // 1. Kiểm tra khách lẻ (no selectedCustomer) dùng Ghi nợ hoặc Ví trả trước
@@ -850,20 +858,21 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
     const hasPrepaid = paymentRows.some((p) => (p.method === 'prepaid' || p.method?.startsWith('prepaid-')) && p.amount > 0);
 
     if (hasDebt && clampedDebtRepay > 0) {
-      Alert.alert(
+      void dialog.alert(
         'Không thể ghi nợ',
-        'Đơn đang thu nợ cũ của khách nên không thể đồng thời dùng phương thức Ghi nợ.'
+        'Đơn đang thu nợ cũ của khách nên không thể đồng thời dùng phương thức Ghi nợ.',
+        'warning'
       );
       return;
     }
 
     if (hasDebt && !selectedCustomer) {
-      Alert.alert('Lỗi thanh toán', 'Phương thức Ghi nợ yêu cầu phải chọn Khách hàng.');
+      void dialog.alert('Chưa chọn khách hàng', 'Phương thức Ghi nợ yêu cầu phải chọn Khách hàng.', 'warning');
       return;
     }
 
     if (hasPrepaid && !selectedCustomer) {
-      Alert.alert('Lỗi thanh toán', 'Phương thức Ví trả trước yêu cầu phải chọn Khách hàng.');
+      void dialog.alert('Chưa chọn khách hàng', 'Phương thức Ví trả trước yêu cầu phải chọn Khách hàng.', 'warning');
       return;
     }
 
@@ -874,9 +883,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
         .reduce((sum, p) => sum + p.amount, 0);
       const customerPrepaid = Number(activeCustomer?.prepaid_balance || 0);
       if (prepaidSpent > customerPrepaid) {
-        Alert.alert(
+        void dialog.alert(
           'Không đủ số dư ví',
-          `Số dư Ví trả trước của khách chỉ còn ${formatCurrency(customerPrepaid)}, không đủ để thanh toán ${formatCurrency(prepaidSpent)}.`
+          `Số dư Ví trả trước của khách chỉ còn ${formatCurrency(customerPrepaid)}, không đủ để thanh toán ${formatCurrency(prepaidSpent)}.`,
+          'warning'
         );
         return;
       }
@@ -884,9 +894,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
 
     // 3. Kiểm tra tổng số tiền đã trả
     if (paidSum < effectiveTotal) {
-      Alert.alert(
+      void dialog.alert(
         'Chưa đủ tiền',
-        `Tổng cần thu (${formatCurrency(effectiveTotal)}) bao gồm ${formatCurrency(finalTotal)} tiền hàng${clampedDebtRepay > 0 ? ` + ${formatCurrency(clampedDebtRepay)} trả nợ cũ` : ''}. Khách mới trả ${formatCurrency(paidSum)}.`
+        `Tổng cần thu (${formatCurrency(effectiveTotal)}) bao gồm ${formatCurrency(finalTotal)} tiền hàng${clampedDebtRepay > 0 ? ` + ${formatCurrency(clampedDebtRepay)} trả nợ cũ` : ''}. Khách mới trả ${formatCurrency(paidSum)}.`,
+        'warning'
       );
       return;
     }
@@ -900,7 +911,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
         visible={visible}
         animationType="slide"
         transparent={true}
-        onRequestClose={loading ? undefined : onClose}
+        onRequestClose={() => {
+          if (dialog.handleBack() || loading) return;
+          onClose();
+        }}
       >
         <View className="flex-1 justify-end">
           <Pressable
@@ -1138,7 +1152,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           (Giá giờ {Number(cartOwnerTable?.hourly_rate || 0).toLocaleString('vi-VN')}đ * 3) ={' '}
                           {Number((cartOwnerTable?.hourly_rate || 0) * 3).toLocaleString('vi-VN')}đ
                         </Text>
-                        . Hãy cập nhật giá "Qua đêm" của phòng/bàn tại mục quản lý Phòng/bàn.
+                        . Hãy cập nhật giá "Qua đêm" của phòng tại mục quản lý Phòng.
                       </Text>
                     </View>
                   )}
@@ -1152,7 +1166,7 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                           Giá qua đêm hoặc (Giá giờ {Number(cartOwnerTable?.hourly_rate || 0).toLocaleString('vi-VN')}đ * 3) ={' '}
                           {Number((cartOwnerTable?.hourly_rate || 0) * 3).toLocaleString('vi-VN')}đ
                         </Text>
-                        . Hãy cập nhật giá "Theo ngày" của phòng/bàn tại mục quản lý Phòng/bàn.
+                        . Hãy cập nhật giá "Theo ngày" của phòng tại mục quản lý Phòng.
                       </Text>
                     </View>
                   )}
@@ -1736,16 +1750,27 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                 className="flex-1 py-3.5 rounded-xl"
               />
 
-              <Button
-                variant="primary"
-                title={paidSum < effectiveTotal ? `Còn thiếu ${formatCurrency(effectiveTotal - paidSum)}` : 'Thanh toán'}
-                icon={!loading ? <Ionicons name="checkmark-done" size={14} color="white" /> : undefined}
-                iconPosition="right"
-                onPress={handlePressCheckout}
-                disabled={paidSum < effectiveTotal || loading || finalTotal <= 0}
-                loading={loading}
-                className={`flex-[2] py-3.5 rounded-xl ${paidSum < effectiveTotal || loading || finalTotal <= 0 ? 'opacity-50' : ''}`}
-              />
+              {(() => {
+                const cannotPay = paidSum < effectiveTotal || finalTotal <= 0;
+                return (
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={handlePressCheckout}
+                    disabled={cannotPay || loading}
+                    className={`flex-[2] py-3.5 rounded-xl flex-row items-center justify-center ${loading ? 'bg-orange-400' : cannotPay ? 'bg-orange-500 opacity-50' : 'bg-orange-500 active:bg-orange-600'}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: cannotPay || loading, busy: loading }}
+                  >
+                    {loading && <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 8 }} />}
+                    <Text className="text-xs font-medium text-white" numberOfLines={1}>
+                      {loading
+                        ? 'Đang thanh toán…'
+                        : paidSum < effectiveTotal ? `Còn thiếu ${formatCurrency(effectiveTotal - paidSum)}` : 'Thanh toán'}
+                    </Text>
+                    {!loading && <Ionicons name="checkmark-done" size={14} color="white" style={{ marginLeft: 8 }} />}
+                  </TouchableOpacity>
+                );
+              })()}
             </View>
           </View>
 
@@ -1804,20 +1829,19 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             
                             const isBankTransfer = m.type === 'bank' && m.code !== 'card';
                             if (isBankTransfer && (!dFund || !dFund.account_number || dFund.account_number.trim() === '')) {
-                              Alert.alert(
-                                "Cảnh báo thông tin Quỹ",
-                                "Tài khoản đã chọn chưa được cấu hình số tài khoản, bạn có chắc muốn tiếp tục sử dụng phương thức này?",
-                                [
-                                  { text: "Quay lại", style: "cancel" },
-                                  { 
-                                    text: "Đồng ý tiếp tục", 
-                                    onPress: () => {
-                                      setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, method: m.value, fund_id: dFund?.id || ''} : r));
-                                      setSelectingMethodRow(null);
-                                    } 
-                                  }
-                                ]
-                              );
+                              void dialog.confirm({
+                                title: 'Cảnh báo thông tin quỹ',
+                                message: 'Tài khoản đã chọn chưa được cấu hình số tài khoản, bạn có chắc muốn tiếp tục sử dụng phương thức này?',
+                                tone: 'warning',
+                                actions: [
+                                  { key: 'back', label: 'Quay lại', style: 'secondary' },
+                                  { key: 'continue', label: 'Đồng ý tiếp tục', style: 'primary' },
+                                ],
+                              }).then((choice) => {
+                                if (choice !== 'continue') return;
+                                setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, method: m.value, fund_id: dFund?.id || ''} : r));
+                                setSelectingMethodRow(null);
+                              });
                             } else {
                               setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, method: m.value, fund_id: dFund?.id || ''} : r));
                               setSelectingMethodRow(null);
@@ -1880,20 +1904,19 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
                             const isBankTransfer = methodObj && methodObj.type === 'bank' && methodObj.code !== 'card';
                             
                             if (isBankTransfer && (!f.account_number || f.account_number.trim() === '')) {
-                              Alert.alert(
-                                "Cảnh báo thông tin Quỹ",
-                                "Tài khoản đã chọn chưa được cấu hình số tài khoản, bạn có chắc muốn tiếp tục sử dụng phương thức này?",
-                                [
-                                  { text: "Quay lại", style: "cancel" },
-                                  { 
-                                    text: "Đồng ý tiếp tục", 
-                                    onPress: () => {
-                                      setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, fund_id: f.id} : r));
-                                      setSelectingFundRow(null);
-                                    } 
-                                  }
-                                ]
-                              );
+                              void dialog.confirm({
+                                title: 'Cảnh báo thông tin quỹ',
+                                message: 'Tài khoản đã chọn chưa được cấu hình số tài khoản, bạn có chắc muốn tiếp tục sử dụng phương thức này?',
+                                tone: 'warning',
+                                actions: [
+                                  { key: 'back', label: 'Quay lại', style: 'secondary' },
+                                  { key: 'continue', label: 'Đồng ý tiếp tục', style: 'primary' },
+                                ],
+                              }).then((choice) => {
+                                if (choice !== 'continue') return;
+                                setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, fund_id: f.id} : r));
+                                setSelectingFundRow(null);
+                              });
                             } else {
                               setPaymentRows(prev => prev.map((r, i) => i === idx ? {...r, fund_id: f.id} : r));
                               setSelectingFundRow(null);
@@ -1926,6 +1949,10 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
             visible={isConfirmVisible}
             onClose={() => setIsConfirmVisible(false)}
             onConfirm={() => {
+              // Một lần gửi duy nhất cho cả luồng (400 ms đóng dialog + onCheckout)
+              if (submittingRef.current || loadingProp) return;
+              submittingRef.current = true;
+              setIsSubmitting(true);
               const debtOpts = clampedDebtRepay > 0 ? { debtRepayAmount: clampedDebtRepay, ...selectDebtFund() } : undefined;
               const checkoutOpts = {
                 ...debtOpts,
@@ -1936,7 +1963,14 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               };
               setIsConfirmVisible(false);
               setTimeout(async () => {
-                await onCheckout(checkoutOpts);
+                try {
+                  await onCheckout(checkoutOpts);
+                } catch (err) {
+                  console.warn('[CartCheckoutModal] Thanh toán lỗi:', err);
+                } finally {
+                  submittingRef.current = false;
+                  setIsSubmitting(false);
+                }
               }, 400);
             }}
             title="Xác nhận Thanh toán"
@@ -2366,6 +2400,8 @@ export default function CartCheckoutModal(props: CartCheckoutModalProps) {
               </Pressable>
             </View>
           )}
+          {/* Hộp thoại (thiếu tiền, ghi nợ, kỳ thuế…) phải nằm TRONG Modal này mới hiện được trên iOS */}
+          <PosDialogHost active={visible} />
         </View>
         <PosDateTimePicker
           isOpen={isTimePickerOpen}

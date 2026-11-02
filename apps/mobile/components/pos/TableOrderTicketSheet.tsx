@@ -2,6 +2,7 @@ import React from 'react';
 import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View, ActivityIndicator, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { formatCurrency } from '../../lib/utils/format';
+import { PosDialogHost, usePosDialog } from './PosDialog';
 
 type CartLine = {
   productId?: string;
@@ -64,11 +65,17 @@ export function TableOrderTicketSheet({
   const draftCount = draftEntries.reduce((sum, [, l]) => sum + (Number(l.quantity) || 0), 0);
   const draftTotal = draftEntries.reduce((sum, [, l]) => sum + lineUnitPrice(l) * (Number(l.quantity) || 0), 0);
   const previousEntries = Object.entries(previousItems || {}).filter(([key, l]) => key !== 'TIME_CHARGE' && l?.productId !== 'TIME_CHARGE');
+  const dialog = usePosDialog();
+  const requestClose = () => {
+    // Android back: close an open PosDialog first; never close the sheet while saving
+    if (dialog.handleBack() || saving) return;
+    onClose();
+  };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={requestClose}>
       <View className="flex-1 justify-end">
-        <Pressable className="absolute inset-0 bg-black/40" onPress={onClose} />
+        <Pressable className="absolute inset-0 bg-black/40" onPress={requestClose} />
         <View
           className="bg-white rounded-t-2xl"
           style={{ maxHeight: '85%', paddingBottom: Platform.OS === 'ios' ? 28 : 16 }}
@@ -79,7 +86,7 @@ export function TableOrderTicketSheet({
               <Text className="text-sm font-bold text-slate-800" numberOfLines={1}>Phiếu gọi món</Text>
               <Text className="text-xs text-slate-500 mt-0.5" numberOfLines={1}>{tableName}</Text>
             </View>
-            <TouchableOpacity onPress={onClose} className="p-1.5 rounded-lg active:bg-slate-100" accessibilityLabel="Đóng">
+            <TouchableOpacity onPress={requestClose} disabled={saving} className="p-1.5 rounded-lg active:bg-slate-100" accessibilityLabel="Đóng">
               <Feather name="x" size={18} color="#64748b" />
             </TouchableOpacity>
           </View>
@@ -196,11 +203,13 @@ export function TableOrderTicketSheet({
                 <Feather name="save" size={15} color="white" />
               )}
               <Text className="text-sm font-semibold text-white ml-2" numberOfLines={1}>
-                Lưu vào {tableName} ({draftCount} món)
+                {saving ? 'Đang lưu…' : `Lưu vào ${tableName}`}
               </Text>
             </TouchableOpacity>
           </View>
         </View>
+        {/* Hộp thoại (xoá hết món, lỗi lưu…) phải nằm TRONG Modal này mới hiện được trên iOS */}
+        <PosDialogHost active={visible} />
       </View>
     </Modal>
   );

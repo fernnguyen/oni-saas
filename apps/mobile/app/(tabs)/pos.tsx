@@ -38,6 +38,8 @@ import { PosDatePicker } from '../../components/pos/PosDatePicker';
 import { PosDateTimePicker } from '../../components/pos/PosDateTimePicker';
 import { PosToast } from '../../components/pos/PosToast';
 import { TableOrderTicketSheet } from '../../components/pos/TableOrderTicketSheet';
+import { PosDialogHost, PosDialogProvider, usePosDialogController } from '../../components/pos/PosDialog';
+import { getResourceDisplayName, getResourceNouns } from '../../lib/pos/resourceLabels';
 import { useCart } from '../../hooks/pos/useCart';
 import { usePosData } from '../../hooks/pos/usePosData';
 import { useTableManager } from '../../hooks/pos/useTableManager';
@@ -83,6 +85,13 @@ export default function PosScreen() {
 
   // Bàn đang được "Gọi món" (khác cartOwnerTable — cái đó dùng cho thanh toán bàn)
   const [orderingTable, setOrderingTable] = useState<any | null>(null);
+
+  // Hộp thoại dùng chung (thay Alert.alert trong luồng bàn / gọi món / thanh toán).
+  // Hiển thị qua các <PosDialogHost/> đặt ở gốc màn hình và bên trong từng Modal (xem PosDialog.tsx).
+  const posDialog = usePosDialogController();
+  const dialog = posDialog.api;
+  // Danh từ theo phân hệ: bàn / phòng / sân
+  const resNouns = getResourceNouns(shopVertical);
 
   const {
     cart, setCart,
@@ -423,6 +432,11 @@ export default function PosScreen() {
     activeTableTab, setActiveTableTab,
     cartOwnerTable, setCartOwnerTable,
     isOpeningTable, setIsOpeningTable,
+    openTableError, setOpenTableError,
+    tableOpenHandoff,
+    completeOpenTableHandoff,
+    onActiveTableModalShown,
+    isPreparingTablePay,
     isSyncingTableSession, setIsSyncingTableSession,
     timeTicker,
     calculateBilling,
@@ -478,6 +492,7 @@ export default function PosScreen() {
     broadcastSync,
     tableSync,
     refreshTables: () => setSyncTriggerTick(prev => prev + 1),
+    dialog,
   });
 
   // ── "Gọi món" cho phòng/bàn: nháp riêng theo bàn ───────────────────────────────────
@@ -602,19 +617,22 @@ export default function PosScreen() {
         const sessionState = await verifyV2SessionOpen(liveTable);
         if (sessionState === 'closed') {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => { });
-          Alert.alert(
-            'Bàn đã đóng trên thiết bị khác',
-            `${target.name} đã được thanh toán hoặc đóng ở thiết bị khác nên chưa thể thêm món. Các món mới vẫn được giữ trong nháp; vui lòng mở lại bàn rồi lưu.`
-          );
+          void dialog.confirm({
+            title: `${target.name} đã đóng trên thiết bị khác`,
+            message: `${target.name} đã được thanh toán hoặc đóng ở thiết bị khác nên chưa thể thêm món. Các món mới vẫn được giữ trong nháp; vui lòng mở lại ${resNouns.noun} rồi lưu.`,
+            tone: 'warning',
+            icon: 'lock',
+            actions: [{ key: 'ok', label: 'Đã hiểu', style: 'primary' }],
+          });
           setSyncTriggerTick(prev => prev + 1);
           return;
         }
         // v2: base = món đã có trên bàn → chỉ gửi add_item / change_qty cho phần nháp
         const ok = await syncOrderItemsOnline(latestOrderId, next, target.id, base);
         if (!ok) {
-          // Alert (không phải toast): toast bị phiếu gọi món (Modal) che mất
+          // Hộp thoại (không phải toast): toast bị phiếu gọi món (Modal) che mất
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => { });
-          Alert.alert('Chưa lưu được món', `Không ghi được món vào ${target.name}. Các món mới vẫn được giữ trong nháp, vui lòng thử lại.`);
+          void dialog.alert('Chưa lưu được món', `Không ghi được món vào ${target.name}. Các món mới vẫn được giữ trong nháp, vui lòng thử lại.`, 'danger');
           return;
         }
         setTableCarts(prev => ({ ...prev, [target.id]: next }));
@@ -650,7 +668,7 @@ export default function PosScreen() {
       })();
     } catch (err) {
       console.error('[Gọi món] Lỗi khi lưu món vào bàn:', err);
-      Alert.alert('Chưa lưu được món', `Không lưu được món vào ${target.name}. Các món mới vẫn được giữ trong nháp.`);
+      void dialog.alert('Chưa lưu được món', `Không lưu được món vào ${target.name}. Các món mới vẫn được giữ trong nháp.`, 'danger');
     } finally {
       orderingSavingRef.current = false;
       setIsSavingTableDraft(false);
@@ -658,22 +676,29 @@ export default function PosScreen() {
   };
 
   /** "Thoát" / chuyển sang sơ đồ bàn khi còn nháp → hỏi lưu / giữ / bỏ */
-  const requestExitTableOrdering = () => {
+  const requestExitTableOrdering = async () => {
     if (!orderingTable || orderingSavingRef.current) return;
     const count = sumQty(cart);
     if (count <= 0) {
       exitTableOrdering('discard');
       return;
     }
-    Alert.alert(
-      `Còn ${count} món chưa lưu`,
-      `Các món mới cho ${orderingTable.name} chưa được lưu vào bàn.`,
-      [
-        { text: 'Lưu vào bàn', onPress: () => { void saveTableOrderDraft(); } },
-        { text: 'Giữ nháp, thoát', onPress: () => exitTableOrdering('keep') },
-        { text: 'Bỏ món mới', style: 'destructive', onPress: () => exitTableOrdering('discard') },
-      ]
-    );
+    const choice = await dialog.confirm({
+      title: `Còn ${count} món chưa lưu`,
+      message: `Các món mới cho ${orderingTable.name} chưa được lưu.`,
+      tone: 'warning',
+      icon: 'file-text',
+      // Chạm ra ngoài / nút Back = ở lại màn gọi món
+      cancelKey: 'stay',
+      actions: [
+        // Nút lưu hiện spinner tới khi lưu xong (lỗi → hộp thoại lỗi hiện tiếp sau)
+        { key: 'save', label: `Lưu vào ${orderingTable.name}`, style: 'primary', loadingLabel: 'Đang lưu…', onPress: () => saveTableOrderDraft() },
+        { key: 'keep', label: 'Giữ nháp, thoát', style: 'secondary' },
+        { key: 'discard', label: 'Bỏ món mới', style: 'destructive' },
+      ],
+    });
+    if (choice === 'keep') exitTableOrdering('keep');
+    else if (choice === 'discard') exitTableOrdering('discard');
   };
 
   /** "−" trên ô sản phẩm: giảm dòng nháp được thêm gần nhất của sản phẩm đó */
@@ -698,18 +723,20 @@ export default function PosScreen() {
     updateCartItemQuantity(cartItemId, (Number(line.quantity) || 0) + 1);
   };
 
-  const confirmClearTableDraft = () => {
-    Alert.alert('Xoá hết món mới?', 'Các món mới chưa lưu sẽ bị xoá khỏi phiếu.', [
-      { text: 'Huỷ', style: 'cancel' },
-      {
-        text: 'Xoá hết',
-        style: 'destructive',
-        onPress: () => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-          setCart({});
-        },
-      },
-    ]);
+  const confirmClearTableDraft = async () => {
+    const choice = await dialog.confirm({
+      title: 'Xoá hết món mới?',
+      message: 'Các món mới chưa lưu sẽ bị xoá khỏi phiếu.',
+      tone: 'danger',
+      icon: 'trash-2',
+      actions: [
+        { key: 'cancel', label: 'Huỷ', style: 'secondary' },
+        { key: 'clear', label: 'Xoá hết', style: 'destructive' },
+      ],
+    });
+    if (choice !== 'clear') return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setCart({});
   };
 
   // Nháp thay đổi: lưu theo bàn, cập nhật thứ tự dòng mới nhất, gộp toast "Đã thêm …"
@@ -1260,11 +1287,12 @@ export default function PosScreen() {
       const { isTaxPeriodLocked } = await import('../../lib/utils/tax');
       const isLocked = await isTaxPeriodLocked(debtRepayOpts?.customCheckoutTime || new Date());
       if (isLocked) {
-        Alert.alert(
-          'Kỳ thuế đã khóa',
-          'Thời điểm thanh toán nằm trong kỳ thuế đã bị khóa sổ. Không thể tạo hóa đơn mới!'
-        );
         setIsPayingCartLoading(false);
+        void dialog.alert(
+          'Kỳ thuế đã khóa',
+          'Thời điểm thanh toán nằm trong kỳ thuế đã bị khóa sổ. Không thể tạo hóa đơn mới!',
+          'danger'
+        );
         return;
       }
 
@@ -1826,6 +1854,7 @@ export default function PosScreen() {
   }
 
   return (
+    <PosDialogProvider value={posDialog}>
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-slate-50">
 
       {/* Product Preview Modal (NEW) */}
@@ -1916,7 +1945,7 @@ export default function PosScreen() {
                 router.push('/resource-management');
               }}
               className="ml-2 px-2.5 py-2 rounded-xl flex-row items-center border border-slate-200 bg-white"
-              accessibilityLabel="Quản lý phòng bàn"
+              accessibilityLabel={`Quản lý ${resNouns.noun}`}
             >
               <Ionicons name="settings-outline" size={14} color="#475569" />
               <Text className="ml-1.5 font-semibold text-tiny text-slate-600" numberOfLines={1}>
@@ -2370,7 +2399,7 @@ export default function PosScreen() {
                 onPress={() => setTableSortMode('last_checkout')}
                 className={`px-3 py-1 rounded-full border mr-2 ${tableSortMode === 'last_checkout' ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200'}`}
               >
-                <Text className={`text-[11px] font-medium ${tableSortMode === 'last_checkout' ? 'text-indigo-700' : 'text-slate-500'}`}>Xoay vòng phòng</Text>
+                <Text className={`text-[11px] font-medium ${tableSortMode === 'last_checkout' ? 'text-indigo-700' : 'text-slate-500'}`}>Xoay vòng {resNouns.noun}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setTableSortMode('latest_checkout')}
@@ -2813,7 +2842,7 @@ export default function PosScreen() {
                 <Feather name="save" size={14} color="white" />
               )}
               <Text className="text-xs font-semibold text-white ml-1.5" numberOfLines={1}>
-                Lưu vào {orderingTable.name} ({draftCount})
+                Lưu vào {orderingTable.name}
               </Text>
             </TouchableOpacity>
           </View>
@@ -2840,14 +2869,20 @@ export default function PosScreen() {
       {/* 5.5. MODAL MỞ BÀN / CHECK-IN PHÒNG KHÁCH SẠN */}
       <Modal
         visible={isTableOpenDialogVisible}
-        animationType="slide"
+        // Mở bàn thành công → mờ dần (lớp tối ở gốc giữ nguyên) rồi trượt lên màn chi tiết bàn
+        animationType={tableOpenHandoff ? 'fade' : 'slide'}
         transparent={true}
-        onRequestClose={() => setIsTableOpenDialogVisible(false)}
+        onRequestClose={() => {
+          if (posDialog.handleBack()) return;
+          if (!isOpeningTable) setIsTableOpenDialogVisible(false);
+        }}
+        // iOS: chỉ trình bày được 1 Modal mỗi lúc → mở màn chi tiết bàn sau khi hộp thoại đã đóng hẳn
+        onDismiss={completeOpenTableHandoff}
       >
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1 justify-end">
           <Pressable
             className="absolute inset-0 bg-black/60"
-            onPress={() => setIsTableOpenDialogVisible(false)}
+            onPress={() => { if (!isOpeningTable) setIsTableOpenDialogVisible(false); }}
           />
           <View className="h-[75%] rounded-t-2xl p-6 bg-white justify-between relative" style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 12 }}>
             <PosToast toastMsg={toastMsg} toastOpacity={toastOpacity} isForModal={true} />
@@ -2877,12 +2912,12 @@ export default function PosScreen() {
                 <Ionicons name="enter-outline" size={20} color="#fa5908" />
                 <Text className="text-sm font-semibold text-slate-800 ml-2">
                   {selectedTableForOpen
-                    ? `Nhận ${shopVertical === 'fnb' ? 'Bàn' : shopVertical === 'sports_court' ? 'Sân' : shopVertical === 'lodging' ? 'Phòng' : 'Bàn'} - ${selectedTableForOpen.name}`
+                    ? `Nhận ${resNouns.Noun} - ${selectedTableForOpen.name}`
                     : 'Nhận vị trí mới'}
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => setIsTableOpenDialogVisible(false)} className="p-1">
-                <Ionicons name="close" size={24} color="#64748b" />
+              <TouchableOpacity onPress={() => setIsTableOpenDialogVisible(false)} disabled={isOpeningTable} className="p-1">
+                <Ionicons name="close" size={24} color={isOpeningTable ? '#cbd5e1' : '#64748b'} />
               </TouchableOpacity>
             </View>
 
@@ -3136,27 +3171,57 @@ export default function PosScreen() {
               )}
             </ScrollView>
 
+            {/* Lỗi mở bàn (giữ hộp thoại để thử lại) */}
+            {!!openTableError && !isOpeningTable && (
+              <View className="flex-row items-start bg-rose-50 border border-rose-100 rounded-xl px-3 py-2.5 mb-3" accessibilityLiveRegion="polite">
+                <Feather name="alert-circle" size={15} color="#e11d48" style={{ marginTop: 1 }} />
+                <Text className="flex-1 text-xs text-rose-700 font-medium ml-2 leading-5">{openTableError}</Text>
+                <TouchableOpacity onPress={() => setOpenTableError(null)} className="pl-2" accessibilityLabel="Ẩn thông báo lỗi">
+                  <Feather name="x" size={14} color="#be123c" />
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* Actions Footer */}
             <View className="flex-row gap-3 border-t border-slate-100 pt-4 bg-white">
-              <Button
-                variant="outline"
-                title="Hủy bỏ"
+              <TouchableOpacity
+                activeOpacity={0.8}
+                disabled={isOpeningTable}
                 onPress={() => setIsTableOpenDialogVisible(false)}
-                className="flex-1 py-3 rounded-xl"
-              />
+                className={`flex-1 py-3 rounded-xl border border-slate-200 items-center justify-center ${isOpeningTable ? 'opacity-50' : ''}`}
+              >
+                <Text className="text-xs font-medium text-slate-600">Hủy bỏ</Text>
+              </TouchableOpacity>
 
-              <Button
-                variant="primary"
-                title={shopVertical === 'lodging' ? 'Nhận phòng' : 'Bắt đầu sử dụng'}
-                onPress={handleConfirmOpenTable}
-                className="flex-[2] py-3 rounded-xl"
-              />
+              <TouchableOpacity
+                activeOpacity={0.85}
+                disabled={isOpeningTable}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  void handleConfirmOpenTable();
+                }}
+                className={`flex-[2] py-3 rounded-xl flex-row items-center justify-center ${isOpeningTable ? 'bg-orange-400' : 'bg-orange-500 active:bg-orange-600'}`}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: isOpeningTable, busy: isOpeningTable }}
+              >
+                {isOpeningTable ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Feather name="log-in" size={15} color="#ffffff" />
+                )}
+                <Text className="text-xs font-semibold text-white ml-2">
+                  {isOpeningTable
+                    ? `Đang mở ${resNouns.noun}…`
+                    : (shopVertical === 'lodging' ? 'Nhận phòng' : 'Bắt đầu sử dụng')}
+                </Text>
+              </TouchableOpacity>
             </View>
 
 
 
             {renderQuickCustomerModal('open_table')}
           </View>
+          <PosDialogHost active={isTableOpenDialogVisible} />
         </KeyboardAvoidingView>
       </Modal>
 
@@ -3192,7 +3257,7 @@ export default function PosScreen() {
                 Xác nhận dọn dẹp
               </Text>
               <Text className="text-sm text-slate-600 mb-6 leading-5">
-                Phòng đang ở trạng thái chờ dọn dẹp. Bạn có muốn đánh dấu phòng này là đã dọn dẹp xong và sẵn sàng đón khách không?
+                {getResourceDisplayName(tableToClean, shopVertical)} đang ở trạng thái chờ dọn dẹp. Bạn có muốn đánh dấu {resNouns.noun} này là đã dọn dẹp xong và sẵn sàng đón khách không?
               </Text>
 
               <View className="flex-row justify-end gap-3">
@@ -3313,12 +3378,16 @@ export default function PosScreen() {
         visible={!!activeTable}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setActiveTable(null)}
+        onShow={onActiveTableModalShown}
+        onRequestClose={() => {
+          if (posDialog.handleBack()) return;
+          if (!isPreparingTablePay) setActiveTable(null);
+        }}
       >
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1 justify-end">
           <Pressable
             className="absolute inset-0 bg-black/60"
-            onPress={() => setActiveTable(null)}
+            onPress={() => { if (!isPreparingTablePay) setActiveTable(null); }}
           />
           {activeTable && (
             <View className="h-[75%] rounded-t-2xl p-6 justify-between bg-white shadow-2xl relative">
@@ -3364,7 +3433,7 @@ export default function PosScreen() {
                       const result = await syncActiveTableSession(activeTable);
                       setIsSyncingTableSession(false);
                       if (!result?.isFinished) {
-                        showToast("Đã đồng bộ dữ liệu phòng mới nhất từ Cloud!", "success");
+                        showToast(`Đã đồng bộ ${getResourceDisplayName(activeTable, shopVertical)} mới nhất`, "success");
                       }
                     }}
                     className="p-1.5 rounded-lg active:bg-slate-100"
@@ -3376,8 +3445,8 @@ export default function PosScreen() {
                       <Ionicons name="sync-outline" size={20} color="#fa5908" />
                     )}
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setActiveTable(null)} className="p-1.5 rounded-lg active:bg-slate-100">
-                    <Ionicons name="close" size={24} color="#64748b" />
+                  <TouchableOpacity onPress={() => setActiveTable(null)} disabled={isPreparingTablePay} className="p-1.5 rounded-lg active:bg-slate-100">
+                    <Ionicons name="close" size={24} color={isPreparingTablePay ? '#cbd5e1' : '#64748b'} />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -3678,18 +3747,19 @@ export default function PosScreen() {
                         className="w-[47%] bg-rose-50 border border-rose-100 p-2.5 rounded-xl flex-row items-center active:bg-rose-100"
                         onPress={async () => {
                           // Hộp thoại xác nhận hủy an toàn
+                          const cancelName = getResourceDisplayName(activeTable, shopVertical);
                           const confirmCancel = Platform.OS === 'web'
-                            ? window.confirm("Bạn có chắc chắn muốn Hủy và giải phóng phòng này?")
-                            : await new Promise<boolean>((resolve) => {
-                              Alert.alert(
-                                "Xác nhận Hủy phòng",
-                                "Tất cả thông tin sử dụng và dịch vụ hiện tại sẽ bị xóa sạch. Bạn có chắc chắn muốn giải phóng phòng trống?",
-                                [
-                                  { text: "Không", onPress: () => resolve(false), style: "cancel" },
-                                  { text: "Đồng ý", onPress: () => resolve(true), style: "destructive" }
-                                ]
-                              );
-                            });
+                            ? window.confirm(`Bạn có chắc chắn muốn Hủy và giải phóng ${cancelName}?`)
+                            : (await dialog.confirm({
+                              title: `Hủy đơn ${cancelName}?`,
+                              message: `Tất cả thông tin sử dụng và dịch vụ hiện tại sẽ bị xóa sạch, ${resNouns.noun} được trả về trạng thái trống.`,
+                              tone: 'danger',
+                              icon: 'x-circle',
+                              actions: [
+                                { key: 'no', label: 'Không', style: 'secondary' },
+                                { key: 'yes', label: 'Hủy đơn', style: 'destructive' },
+                              ],
+                            })) === 'yes';
 
                           if (!confirmCancel) return;
 
@@ -3732,7 +3802,7 @@ export default function PosScreen() {
                               if (cancelled) {
                                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
                                 setActiveTable(null);
-                                showToast("Hủy đơn & Giải phóng phòng/bàn thành công!", "success");
+                                showToast(`Đã hủy đơn & giải phóng ${getResourceDisplayName(activeTable, shopVertical)}!`, "success");
                               }
                               return;
                             }
@@ -3827,9 +3897,9 @@ export default function PosScreen() {
                             setActiveTable(null);
 
                             if (syncSucceeded) {
-                              showToast("Hủy đơn & Giải phóng phòng/bàn thành công!", "success");
+                              showToast(`Đã hủy đơn & giải phóng ${getResourceDisplayName(activeTable, shopVertical)}!`, "success");
                             } else {
-                              showToast("Giải phóng phòng/bàn ngoại tuyến thành công!", "info");
+                              showToast(`Đã giải phóng ${getResourceDisplayName(activeTable, shopVertical)} (ngoại tuyến)!`, "info");
                             }
                           } catch (err) {
                             console.error('Không thể hủy ca hoạt động:', err);
@@ -3893,13 +3963,25 @@ export default function PosScreen() {
                 })()}
                 <View className="flex-row justify-between gap-3">
                   {activeTableTab === 'billing' || shopVertical !== 'lodging' ? (
-                    <Button
-                      variant="primary"
-                      title="Thanh toán & Trả phòng/bàn"
-                      icon={<Ionicons name="card-outline" size={16} color="white" />}
-                      onPress={() => triggerPayTable(activeTable)}
-                      className="flex-1 py-3.5 rounded-xl"
-                    />
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      disabled={isPreparingTablePay}
+                      onPress={() => { void triggerPayTable(activeTable); }}
+                      className={`flex-1 py-3.5 rounded-xl flex-row items-center justify-center ${isPreparingTablePay ? 'bg-orange-400' : 'bg-orange-500 active:bg-orange-600'}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: isPreparingTablePay, busy: isPreparingTablePay }}
+                    >
+                      {isPreparingTablePay ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <Ionicons name="card-outline" size={16} color="white" />
+                      )}
+                      <Text className="text-xs font-medium text-white ml-2" numberOfLines={1}>
+                        {isPreparingTablePay
+                          ? 'Đang tính tiền giờ…'
+                          : `Thanh toán & Trả ${resNouns.noun}`}
+                      </Text>
+                    </TouchableOpacity>
                   ) : (
                     <Button
                       variant="primary"
@@ -4190,18 +4272,18 @@ export default function PosScreen() {
                 </View>
                 
                 <Text className="text-base font-semibold text-slate-800 text-center leading-tight mb-3">
-                  {confirmTransferMerge.type === 'transfer' ? 'Xác nhận chuyển phòng' : 'Xác nhận gộp phòng'}
+                  {confirmTransferMerge.type === 'transfer' ? `Xác nhận chuyển ${resNouns.noun}` : `Xác nhận gộp ${resNouns.noun}`}
                 </Text>
 
                 {/* Flow Diagram: Source -> Target */}
                 <View className="flex-row items-center justify-center bg-slate-50 border border-slate-100 rounded-2xl py-3 px-4 w-full mb-4">
                   <View className="items-center flex-1">
-                    <Text className="text-[10px] text-slate-400 font-semibold uppercase">Phòng gốc</Text>
+                    <Text className="text-[10px] text-slate-400 font-semibold uppercase">{resNouns.Noun} gốc</Text>
                     <Text className="text-sm font-bold text-slate-800 mt-0.5">{confirmTransferMerge.sourceTable.name}</Text>
                   </View>
                   <Ionicons name="arrow-forward-outline" size={18} color="#94a3b8" className="mx-2" />
                   <View className="items-center flex-1">
-                    <Text className="text-[10px] text-slate-400 font-semibold uppercase">Phòng đích</Text>
+                    <Text className="text-[10px] text-slate-400 font-semibold uppercase">{resNouns.Noun} đích</Text>
                     <Text className="text-sm font-bold text-slate-800 mt-0.5">{confirmTransferMerge.targetTable.name}</Text>
                   </View>
                 </View>
@@ -4238,7 +4320,7 @@ export default function PosScreen() {
                     return (
                       <View className="border-t border-slate-100 pt-2 mt-2">
                         <View className="flex-row justify-between items-center">
-                          <Text className="text-xs text-slate-500 font-semibold">Tiền phòng tạm tính:</Text>
+                          <Text className="text-xs text-slate-500 font-semibold">{shopVertical === 'lodging' ? 'Tiền phòng' : 'Tiền giờ'} tạm tính:</Text>
                           <Text className="text-xs font-bold text-slate-800">{formatCurrency(sourceBilling.cost)}</Text>
                         </View>
                         <Text className="text-[10px] text-slate-400 font-medium mt-0.5">({sourceBilling.label} - {sourceBilling.details})</Text>
@@ -4257,12 +4339,12 @@ export default function PosScreen() {
                       <View className="flex-row items-center justify-between">
                         <View className="flex-1 mr-3">
                           <Text className="text-xs font-bold text-slate-800">
-                            {confirmTransferMerge.type === 'transfer' ? 'Giữ giờ vào gốc' : 'Cộng dồn tiền phòng'}
+                            {confirmTransferMerge.type === 'transfer' ? 'Giữ giờ vào gốc' : (shopVertical === 'lodging' ? 'Cộng dồn tiền phòng' : 'Cộng dồn tiền giờ')}
                           </Text>
                           <Text className="text-[10px] text-slate-450 font-medium leading-relaxed mt-0.5">
                             {confirmTransferMerge.type === 'transfer' 
-                              ? 'Giữ nguyên giờ check-in từ phòng cũ sang phòng mới'
-                              : 'Tính tiền phòng cũ đến hiện tại và thêm vào bill phòng mới'}
+                              ? `Giữ nguyên giờ vào từ ${resNouns.noun} cũ sang ${resNouns.noun} mới`
+                              : `Tính ${shopVertical === 'lodging' ? 'tiền phòng' : 'tiền giờ'} của ${resNouns.noun} cũ đến hiện tại và thêm vào hoá đơn ${resNouns.noun} mới`}
                           </Text>
                         </View>
                         <Switch
@@ -4272,9 +4354,10 @@ export default function PosScreen() {
                       </View>
                       
                       {!confirmTransferMerge.includeStayCost && (
-                        <View className="mt-2 pt-2 border-t border-orange-150/40">
-                          <Text className="text-[10px] text-red-500 font-semibold italic">
-                            ⚠️ Bỏ chọn sẽ MIỄN PHÍ tiền phòng cũ (bỏ qua chi phí lưu trú của phòng gốc).
+                        <View className="mt-2 pt-2 border-t border-orange-150/40 flex-row items-start">
+                          <Feather name="alert-triangle" size={11} color="#ef4444" style={{ marginTop: 1, marginRight: 4 }} />
+                          <Text className="flex-1 text-[10px] text-red-500 font-semibold italic">
+                            Bỏ chọn sẽ MIỄN PHÍ {shopVertical === 'lodging' ? 'tiền phòng' : 'tiền giờ'} của {resNouns.noun} gốc.
                           </Text>
                         </View>
                       )}
@@ -4337,6 +4420,7 @@ export default function PosScreen() {
               </Pressable>
             </View>
           )}
+          <PosDialogHost active={!!activeTable} />
         </KeyboardAvoidingView>
       </Modal>
 
@@ -4586,6 +4670,36 @@ export default function PosScreen() {
           }}
         />
       )}
+
+      {/* Mở bàn xong → giữ sơ đồ bàn mờ tối trong lúc chuyển sang màn chi tiết bàn (không nháy sơ đồ) */}
+      <TableOpenHandoffDim visible={tableOpenHandoff} />
+
+      {/* Hộp thoại dùng chung khi không có Modal nào đang mở */}
+      <PosDialogHost />
     </SafeAreaView>
+    </PosDialogProvider>
+  );
+}
+
+/** Dimmed layer under the modals during the "Nhận bàn" → table detail hand-off; fades out afterwards. */
+function TableOpenHandoffDim({ visible }: { visible: boolean }) {
+  const opacity = React.useRef(new Animated.Value(0)).current;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      opacity.setValue(1);
+      return;
+    }
+    Animated.timing(opacity, { toValue: 0, duration: 220, useNativeDriver: true }).start(({ finished }) => {
+      if (finished) setMounted(false);
+    });
+  }, [visible, opacity]);
+  if (!mounted) return null;
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', opacity, zIndex: 99998, elevation: 99 }}
+    />
   );
 }
