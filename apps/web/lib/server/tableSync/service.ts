@@ -1,10 +1,12 @@
 import type { IDataConnector, TransactionClient } from '@oni/adapters'
-import { getGMT7Time } from '@oni/core'
+import crypto from 'crypto'
+import { buildTablePricingSnapshot, computeTableTimeCharge, getGMT7Time, type TablePricingSnapshot } from '@oni/core'
 import { invalidate } from '@/lib/server/cache'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { cleanResourceSessionMetadata, parseMetadataSafe } from '@/lib/server/tableSessionReconciler'
-import { applyTableOps, TableSyncError, type ApplyOpsResult, type TableOp } from './engine'
+import { applyTableOps, isTimeChargeLine, TableSyncError, type ApplyOpsResult, type TableOp } from './engine'
 import { createPgTableSyncRepo, mapSessionRow } from './pgRepository'
+import { broadcastTableSync } from './broadcast'
 
 // Table sync v2 service (docs/TABLE-SESSION-SYNC-PLAN.md Phase 1): sessions, idempotent ops,
 // change feed. Only for shops with `shop_settings.table_sync_v2` on a transactional connector.
@@ -138,6 +140,7 @@ export async function openTableSession(connector: TxConnector, shopId: string, i
   }
   const orderId = String(order.order_id || order.id || '')
   if (!orderId) throw new Error('Không tạo được đơn cho phiên bàn')
+  const pricingSnapshot = input.pricing_snapshot || buildTablePricingSnapshot(resource, orderMeta)
 
   const outcome = await connector.withTransaction(async (tx) => {
     try {
@@ -149,7 +152,7 @@ export async function openTableSession(connector: TxConnector, shopId: string, i
          RETURNING *`,
         [
           sessionId, tx.tenantId ?? '', shopId, resourceId, orderId, checkIn,
-          input.pricing_snapshot ? JSON.stringify(input.pricing_snapshot) : null,
+          JSON.stringify(pricingSnapshot),
           input.device_id || null, JSON.stringify(orderMeta), getGMT7Time(),
         ]
       )
@@ -190,6 +193,7 @@ export async function openTableSession(connector: TxConnector, shopId: string, i
   })
   invalidate(shopId, 'orders')
   invalidate(shopId, 'location-resources')
+  void broadcastTableSync(shopId, { session_id: sessionId, resource_id: resourceId, kind: 'session_opened', version: 1 })
 
   return { session: sessionResponse(outcome.row), created: true }
 }
@@ -208,6 +212,7 @@ export async function applyTableSessionOps(
   if (result.results.some((r) => r.status === 'applied' && !r.replayed)) {
     invalidate(shopId, 'orders')
     invalidate(shopId, 'order-items')
+    void broadcastTableSync(shopId, { session_id: input.sessionId, kind: 'op_applied', version: result.session_version })
   }
   return result
 }
@@ -250,4 +255,283 @@ export async function getTableSyncChanges(connector: TxConnector, shopId: string
   }))
   const cursor = events.length > 0 ? events[events.length - 1].seq : safeSince
   return { events, cursor, has_more: hasMore }
+}
+
+// ── Phase 2: server-decided time charge, close, cancel, transfer ───────────────
+
+export const QUOTE_TTL_MS = 5 * 60_000
+/** Offline provisional close is accepted as-is within these limits (plan §7.1) */
+export const CLOSE_TOLERANCE = { minutes: 2, amount: 2000 }
+
+async function insertSessionEvent(tx: TransactionClient, session: { id: string; branch_id: string; resource_id: string }, kind: string, payload: Record<string, unknown>) {
+  await tx.query(
+    `INSERT INTO table_sync_events (tenant_id, branch_id, session_id, resource_id, kind, payload) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [tx.tenantId ?? '', session.branch_id, session.id, session.resource_id, kind, JSON.stringify(payload)]
+  )
+}
+
+async function loadPricingSnapshot(tx: TransactionClient, sessionId: string, resourceId: string, orderId: string): Promise<{ snapshot: TablePricingSnapshot; resourceName: string; metadata: Record<string, any> }> {
+  const tenantId = tx.tenantId ?? ''
+  const [row] = await tx.query(`SELECT pricing_snapshot, metadata FROM table_sessions WHERE id = $1 AND tenant_id = $2`, [sessionId, tenantId])
+  const [resource] = await tx.query(`SELECT name, hourly_rate, metadata FROM location_resources WHERE id = $1 AND tenant_id = $2`, [resourceId, tenantId])
+  let snapshot = row?.pricing_snapshot as TablePricingSnapshot | null
+  if (!snapshot || typeof snapshot !== 'object' || !snapshot.rental_type) {
+    const [order] = orderId ? await tx.query(`SELECT metadata FROM orders WHERE id = $1 AND tenant_id = $2`, [orderId, tenantId]) : []
+    snapshot = buildTablePricingSnapshot(resource || null, order?.metadata)
+    await tx.query(`UPDATE table_sessions SET pricing_snapshot = $1 WHERE id = $2 AND tenant_id = $3`, [JSON.stringify(snapshot), sessionId, tenantId])
+  }
+  const metadata = row?.metadata && typeof row.metadata === 'object' ? { ...row.metadata } : {}
+  return { snapshot, resourceName: String(resource?.name || ''), metadata }
+}
+
+export interface QuoteInput {
+  device_id?: string
+  /** Offline/provisional checkout time chosen on the device; accepted only if plausible */
+  checkout_at?: string
+  time_charge_product_id?: string
+}
+
+/**
+ * Server freezes `checkout_at` (server clock), computes the time charge from the session's frozen
+ * pricing snapshot, writes it as the order's single time-charge line and returns a quote valid for
+ * 5 minutes. Re-quoting replaces the previous quote.
+ */
+export async function quoteTableSession(connector: TxConnector, shopId: string, sessionId: string, input: QuoteInput = {}) {
+  const result = await connector.withTransaction(async (tx) => {
+    const repo = createPgTableSyncRepo(tx)
+    const session = await repo.lockSession(sessionId)
+    if (!session || session.branch_id !== shopId) throw new TableSyncError(404, 'session_not_found', 'Không tìm thấy phiên bàn')
+    if (session.status !== 'open') throw new TableSyncError(409, 'session_not_open', 'Phiên bàn đã đóng')
+
+    const now = new Date()
+    const checkInDate = new Date(session.check_in)
+    let checkout = now
+    let source: 'server' | 'client' = 'server'
+    if (input.checkout_at) {
+      const t = new Date(input.checkout_at)
+      const ms = t.getTime()
+      if (Number.isFinite(ms) && ms <= now.getTime() + 5000 && ms >= checkInDate.getTime() && now.getTime() - ms <= 24 * 3600_000) {
+        checkout = t
+        source = 'client'
+      }
+    }
+
+    const { snapshot, resourceName, metadata } = await loadPricingSnapshot(tx, session.id, session.resource_id, session.order_id)
+    const charge = computeTableTimeCharge(snapshot, checkInDate, checkout)
+    const quoteId = `Q-${crypto.randomUUID()}`
+    const checkoutIso = checkout.toISOString()
+    const applied = await applyTableOps(repo, {
+      sessionId: session.id,
+      deviceId: input.device_id || 'server',
+      ops: [{
+        op_id: `quote:${quoteId}`,
+        type: 'set_time_charge',
+        product_id: input.time_charge_product_id || 'TIME_CHARGE',
+        product_name: `Tiền giờ ${resourceName || session.resource_id} (${charge.duration_label})`.trim(),
+        amount: charge.amount,
+        duration_minutes: charge.billable_minutes,
+        checkout_at: checkoutIso,
+      }],
+    })
+    const quote = {
+      quote_id: quoteId,
+      checkout_at: checkoutIso,
+      checkout_source: source,
+      expires_at: new Date(now.getTime() + QUOTE_TTL_MS).toISOString(),
+      time_charge: charge,
+      pricing_snapshot: snapshot,
+      order_totals: applied.order_totals,
+    }
+    metadata.quote = { ...quote, pricing_snapshot: undefined }
+    await tx.query(`UPDATE table_sessions SET metadata = $1 WHERE id = $2 AND tenant_id = $3`, [JSON.stringify(metadata), session.id, tx.tenantId ?? ''])
+    await insertSessionEvent(tx, session, 'quote_issued', { quote_id: quoteId, amount: charge.amount, checkout_at: checkoutIso, version: applied.session_version })
+    return { ...quote, session_version: applied.session_version }
+  })
+  invalidate(shopId, 'orders')
+  invalidate(shopId, 'order-items')
+  void broadcastTableSync(shopId, { session_id: sessionId, kind: 'quote_issued', version: result.session_version })
+  return result
+}
+
+export interface CloseHookInput {
+  orderId: string
+  orderMetadata?: unknown
+  /** time-charge amount the device actually billed (sum of time-charge lines in the payload) */
+  clientTimeCharge?: number
+}
+
+/**
+ * Called by sync-batch after a table order was saved as `completed` (payments, stock, CRM are
+ * still handled by the existing checkout pipeline). Closes the v2 session, idempotently, and
+ * records whether the billed time charge matches the server's computation. It never changes what
+ * the customer paid; a mismatch beyond tolerance is flagged as `billing_discrepancy` for review.
+ * No-op for orders without a v2 session (all retail orders and legacy table orders).
+ */
+export async function closeTableSessionForOrder(connector: IDataConnector, shopId: string, input: CloseHookInput) {
+  const meta = parseMetadataSafe(input.orderMetadata)
+  const sessionId = typeof meta.session_id === 'string' ? meta.session_id : ''
+  if (!sessionId || typeof connector.withTransaction !== 'function') return null
+
+  const outcome = await connector.withTransaction(async (tx) => {
+    const repo = createPgTableSyncRepo(tx)
+    const session = await repo.lockSession(sessionId)
+    if (!session || session.branch_id !== shopId || session.order_id !== input.orderId) return null
+    if (session.status !== 'open') return { alreadyClosed: true as const, session }
+
+    const { snapshot, metadata } = await loadPricingSnapshot(tx, session.id, session.resource_id, session.order_id)
+    const quote = metadata.quote as { quote_id?: string; checkout_at?: string; time_charge?: { amount: number }; expires_at?: string } | undefined
+    const requestedQuoteId = typeof meta.quote_id === 'string' ? meta.quote_id : ''
+    const now = new Date()
+    const quoteValid = Boolean(
+      quote?.quote_id && requestedQuoteId === quote.quote_id && quote.expires_at && new Date(quote.expires_at).getTime() >= now.getTime() - 60_000
+    )
+
+    const clientCheckout = meta.check_out ? new Date(String(meta.check_out)) : null
+    const checkoutForCheck = quoteValid && quote?.checkout_at
+      ? new Date(quote.checkout_at)
+      : clientCheckout && Number.isFinite(clientCheckout.getTime()) ? clientCheckout : now
+    const expected = quoteValid && quote?.time_charge
+      ? quote.time_charge.amount
+      : computeTableTimeCharge(snapshot, new Date(session.check_in), checkoutForCheck).amount
+    const serverNowExpected = computeTableTimeCharge(snapshot, new Date(session.check_in), now)
+
+    const billed = Number.isFinite(input.clientTimeCharge) ? Math.round(Number(input.clientTimeCharge)) : expected
+    const amountDiff = Math.abs(billed - expected)
+    const minutesDiff = clientCheckout && Number.isFinite(clientCheckout.getTime())
+      ? Math.abs(now.getTime() - clientCheckout.getTime()) / 60000
+      : 0
+    // An offline close may legitimately sync much later; judge the amount against the device's
+    // own checkout time, and only flag when the bill itself disagrees with the snapshot pricing.
+    const withinTolerance = amountDiff <= CLOSE_TOLERANCE.amount
+    const billing = {
+      quote_id: requestedQuoteId || null,
+      quote_valid: quoteValid,
+      expected_time_charge: expected,
+      billed_time_charge: billed,
+      amount_diff: amountDiff,
+      server_now_time_charge: serverNowExpected.amount,
+      sync_delay_minutes: Math.round(minutesDiff),
+      provisional: meta.provisional_close === true || meta.provisional_close === 'true',
+      billing_discrepancy: !withinTolerance,
+    }
+    metadata.billing = billing
+    const checkOutIso = checkoutForCheck.toISOString()
+    await tx.query(
+      `UPDATE table_sessions SET status = 'closed', check_out = $1, version = version + 1, metadata = $2, updated_at = $3
+        WHERE id = $4 AND tenant_id = $5`,
+      [checkOutIso, JSON.stringify(metadata), getGMT7Time(), session.id, tx.tenantId ?? '']
+    )
+    await insertSessionEvent(tx, session, 'session_closed', { order_id: session.order_id, check_out: checkOutIso, billing_discrepancy: billing.billing_discrepancy, version: session.version + 1 })
+    return { closed: true as const, session, billing }
+  })
+
+  if (outcome && 'closed' in outcome && outcome.billing) {
+    if (outcome.billing.billing_discrepancy) {
+      console.warn(`[tableSync] billing discrepancy on session ${sessionId}:`, outcome.billing)
+    }
+    void broadcastTableSync(shopId, { session_id: sessionId, resource_id: outcome.session.resource_id, kind: 'session_closed' })
+  }
+  return outcome
+}
+
+async function releaseResourceIfOwned(connector: IDataConnector, shopId: string, resourceId: string, orderId: string, status = 'available') {
+  const resource = await connector.findById('location-resources', resourceId).catch(() => null)
+  if (!resource) return
+  if (resource.current_order_id && resource.current_order_id !== orderId) return
+  await connector.update('location-resources', resourceId, {
+    status,
+    current_order_id: '',
+    metadata: cleanResourceSessionMetadata(resource.metadata, { last_checkout_time: new Date().toISOString() }),
+  })
+}
+
+/** Cancels an open session that holds nothing (no active items, no payment). Otherwise 409. */
+export async function cancelTableSession(connector: TxConnector, shopId: string, sessionId: string, input: { device_id?: string; reason?: string } = {}) {
+  const outcome = await connector.withTransaction(async (tx) => {
+    const repo = createPgTableSyncRepo(tx)
+    const session = await repo.lockSession(sessionId)
+    if (!session || session.branch_id !== shopId) throw new TableSyncError(404, 'session_not_found', 'Không tìm thấy phiên bàn')
+    if (session.status === 'cancelled') return { session, already: true }
+    if (session.status !== 'open') throw new TableSyncError(409, 'session_not_open', 'Phiên bàn đã đóng')
+
+    const lines = session.order_id ? await repo.listLines(session.order_id) : []
+    const hasItems = lines.some((l) => l.active && l.qty > 0 && !isTimeChargeLine(l.product_id, l.product_name))
+    const [order] = session.order_id ? await tx.query(`SELECT paid_amount FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [session.order_id, tx.tenantId ?? '']) : []
+    if (hasItems || Number(order?.paid_amount || 0) > 0) {
+      throw new TableSyncError(409, 'session_has_items', 'Phiên còn món hoặc đã thu tiền, không thể huỷ')
+    }
+    const now = getGMT7Time()
+    await tx.query(`UPDATE table_sessions SET status = 'cancelled', check_out = $1, version = version + 1, updated_at = $2 WHERE id = $3 AND tenant_id = $4`,
+      [new Date().toISOString(), now, session.id, tx.tenantId ?? ''])
+    if (session.order_id) {
+      await tx.query(`UPDATE orders SET status = 'cancelled', note = $1, updated_at = $2 WHERE id = $3 AND tenant_id = $4 AND status = 'in_progress'`,
+        [input.reason ? `Huỷ phiên bàn: ${input.reason}` : 'Huỷ phiên bàn', now, session.order_id, tx.tenantId ?? ''])
+    }
+    await insertSessionEvent(tx, session, 'session_cancelled', { order_id: session.order_id, device_id: input.device_id || '', version: session.version + 1 })
+    return { session, already: false }
+  })
+  if (!outcome.already) {
+    await releaseResourceIfOwned(connector, shopId, outcome.session.resource_id, outcome.session.order_id)
+    invalidate(shopId, 'orders')
+    invalidate(shopId, 'location-resources')
+    void broadcastTableSync(shopId, { session_id: sessionId, resource_id: outcome.session.resource_id, kind: 'session_cancelled' })
+  }
+  return { session_id: sessionId, status: 'cancelled' as const }
+}
+
+/**
+ * Moves an open session (and its order) to another resource. The partial unique index makes the
+ * move fail with 409 `target_occupied` if the target already has an open session. Order of side
+ * effects mirrors the Zalo fix (0.8): session+order first, then occupy target, then free source.
+ */
+export async function transferTableSession(connector: TxConnector, shopId: string, sessionId: string, input: { target_resource_id: string; device_id?: string }) {
+  const targetId = String(input.target_resource_id || '').trim()
+  if (!targetId || targetId.startsWith('takeaway')) throw new TableSyncError(400, 'invalid_resource', 'Bàn đích không hợp lệ')
+
+  const outcome = await connector.withTransaction(async (tx) => {
+    const repo = createPgTableSyncRepo(tx)
+    const session = await repo.lockSession(sessionId)
+    if (!session || session.branch_id !== shopId) throw new TableSyncError(404, 'session_not_found', 'Không tìm thấy phiên bàn')
+    if (session.status !== 'open') throw new TableSyncError(409, 'session_not_open', 'Phiên bàn đã đóng')
+    if (session.resource_id === targetId) return { session, from: targetId, noop: true }
+
+    const [target] = await tx.query(`SELECT id, name, branch_id FROM location_resources WHERE id = $1 AND tenant_id = $2`, [targetId, tx.tenantId ?? ''])
+    if (!target || (target.branch_id && target.branch_id !== shopId)) throw new TableSyncError(404, 'resource_not_found', 'Không tìm thấy bàn đích')
+
+    try {
+      await tx.query('SAVEPOINT transfer_session')
+      await tx.query(`UPDATE table_sessions SET resource_id = $1, version = version + 1, updated_at = $2 WHERE id = $3 AND tenant_id = $4`,
+        [targetId, getGMT7Time(), session.id, tx.tenantId ?? ''])
+      await tx.query('RELEASE SAVEPOINT transfer_session')
+    } catch (err: any) {
+      await tx.query('ROLLBACK TO SAVEPOINT transfer_session').catch(() => {})
+      if (err?.code === '23505') throw new TableSyncError(409, 'target_occupied', 'Bàn đích đang có phiên khác')
+      throw err
+    }
+    if (session.order_id) {
+      const [order] = await tx.query(`SELECT metadata FROM orders WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [session.order_id, tx.tenantId ?? ''])
+      const orderMeta = parseMetadataSafe(order?.metadata)
+      orderMeta.resource_id = targetId
+      orderMeta.resource_name = String(target.name || '')
+      await tx.query(`UPDATE orders SET resource_id = $1, metadata = $2, updated_at = $3 WHERE id = $4 AND tenant_id = $5`,
+        [targetId, JSON.stringify(orderMeta), getGMT7Time(), session.order_id, tx.tenantId ?? ''])
+    }
+    await insertSessionEvent(tx, { ...session, resource_id: targetId }, 'session_transferred', { from: session.resource_id, to: targetId, device_id: input.device_id || '', version: session.version + 1 })
+    return { session, from: session.resource_id, noop: false }
+  })
+
+  if (!outcome.noop) {
+    const target = await connector.findById('location-resources', targetId)
+    const cleanedTargetMeta = parseMetadataSafe(cleanResourceSessionMetadata(target?.metadata))
+    await connector.update('location-resources', targetId, {
+      status: 'occupied',
+      current_order_id: outcome.session.order_id,
+      metadata: JSON.stringify({ ...cleanedTargetMeta, check_in: outcome.session.check_in, session_id: sessionId }),
+    })
+    await releaseResourceIfOwned(connector, shopId, outcome.from, outcome.session.order_id)
+    invalidate(shopId, 'orders')
+    invalidate(shopId, 'location-resources')
+    void broadcastTableSync(shopId, { session_id: sessionId, resource_id: targetId, kind: 'session_transferred' })
+  }
+  return { session_id: sessionId, resource_id: targetId }
 }

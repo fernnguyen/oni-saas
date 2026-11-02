@@ -119,12 +119,30 @@ Mục tiêu: **ngừng mất dữ liệu** trước, chưa đổi kiến trúc.
   - 8 integration test trên Postgres thật: 10 máy cộng đồng thời, retry trùng `op_id`, rollback, unique index, cô lập tenant, feed thay đổi.
   - Bản integration cần `TABLE_SYNC_TEST_PG_URI` trỏ tới một DB test.
 
-**Còn lại của Phase 1:**
-- 1.2 cho MySQL: hiện MySQL trả `table_sync_v2_unsupported`, nên shop MySQL vẫn ở luồng Phase 0.
-- 1.3: `transfer`, `merge`. `quote` / `close` thuộc Phase 2.
-- 1.4: outbox bền vững trên client.
-- 1.5: server tự broadcast realtime.
-- 1.6: web/mobile chuyển sang endpoint mới theo cờ.
+**Đã xong – đợt 2 (cùng ngày):**
+- **Phase 2 phía server:**
+  - `POST /table-sessions/:id/quote`: server chốt `checkout_at` theo giờ server, tính tiền giờ từ **bảng giá đã chốt khi mở phiên** (chủ quán đổi giá giữa chừng không ảnh hưởng bill đang mở), ghi một dòng tiền giờ duy nhất, báo giá có hiệu lực 5 phút.
+  - Đóng phiên gắn vào luồng thanh toán hiện có (`sync-batch`), chỉ với đơn có `metadata.session_id`. Thanh toán, kho, CRM vẫn chạy như cũ.
+  - Khi đóng, server so tiền giờ máy đã thu với số server tính: lệch quá 2.000đ thì gắn `billing_discrepancy`, **không** sửa số tiền khách đã trả.
+- **Huỷ phiên:** `POST /:id/cancel`, chỉ khi phiên không có món và chưa thu tiền.
+- **Chuyển bàn:** `POST /:id/transfer`. Bàn đích đang có phiên thì trả 409 `target_occupied`, nhờ unique index.
+- **1.5 – Broadcast:** server tự gửi lên kênh realtime `table_sync_<shopId>` sau mỗi lần ghi. Nội dung chỉ là gợi ý; client luôn lấy dữ liệu qua `changes?since=`.
+- **Hàm tính tiền dùng chung (0.9 / 2.4):** `buildTablePricingSnapshot` + `computeTableTimeCharge` trong `@oni/core`, hỗ trợ theo giờ / theo phút / qua đêm (tính theo ngày lịch VN) / theo ngày. Code UI cũ chưa đổi.
+- **1.4 – Thư viện client dùng chung** `@oni/core` → `tableSync/client`:
+  - outbox lưu trước khi gửi, giữ `op_id` khi retry;
+  - gửi tuần tự theo phiên, lệnh mở phiên đi trước các thao tác;
+  - single-flight, tối đa 200 thao tác mỗi lần gửi;
+  - Hộp xung đột (inbox) cho thao tác bị từ chối;
+  - bắt kịp feed thay đổi;
+  - hiển thị lạc quan (`projectTableLines`);
+  - transport dùng `fetch`.
+- **Test:** `pnpm test:table-sync` gồm 82 case (63 chạy không cần DB). Trong đó có 2 test end-to-end "một máy offline + một máy online" dùng outbox thật và engine server thật.
+
+**Còn lại của Phase 1–2:**
+- `merge` (gộp bàn).
+- 1.6: gắn thư viện client vào UI web/mobile theo cờ, gồm màn Hộp xung đột (Phase 4).
+- 2.5: lease.
+- MySQL: chưa cần.
 
 > **Deploy:** `drizzle-kit push` trong deploy.sh sẽ **tạo thêm** 3 bảng trên Postgres production (chỉ thêm, không sửa bảng cũ). Cần chạy migration Supabase cho cột cờ.
 

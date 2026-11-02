@@ -1396,6 +1396,24 @@ export async function POST(
       }
     }
 
+    // --- Table sync v2: close the session of a settled table order ---
+    // Only orders created through table-sessions/open carry metadata.session_id; retail and
+    // legacy table orders skip this entirely. Never blocks or alters the checkout result.
+    if (order.status === 'completed' && resolvedResourceId && parseMetadataSafe(order.metadata).session_id) {
+      try {
+        const { closeTableSessionForOrder } = await import('@/lib/server/tableSync/service')
+        await closeTableSessionForOrder(connector, shopId, {
+          orderId: serverId,
+          orderMetadata: order.metadata,
+          clientTimeCharge: items
+            .filter((it) => isTimeChargeProduct(it.product_id, it.product_name))
+            .reduce((sum, it) => sum + (Number(it.line_total) || 0), 0),
+        })
+      } catch (err) {
+        console.error('[sync-batch] Failed to close table sync v2 session:', err)
+      }
+    }
+
     // --- Auto Occupy Table Logic ---
     if (order.status === 'in_progress' && resolvedResourceId) {
       try {

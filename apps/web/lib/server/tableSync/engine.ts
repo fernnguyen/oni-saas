@@ -116,8 +116,10 @@ const computeLineTotal = (unitPrice: number, modifierTotal: number, qty: number)
   Math.round((unitPrice + modifierTotal) * qty)
 
 export function isTimeChargeLine(productId: string, productName: string): boolean {
+  // Frozen fees of merged tables are regular billable lines (same rule as isTimeChargeProduct)
+  if (productId.toLowerCase().startsWith('time_charge_merged')) return false
   return (
-    productId.startsWith('TIME_CHARGE') ||
+    productId.toUpperCase().startsWith('TIME_CHARGE') ||
     productName.startsWith('Tiền giờ ') ||
     productName.startsWith('Phí giờ ')
   )
