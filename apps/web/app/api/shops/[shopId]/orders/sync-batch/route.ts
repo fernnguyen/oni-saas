@@ -17,7 +17,9 @@ import {
   cleanResourceSessionMetadata,
   cancelOrphanedInProgressOrdersForResource,
   parseMetadataSafe,
+  preserveStaleTableSession,
   resolveOrderResourceId,
+  syncExistingTableOrderLine,
 } from '@/lib/server/tableSessionReconciler'
 
 function calcDelta(type: string, qty: number): number {
@@ -335,16 +337,28 @@ export async function POST(
           const incomingCheckInMs = incomingCheckInIso ? new Date(incomingCheckInIso).getTime() : 0
 
           if (lastCheckoutMs > 0 && incomingCheckInMs > 0 && incomingCheckInMs < lastCheckoutMs - 5000) {
-            if (serverId) {
-              await connector.update('orders', serverId, { status: 'cancelled' }).catch(() => {})
-              invalidate(shopId, 'orders')
-            }
+            // Never cancel blindly: keep the stale session's items server-side, flagged for review,
+            // because the client drops its local copy once it sees `skipped_stale_in_progress`.
+            const preservedOrderId = await preserveStaleTableSession(connector, {
+              serverOrderId: serverId,
+              order,
+              items,
+              localOrderId: local_order_id || '',
+              resourceId: resolvedResourceId,
+              isTimeCharge: isTimeChargeProduct,
+            }).catch((err) => {
+              console.error('[sync-batch] Failed to preserve stale table session:', err)
+              return ''
+            })
+            invalidate(shopId, 'orders')
+            invalidate(shopId, 'order-items')
             return NextResponse.json({
               ok: true,
               order_id: serverId || local_order_id || '',
               order_no: orderNo,
               status: 'cancelled',
               skipped_stale_in_progress: true,
+              needs_review_order_id: preservedOrderId || undefined,
             })
           }
         }
@@ -602,11 +616,29 @@ export async function POST(
       existingProductIds.delete('TIME_CHARGE')
     }
 
+    // Table/room sessions only (retail orders never enter this branch): when the order already exists,
+    // bring duplicate lines in line with the client cart instead of silently skipping them, so the
+    // order total matches its lines. Food lines are only overwritten at checkout; the time-charge
+    // line is refreshed on every sync. Server rows absent from the payload are never removed here.
+    const isExistingTableSessionOrder =
+      !isNewOrder && Boolean(resolvedResourceId) && !resolvedResourceId.startsWith('takeaway')
     const itemsToCreate = []
     for (let i = 0; i < items.length; i++) {
       const it = items[i]
       if (it.product_id === 'TIME_CHARGE' && canonicalTimeCharge) continue
-      if (existingProductIds.has(it.product_id)) continue
+      if (existingProductIds.has(it.product_id)) {
+        if (isExistingTableSessionOrder) {
+          await syncExistingTableOrderLine(connector, {
+            item: it,
+            existingRows: existingItemRows,
+            payloadItems: items,
+            orderStatus: order.status,
+            isTimeCharge: isTimeChargeProduct,
+            onRollback: (fn) => tx?.add(fn),
+          })
+        }
+        continue
+      }
 
       // Fallback calculations for missing tax fields
       let taxRate: string = it.tax_rate || '0'
@@ -1341,7 +1373,8 @@ export async function POST(
         const resourceId = resolvedResourceId
         if (resourceId && !resourceId.startsWith('takeaway')) {
           // Cancel any other lingering in_progress orders on this table so zero zombie sessions remain
-          await cancelOrphanedInProgressOrdersForResource(connector, shopId, resourceId, serverId)
+          const settledCheckIn = parseMetadataSafe(order.metadata).check_in
+          await cancelOrphanedInProgressOrdersForResource(connector, shopId, resourceId, serverId, false, settledCheckIn)
 
           const resource = await connector.findById('location-resources', resourceId)
           if (resource) {

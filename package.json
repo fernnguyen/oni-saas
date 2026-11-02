@@ -13,6 +13,7 @@
     "start": "next start apps/web",
     "lint": "eslint apps/web --ext .ts,.tsx",
     "test:hrm": "node tests/hrm/run.mjs unit",
+    "test:table-sync": "TZ=Asia/Ho_Chi_Minh TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx --test tests/table-sync/*.test.ts",
     "test:hrm:integration": "node tests/hrm/run.mjs integration",
     "test:hrm:regression": "node tests/hrm/run.mjs regression",
     "db:push": "pnpm -C packages/adapters run db:push",

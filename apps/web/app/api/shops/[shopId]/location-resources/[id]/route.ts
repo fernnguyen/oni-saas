@@ -78,7 +78,8 @@ export async function PATCH(
     const updated = await connector.update('location-resources', id, data)
 
     if (isReleasing) {
-      await cancelOrphanedInProgressOrdersForResource(connector, shopId, id)
+      const releasedCheckIn = parseMetadataSafe(current.metadata).check_in
+      await cancelOrphanedInProgressOrdersForResource(connector, shopId, id, undefined, false, releasedCheckIn)
     }
 
     // Automatically complete active/pending QR sessions when table becomes available or enters cleaning

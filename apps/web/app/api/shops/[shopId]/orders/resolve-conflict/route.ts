@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../_helpers'
-import { getGMT7Time } from '@oni/core'
+import { getGMT7Time, isTimeChargeProduct } from '@oni/core'
+import { preserveStaleTableSession, recalculateInProgressOrderTotals } from '@/lib/server/tableSessionReconciler'
 
 type ConflictAction = 'merge' | 'keep_server' | 'replace_server'
 
@@ -63,8 +64,47 @@ export async function POST(
       )
     }
 
+    // The target order was closed meanwhile (paid/cancelled on another device): never merge into or
+    // replace it. Park the local items on a `needs_review` order so nothing is lost.
+    if ((action === 'merge' || action === 'replace_server') && existingOrder.status !== 'in_progress') {
+      const parkedOrderId = await preserveStaleTableSession(connector, {
+        serverOrderId: '',
+        order: { metadata: local_metadata },
+        items: (local_items || []).map((it) => ({
+          ...it,
+          qty: Number(it.qty) || 0,
+          unit_price: Number(it.unit_price) || 0,
+          line_total: Number(it.line_total) || 0,
+          discount_amount: Number(it.discount_amount) || 0,
+        })),
+        localOrderId: local_order_id || '',
+        resourceId: resource_id || '',
+        isTimeCharge: isTimeChargeProduct,
+      })
+      invalidate(shopId, 'orders')
+      invalidate(shopId, 'order-items')
+      return NextResponse.json({
+        ok: true,
+        resolved_order_id: '',
+        action_taken: 'parked',
+        needs_review_order_id: parkedOrderId || undefined,
+      })
+    }
+
+    // Replacing an order that already took money would silently drop that payment
+    if (action === 'replace_server' && Number(existingOrder.paid_amount || 0) > 0) {
+      return NextResponse.json(
+        { error: 'Đơn hiện tại đã thu tiền, không thể thay thế. Hãy chọn gộp món.' },
+        { status: 409 }
+      )
+    }
+
     // ── keep_server ──
     if (action === 'keep_server') {
+      if (existingOrder.status !== 'in_progress') {
+        // Local items are discarded by the user and the server order is already closed: nothing to occupy
+        return NextResponse.json({ ok: true, resolved_order_id: '', action_taken: 'discarded' })
+      }
       return NextResponse.json({
         ok: true,
         resolved_order_id: existing_order_id,
@@ -85,6 +125,7 @@ export async function POST(
       // Build dedup key set: product_id + variant_label
       const existingKeyMap = new Map<string, Record<string, any>>()
       for (const item of existingItems) {
+        if (String(item.active || 'TRUE').toUpperCase() === 'FALSE') continue
         const key = `${item.product_id || ''}::${item.variant_label || ''}`
         existingKeyMap.set(key, item)
       }
@@ -99,7 +140,7 @@ export async function POST(
 
           if (existing) {
             // Item exists on server — update qty (add local qty to server qty)
-            const existingItemId = String(existing.id || existing.order_item_id || '')
+            const existingItemId = String(existing.item_id || existing.id || existing.order_item_id || '')
             const newQty = Number(existing.qty || 0) + Number(localItem.qty || 0)
             const newLineTotal = newQty * Number(localItem.unit_price || existing.unit_price || 0)
             await connector.update('order-items', existingItemId, {
@@ -130,20 +171,8 @@ export async function POST(
         }
       }
 
-      // Recalculate order totals
-      const updatedItemsRes = await connector.list('order-items', {
-        page: 1,
-        limit: 200,
-        filters: { order_id: existing_order_id },
-      })
-      const allItems = (updatedItemsRes.data || []) as Record<string, any>[]
-      const subtotal = allItems.reduce((sum, it) => sum + Number(it.line_total || 0), 0)
-      const totalDiscount = allItems.reduce((sum, it) => sum + Number(it.discount_amount || 0), 0)
-
-      await connector.update('orders', existing_order_id, {
-        subtotal: String(subtotal),
-        total_amount: String(subtotal - totalDiscount),
-      })
+      // Recalculate order totals (same rules as every other in_progress table order update)
+      await recalculateInProgressOrderTotals(connector, shopId, existing_order_id)
 
       invalidate(shopId, 'orders')
       invalidate(shopId, 'order-items')
@@ -164,19 +193,7 @@ export async function POST(
         note: 'Thay thế bởi đơn từ thiết bị khác',
       })
 
-      // 2. Delete existing items
-      const existingItemsRes = await connector.list('order-items', {
-        page: 1,
-        limit: 200,
-        filters: { order_id: existing_order_id },
-      })
-      const existingItems = (existingItemsRes.data || []) as Record<string, any>[]
-      for (const item of existingItems) {
-        const itemId = String(item.id || item.order_item_id || '')
-        if (itemId) {
-          await connector.delete('order-items', itemId).catch(() => {})
-        }
-      }
+      // 2. Existing items stay attached to the cancelled order (audit trail); they no longer count
 
       // 3. Create new order from local data
       let subtotal = 0
