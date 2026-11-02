@@ -1474,38 +1474,53 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   }, [tables, isNavReady, isOnline, shopVertical, timeTicker]);
 
-  // Kiểm tra xung đột bàn được lưu từ SyncManager
+  // Xung đột bàn được lưu bền trong AsyncStorage (`table_conflict:<tableId>`) bởi SyncManager / syncOrderItemsOnline.
+  // "Để sau" chỉ tạm ẩn (snooze) bàn đó trong phiên app; xung đột KHÔNG bao giờ tự xoá — món trên máy chỉ mất
+  // khi người dùng chủ động chọn "Giữ đơn hệ thống".
+  const snoozedConflictTablesRef = React.useRef<Set<string>>(new Set());
+  const [pendingConflictTableIds, setPendingConflictTableIds] = useState<string[]>([]);
+
+  const loadPendingConflicts = useCallback(async (): Promise<TableConflict[]> => {
+    try {
+      const keys = (await AsyncStorage.getAllKeys()).filter(k => k.startsWith('table_conflict:'));
+      const conflicts: TableConflict[] = [];
+      for (const key of keys) {
+        const raw = await AsyncStorage.getItem(key);
+        if (!raw) continue;
+        try { conflicts.push(JSON.parse(raw)); } catch {}
+      }
+      setPendingConflictTableIds(conflicts.map(c => c.tableId));
+      return conflicts;
+    } catch {
+      return [];
+    }
+  }, []);
+
   useEffect(() => {
     if (shopVertical === 'retail') return;
-    const checkConflicts = async () => {
-      try {
-        const keys = await AsyncStorage.getAllKeys();
-        const conflictKeys = keys.filter(k => k.startsWith('table_conflict:'));
-        if (conflictKeys.length > 0) {
-          const firstKey = conflictKeys[0];
-          const data = await AsyncStorage.getItem(firstKey);
-          if (data) {
-            const conflict = JSON.parse(data);
-            // Tự động xóa xung đột cũ hơn 24h
-            if (conflict.detectedAt) {
-              const age = Date.now() - new Date(conflict.detectedAt).getTime();
-              if (age > 24 * 60 * 60 * 1000) {
-                await AsyncStorage.removeItem(firstKey);
-                // Tự động giải quyết: giữ đơn hệ thống
-                try {
-                  await db.delete(schema.orders).where(eq(schema.orders.id, conflict.localOrderId));
-                  await db.delete(schema.order_items).where(eq(schema.order_items.order_id, conflict.localOrderId));
-                } catch {}
-                return;
-              }
-            }
-            setTableConflict(conflict);
-          }
-        }
-      } catch {}
-    };
-    checkConflicts();
-  }, [tables, shopVertical]);
+    (async () => {
+      const conflicts = await loadPendingConflicts();
+      const next = conflicts.find(c => !snoozedConflictTablesRef.current.has(c.tableId));
+      if (next) setTableConflict(prev => prev || next);
+    })();
+  }, [tables, shopVertical, loadPendingConflicts]);
+
+  /** "Để sau": ẩn bảng xung đột của bàn này cho tới khi người dùng mở lại từ nút "Xung đột" */
+  const dismissTableConflict = useCallback(() => {
+    setTableConflict(prev => {
+      if (prev) snoozedConflictTablesRef.current.add(prev.tableId);
+      return null;
+    });
+  }, []);
+
+  /** Mở lại xung đột đang chờ (ưu tiên bàn được chỉ định) */
+  const openPendingConflict = useCallback(async (tableId?: string) => {
+    const conflicts = await loadPendingConflicts();
+    const target = (tableId && conflicts.find(c => c.tableId === tableId)) || conflicts[0];
+    if (!target) return;
+    snoozedConflictTablesRef.current.delete(target.tableId);
+    setTableConflict(target);
+  }, [loadPendingConflicts]);
 
   const resolveTableConflict = async (action: 'merge' | 'keep_server' | 'replace_server') => {
     if (!tableConflict) return;
@@ -1571,7 +1586,9 @@ export function useTableManager(props: UseTableManagerProps) {
           }
           await AsyncStorage.removeItem(`table_conflict:${tableConflict.tableId}`);
           pendingItemSyncByOrderRef.current.delete(tableConflict.localOrderId);
+          snoozedConflictTablesRef.current.delete(tableConflict.tableId);
           setTableConflict(null);
+          void loadPendingConflicts();
           const parkedTable = tables.find(t => t.id === tableConflict.tableId);
           if (parkedTable) setTimeout(() => syncActiveTableSession(parkedTable), 500);
           return;
@@ -1592,7 +1609,9 @@ export function useTableManager(props: UseTableManagerProps) {
         // Xóa xung đột khỏi storage
         await AsyncStorage.removeItem(`table_conflict:${tableConflict.tableId}`);
         pendingItemSyncByOrderRef.current.delete(tableConflict.localOrderId);
+        snoozedConflictTablesRef.current.delete(tableConflict.tableId);
         setTableConflict(null);
+        void loadPendingConflicts();
         // Đồng bộ lại dữ liệu bàn
         const updatedTable = tables.find(t => t.id === tableConflict.tableId);
         if (updatedTable) {
@@ -3430,5 +3449,8 @@ export function useTableManager(props: UseTableManagerProps) {
     handleUpdateTableTime,
     tableConflict, setTableConflict,
     resolveTableConflict,
+    dismissTableConflict,
+    openPendingConflict,
+    pendingConflictTableIds,
   };
 }
