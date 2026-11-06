@@ -38,7 +38,7 @@ import { PosDatePicker } from '../../components/pos/PosDatePicker';
 import { PosDateTimePicker } from '../../components/pos/PosDateTimePicker';
 import { PosToast } from '../../components/pos/PosToast';
 import { TableOrderTicketSheet } from '../../components/pos/TableOrderTicketSheet';
-import { PosDialogHost, PosDialogProvider, usePosDialogController } from '../../components/pos/PosDialog';
+import { PosDialogHost, PosDialogProvider, usePosDialogController, type PosDialogDetail } from '../../components/pos/PosDialog';
 import { getResourceDisplayName, getResourceNouns } from '../../lib/pos/resourceLabels';
 import { useCart } from '../../hooks/pos/useCart';
 import { usePosData } from '../../hooks/pos/usePosData';
@@ -3940,11 +3940,42 @@ export default function PosScreen() {
                         onPress={async () => {
                           // Hộp thoại xác nhận hủy an toàn
                           const cancelName = getResourceDisplayName(activeTable, shopVertical);
-                          const confirmCancel = Platform.OS === 'web'
-                            ? window.confirm(`Bạn có chắc chắn muốn Hủy và giải phóng ${cancelName}?`)
-                            : (await dialog.confirm({
+                          // App dialog on every platform: window.confirm is blocked in embedded
+                          // browsers / PWAs, which silently made this button do nothing on web.
+                          // What the cancel drops, so the cashier sees it before confirming.
+                          const cancelLines = Object.entries(tableCarts[activeTable.id] || {})
+                            .filter(([cartItemId, it]: [string, any]) => !isTimeChargeProduct(it.productId || cartItemId, it.name));
+                          const cancelQty = cancelLines.reduce((n, [, it]: [string, any]) => n + (Number(it.quantity) || 0), 0);
+                          const cancelItemsCost = cancelLines.reduce(
+                            (sum, [, it]: [string, any]) => sum + ((Number(it.price) || 0) + (Number(it.modifier_total) || 0)) * (Number(it.quantity) || 0),
+                            0,
+                          );
+                          const cancelBilling = calculateBilling(activeTable);
+                          let cancelMeta: any = {};
+                          try {
+                            cancelMeta = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata || '{}') : (activeTable.metadata || {});
+                          } catch {}
+                          const cancelTimeCost = getResourceBillingPresentationForResource(shopVertical, { ...activeTable, metadata: cancelMeta }).showCost
+                            ? (Number(cancelBilling.cost) || 0) : 0;
+                          const cancelSentQty = cancelLines.reduce((n, [, it]: [string, any]) => n + sentQtyOf(tableKitchen.status, it._serverItemId), 0);
+                          const cancelDetails: PosDialogDetail[] = [
+                            { label: 'Khách', value: tableCustomers[activeTable.id]?.name || 'Khách lẻ' },
+                            { label: 'Thời gian dùng', value: cancelBilling.label || '—' },
+                            {
+                              label: 'Món đã gọi',
+                              value: cancelQty > 0
+                                ? `${cancelQty} món · ${cancelLines.slice(0, 3).map(([, it]: [string, any]) => it.name).join(', ')}${cancelLines.length > 3 ? '…' : ''}`
+                                : 'Chưa gọi món',
+                            },
+                            ...(cancelSentQty > 0
+                              ? [{ label: 'Đã báo bếp', value: `${cancelSentQty} món – bếp sẽ nhận phiếu huỷ`, tone: 'warning' as const }]
+                              : []),
+                            { label: 'Tạm tính bị huỷ', value: formatCurrency(cancelTimeCost + cancelItemsCost), tone: 'danger', strong: true },
+                          ];
+                          const confirmCancel = (await dialog.confirm({
                               title: `Hủy đơn ${cancelName}?`,
-                              message: `Tất cả thông tin sử dụng và dịch vụ hiện tại sẽ bị xóa sạch, ${resNouns.noun} được trả về trạng thái trống.`,
+                              message: `Đơn sẽ bị huỷ, không thu tiền. ${resNouns.noun.charAt(0).toUpperCase()}${resNouns.noun.slice(1)} được trả về trạng thái trống.`,
+                              details: cancelDetails,
                               tone: 'danger',
                               icon: 'x-circle',
                               actions: [
