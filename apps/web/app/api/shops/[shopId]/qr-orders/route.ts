@@ -7,6 +7,7 @@ import { getConnectorForShop } from '@/lib/server/connectorFactory'
 import { NotificationDispatcher } from '@/lib/server/notificationDispatcher'
 import crypto from 'crypto'
 import { getGMT7Time } from '@oni/core'
+import { generateKitchenTicketsForQr } from '@/lib/server/kitchen/tickets'
 
 
 export async function GET(
@@ -431,6 +432,33 @@ export async function PATCH(
             status: 'occupied',
             current_order_id: finalOrderId
           });
+        }
+      }
+
+      // Bar/Bếp (K3): accepted QR items go straight to their stations. Best-effort and after
+      // the items are saved: a failure never blocks the accept. No-op without stations/Postgres.
+      if (typeof connector.withTransaction === 'function' && finalOrderId && requestItems.length > 0) {
+        try {
+          const lines = (await connector.list('order-items', { page: 1, limit: 500, filters: { order_id: finalOrderId } })).data || []
+          await generateKitchenTicketsForQr(connector as Parameters<typeof generateKitchenTicketsForQr>[0], shopId, {
+            requestId: String(request_id),
+            orderId: finalOrderId,
+            resourceId,
+            resourceName: table.name || '',
+            items: requestItems.map((it: any) => ({
+              product_id: String(it.product_id || ''),
+              product_name: String(it.product_name || ''),
+              variant_label: it.variant_label || '',
+              modifiers: it.modifiers,
+              qty: Number(it.qty) || 0,
+              order_item_id: (() => {
+                const line = lines.find((l: any) => isSameItem(l, it))
+                return line ? String(line.item_id || line.id || '') : undefined
+              })(),
+            })),
+          })
+        } catch (err) {
+          console.error('[Accept QR Order] kitchen tickets failed (order already saved):', err)
         }
       }
 

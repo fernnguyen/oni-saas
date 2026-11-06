@@ -95,3 +95,18 @@ test('batch_id separates tickets of the same station', () => {
   }))
   assert.deepEqual(t.map((x) => x.batch_id).sort(), ['B1', 'B2'])
 })
+
+test('netPlannedTickets keeps only the net change per item', async () => {
+  const { netPlannedTickets } = await import('../../apps/web/lib/server/kitchen/ticketPlanner')
+  const line = (op_id: string, item: string, qty: number) =>
+    ({ op_id, order_item_id: item, product_id: 'P', product_name: item, variant_label: '', modifiers: '', note: '', qty })
+  const out = netPlannedTickets([
+    { station: kitchen, kind: 'order', batch_id: 'b', lines: [line('a1', 'pho', 3), line('c1', 'cafe', 1), line('a2', 'pho', 1)] },
+    { station: kitchen, kind: 'void', batch_id: 'b', lines: [line('r1', 'pho', -2), line('r2', 'cafe', -1), line('r3', 'tra', -1)] },
+  ])
+  // pho: 3+1-2 = 2 → latest order lines first: a2 (1) + 1 of a1; cafe: 0 → gone; tra: −1 kept
+  assert.deepEqual(out.map((t) => [t.kind, t.lines.map((l) => [l.op_id, l.qty])]), [
+    ['order', [['a1', 1], ['a2', 1]]],
+    ['void', [['r3', -1]]],
+  ])
+})

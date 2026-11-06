@@ -16,10 +16,18 @@ export interface OpenSessionPayload {
   metadata?: Record<string, unknown>
 }
 
+/** Bar/Bếp (K3): optional per-op kitchen fields; ignored by the money logic. */
+export interface KitchenOpFields {
+  /** dish note for the kitchen ("ít đá") */
+  note?: string
+  /** after applying, send everything unsent for this table to the kitchen ("Lưu & báo bếp") */
+  kitchen_fire?: boolean
+}
+
 export type ClientTableOp =
-  | { op_id?: string; type: 'add_item'; product_id: string; product_name: string; unit_price: number; qty: number; sku?: string; variant_label?: string; modifiers?: unknown; modifier_total?: number; tax_rate?: string; tax_group?: string }
-  | { op_id?: string; type: 'change_qty'; item_id?: string; line_key?: string; delta: number }
-  | { op_id?: string; type: 'remove_item'; item_id?: string; line_key?: string }
+  | { op_id?: string; type: 'add_item'; product_id: string; product_name: string; unit_price: number; qty: number; sku?: string; variant_label?: string; modifiers?: unknown; modifier_total?: number; tax_rate?: string; tax_group?: string } & KitchenOpFields
+  | ({ op_id?: string; type: 'change_qty'; item_id?: string; line_key?: string; delta: number } & KitchenOpFields)
+  | ({ op_id?: string; type: 'remove_item'; item_id?: string; line_key?: string } & KitchenOpFields)
   | { op_id?: string; type: 'set_time_charge'; product_id: string; product_name: string; amount: number; duration_minutes?: number; checkout_at?: string }
 
 export type OutboxEntry =

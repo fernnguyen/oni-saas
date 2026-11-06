@@ -849,7 +849,13 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   };
 
-  const syncOrderItemsOnline = async (orderId: string, cartItems: any, tableId?: string, baseCart?: any) => {
+  const syncOrderItemsOnline = async (
+    orderId: string,
+    cartItems: any,
+    tableId?: string,
+    baseCart?: any,
+    opts?: { kitchenFire?: boolean },
+  ) => {
     // Table sync v2: send only the DIFFERENCE between the cart the user started from and the cart
     // they saved, through the persistent outbox (no SQLite rows, no absolute PUT/POST/DELETE).
     const v2Session = tableId ? getV2Session(tableId) : null;
@@ -858,6 +864,11 @@ export function useTableManager(props: UseTableManagerProps) {
         const base = withoutTimeCharge(baseCart ?? lastV2CartRef.current[tableId] ?? {});
         const next = withoutTimeCharge(cartItems);
         const ops = diffCartToOps(base as any, next as any);
+        // Bar/Bếp K3 "Lưu & báo bếp": flag the last op; the server sends everything unsent for the
+        // table once it applies. Rides the outbox, so it also works after an offline save.
+        if (opts?.kitchenFire && ops.length > 0) {
+          ops[ops.length - 1] = { ...ops[ops.length - 1], kitchen_fire: true } as (typeof ops)[number];
+        }
         if (ops.length > 0) await v2.enqueueOps(v2Session.sessionId, ops);
         lastV2CartRef.current[tableId] = next;
         return true;

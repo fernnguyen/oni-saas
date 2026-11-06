@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CustomerSearch } from './CustomerSearch'
 import { SlideProductSearch } from './SlideProductSearch'
+import { KitchenItemBadge, TableKitchenBar, useTableKitchen } from './TableKitchenBar'
 import { getVerticalConfig, calculateHourlyBilling, generateClientId, isTimeChargeProduct, projectTableLines, tableSyncLineKey } from '@oni/core'
 import type { TableSyncV2Api } from '@/hooks/useTableSyncV2'
 import { CheckoutModal } from './CheckoutModal'
@@ -253,6 +254,9 @@ export function ResourceSlideOver({
   }
   const mergeV2ItemsRef = useRef(mergeV2Items)
   mergeV2ItemsRef.current = mergeV2Items
+
+  // Bar/Bếp K3: kitchen state + "Gửi bếp" for this table (inert without stations / v2).
+  const kitchen = useTableKitchen(shopId, v2SessionId, v2)
 
   const v2LineRef = (i: OrderItem): { item_id?: string; line_key?: string } => {
     const id = String(i.id || '')
@@ -2346,6 +2350,8 @@ export function ResourceSlideOver({
                             <SlideProductSearch onSelect={handleProductSelect} />
                           </div>
 
+                          <TableKitchenBar kitchen={kitchen} />
+
                           <div className="space-y-3 flex-1 overflow-y-auto">
                             {showOrderSkeleton && (
                               <div className="space-y-2">
@@ -2364,7 +2370,10 @@ export function ResourceSlideOver({
                               <div key={item.id || `ex-${idx}`} className={`rounded-xl border p-3 flex justify-between items-center transition-colors ${dirtyItems[item.id!] ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-100'}`}>
                                 <div className="min-w-0 flex-1 flex items-center gap-3">
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-slate-900 truncate leading-tight">{item.product_name}</p>
+                                    <div className="flex min-w-0 items-center gap-1.5">
+                                      <p className="text-sm font-medium text-slate-900 truncate leading-tight">{item.product_name}</p>
+                                      <KitchenItemBadge status={kitchen.status} itemId={item.id} qty={Number(item.qty) || 0} />
+                                    </div>
                                     <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                                       <span 
                                         className="hover:text-primary cursor-pointer underline underline-offset-4 decoration-dashed decoration-slate-300 hover:decoration-primary transition-colors"

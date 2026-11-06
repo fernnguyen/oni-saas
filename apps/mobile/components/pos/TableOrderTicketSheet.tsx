@@ -22,6 +22,8 @@ interface TableOrderTicketSheetProps {
   /** Lines already on the table (read-only here) */
   previousItems: Record<string, CartLine>;
   saving: boolean;
+  /** Save button text; defaults to "Lưu vào <bàn>" ("Lưu & báo bếp" when Bar/Bếp is on) */
+  saveLabel?: string;
   onClose: () => void;
   onIncrease: (cartItemId: string) => void;
   onDecrease: (cartItemId: string) => void;
@@ -54,6 +56,7 @@ export function TableOrderTicketSheet({
   draft,
   previousItems,
   saving,
+  saveLabel,
   onClose,
   onIncrease,
   onDecrease,
@@ -203,7 +206,7 @@ export function TableOrderTicketSheet({
                 <Feather name="save" size={15} color="white" />
               )}
               <Text className="text-sm font-semibold text-white ml-2" numberOfLines={1}>
-                {saving ? 'Đang lưu…' : `Lưu vào ${tableName}`}
+                {saving ? 'Đang lưu…' : (saveLabel || `Lưu vào ${tableName}`)}
               </Text>
             </TouchableOpacity>
           </View>

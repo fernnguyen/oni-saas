@@ -944,6 +944,20 @@ export const kitchen_tickets = pgTable('kitchen_tickets', {
   sessionIdx: index('idx_kitchen_tickets_session').on(table.tenant_id, table.session_id),
 }));
 
+// K3: every table op considered by a "Gửi bếp" (printed, netted out or no-op) is marked here, so
+// a later send never re-reads it. Ops not listed are "chưa báo bếp".
+export const kitchen_fired_ops = pgTable('kitchen_fired_ops', {
+  tenant_id: varchar('tenant_id', { length: 255 }).notNull(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  session_id: varchar('session_id', { length: 255 }).notNull(),
+  op_id: varchar('op_id', { length: 255 }).notNull(),
+  batch_id: varchar('batch_id', { length: 255 }),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.tenant_id, table.op_id] }),
+  sessionIdx: index('idx_kitchen_fired_ops_session').on(table.tenant_id, table.session_id),
+}));
+
 export const kitchen_ticket_items = pgTable('kitchen_ticket_items', {
   ...getBaseColumns(),
   id: varchar('id', { length: 255 }).primaryKey(),

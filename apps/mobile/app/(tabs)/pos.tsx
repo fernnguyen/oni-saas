@@ -15,7 +15,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { formatCurrency, maskCurrencyInput, parseCurrencyToNumber } from '../../lib/utils/format';
 import { formatResourceStartTime, getResourceBillingPresentationForResource } from '../../lib/utils/resource-billing-presentation';
-import { allowsProductNegativeStock, buildQuickCreateMetadata, calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
+import { allowsProductNegativeStock, buildQuickCreateMetadata, calculateHourlyBilling, isKitchenEligibleIndustry, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
 
 // Import hệ thống component dùng chung
 import { Header } from '../../components/layout/Header';
@@ -418,6 +418,24 @@ export default function PosScreen() {
 
   // Table sync v2 (table/room/court flows only; retail never enables it)
   const tableSync = useTableSyncV2(activeShopId, shopVertical !== 'retail', isOnline);
+
+  // Bar/Bếp K3: when the branch has prep stations, saving a table draft also sends it to the
+  // kitchen ("Lưu & báo bếp"). Probed once per shop; any error → off (plain "Lưu vào bàn").
+  const [kitchenEnabled, setKitchenEnabled] = useState(false);
+  useEffect(() => {
+    if (!activeShopId || !isKitchenEligibleIndustry(shopVertical || 'retail') || !isOnline) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/api/shops/${activeShopId}/prep-stations`, { headers: await getApiHeaders() });
+        const json = res.ok ? await res.json() : null;
+        if (alive) setKitchenEnabled(Array.isArray(json?.data) && json.data.length > 0);
+      } catch {
+        /* offline / unsupported: keep the last known value */
+      }
+    })();
+    return () => { alive = false; };
+  }, [activeShopId, shopVertical, isOnline]);
   const [isTableSyncInboxOpen, setIsTableSyncInboxOpen] = useState(false);
 
   const {
@@ -598,6 +616,12 @@ export default function PosScreen() {
     setActiveVertical(tableMapVertical);
   };
 
+  // "Lưu & báo bếp" only where the save really reaches the kitchen (v2 table + stations).
+  const tableSaveLabel = (table: { id: string; name: string }) => {
+    const live = tables.find(t => t.id === table.id) || table;
+    return kitchenEnabled && isV2Table(live as any) ? 'Lưu & báo bếp' : `Lưu vào ${table.name}`;
+  };
+
   const saveTableOrderDraft = async () => {
     const target = orderingTable;
     if (!target || orderingSavingRef.current) return;
@@ -628,7 +652,7 @@ export default function PosScreen() {
           return;
         }
         // v2: base = món đã có trên bàn → chỉ gửi add_item / change_qty cho phần nháp
-        const ok = await syncOrderItemsOnline(latestOrderId, next, target.id, base);
+        const ok = await syncOrderItemsOnline(latestOrderId, next, target.id, base, { kitchenFire: kitchenEnabled });
         if (!ok) {
           // Hộp thoại (không phải toast): toast bị phiếu gọi món (Modal) che mất
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => { });
@@ -641,8 +665,10 @@ export default function PosScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
         showToast(
           sessionState === 'offline'
-            ? `Đã lưu ${count} món trên máy cho ${target.name}, sẽ gửi khi có mạng`
-            : `Đã lưu ${count} món vào ${target.name}`,
+            ? `Đã lưu ${count} món trên máy cho ${target.name}, sẽ gửi${kitchenEnabled ? ' và báo bếp' : ''} khi có mạng`
+            : kitchenEnabled
+              ? `Đã lưu ${count} món vào ${target.name} và báo bếp`
+              : `Đã lưu ${count} món vào ${target.name}`,
           'success',
           { silent: true }
         );
@@ -692,7 +718,7 @@ export default function PosScreen() {
       cancelKey: 'stay',
       actions: [
         // Nút lưu hiện spinner tới khi lưu xong (lỗi → hộp thoại lỗi hiện tiếp sau)
-        { key: 'save', label: `Lưu vào ${orderingTable.name}`, style: 'primary', loadingLabel: 'Đang lưu…', onPress: () => saveTableOrderDraft() },
+        { key: 'save', label: tableSaveLabel(orderingTable), style: 'primary', loadingLabel: 'Đang lưu…', onPress: () => saveTableOrderDraft() },
         { key: 'keep', label: 'Giữ nháp, thoát', style: 'secondary' },
         { key: 'discard', label: 'Bỏ món mới', style: 'destructive' },
       ],
@@ -2834,7 +2860,7 @@ export default function PosScreen() {
               onPress={() => { void saveTableOrderDraft(); }}
               className={`h-11 px-4 rounded-xl flex-row items-center justify-center ${canSave ? 'bg-orange-500 active:bg-orange-600' : 'bg-slate-300'}`}
               style={{ maxWidth: '58%' }}
-              accessibilityLabel={`Lưu vào ${orderingTable.name}`}
+              accessibilityLabel={tableSaveLabel(orderingTable)}
             >
               {isSavingTableDraft ? (
                 <ActivityIndicator size="small" color="white" />
@@ -2842,7 +2868,7 @@ export default function PosScreen() {
                 <Feather name="save" size={14} color="white" />
               )}
               <Text className="text-xs font-semibold text-white ml-1.5" numberOfLines={1}>
-                Lưu vào {orderingTable.name}
+                {tableSaveLabel(orderingTable)}
               </Text>
             </TouchableOpacity>
           </View>
@@ -2856,6 +2882,7 @@ export default function PosScreen() {
           draft={cart}
           previousItems={tableCarts[orderingTable.id] || {}}
           saving={isSavingTableDraft}
+          saveLabel={tableSaveLabel(orderingTable)}
           onClose={() => setIsTableTicketOpen(false)}
           onIncrease={increaseDraftLine}
           onDecrease={decreaseDraftLine}

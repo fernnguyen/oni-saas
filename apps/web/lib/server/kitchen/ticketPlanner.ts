@@ -161,3 +161,34 @@ export function planKitchenTickets(input: PlanInput): PlannedTicket[] {
 
   return [...tickets.values()]
 }
+
+/**
+ * Collapse what one send would print per order item into its net change, so an item added and
+ * then removed (or reduced) before "Gửi bếp" does not print an order line AND a cancel line.
+ *  - net > 0 → keep the latest order lines up to the net qty (earlier ops stay unsent and keep
+ *    netting with their partners next time)
+ *  - net < 0 → keep the latest void lines up to |net|
+ *  - net = 0 → nothing for that item
+ * Ticket/line order is preserved; empty tickets are dropped.
+ */
+export function netPlannedTickets(planned: PlannedTicket[]): PlannedTicket[] {
+  const net = new Map<string, number>()
+  for (const t of planned) for (const l of t.lines) net.set(l.order_item_id, (net.get(l.order_item_id) ?? 0) + l.qty)
+
+  // Walk lines newest → oldest, keeping qty until each item's net is covered.
+  const remaining = new Map(net)
+  const keep = new Map<PlannedLine, number>()
+  const flat = planned.flatMap((t) => t.lines)
+  for (let i = flat.length - 1; i >= 0; i--) {
+    const l = flat[i]
+    const left = remaining.get(l.order_item_id) ?? 0
+    if (left === 0 || Math.sign(left) !== Math.sign(l.qty)) continue
+    const take = Math.sign(left) * Math.min(Math.abs(left), Math.abs(l.qty))
+    keep.set(l, take)
+    remaining.set(l.order_item_id, left - take)
+  }
+
+  return planned
+    .map((t) => ({ ...t, lines: t.lines.filter((l) => keep.has(l)).map((l) => ({ ...l, qty: keep.get(l)! })) }))
+    .filter((t) => t.lines.length > 0)
+}

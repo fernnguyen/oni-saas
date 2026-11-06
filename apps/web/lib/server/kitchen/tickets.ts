@@ -3,7 +3,7 @@
 import crypto from 'crypto'
 import type { IDataConnector, TransactionClient } from '@oni/adapters'
 import { getGMT7Time, toPrepStation, type PrepStation, type PrepStationRoute } from '@oni/core'
-import { planKitchenTickets, type OrderLineInfo, type PlannedTicket, type PlannerOp, type PlannerOpResult, type SentInfo } from './ticketPlanner'
+import { netPlannedTickets, planKitchenTickets, type OrderLineInfo, type PlannedTicket, type PlannerOp, type PlannerOpResult, type SentInfo } from './ticketPlanner'
 import { broadcastKitchen } from './broadcast'
 
 type TxConnector = IDataConnector & { withTransaction: NonNullable<IDataConnector['withTransaction']> }
@@ -62,105 +62,251 @@ async function loadRoutes(tx: TransactionClient, branchId: string): Promise<Prep
   return rows as PrepStationRoute[]
 }
 
+interface PlanContext {
+  stations: PrepStation[]
+  routes: PrepStationRoute[]
+  productCategories: Map<string, string>
+  orderLines: Map<string, OrderLineInfo>
+  sent: Map<string, SentInfo>
+}
+
+/** Stations, routes and the per-item data the planner needs. null = branch has no station. */
+async function loadPlanContext(
+  tx: TransactionClient,
+  shopId: string,
+  itemIds: string[],
+  productIds: Set<string>,
+): Promise<PlanContext | null> {
+  const stations = await loadStations(tx, shopId)
+  if (stations.length === 0) return null
+  const routes = await loadRoutes(tx, shopId)
+
+  const orderLines = new Map<string, OrderLineInfo>()
+  const sent = new Map<string, SentInfo>()
+  if (itemIds.length > 0) {
+    const lines = await tx.query(
+      `SELECT id, product_id, product_name, variant_label, modifiers FROM order_items
+        WHERE tenant_id = $1 AND id = ANY($2::text[])`,
+      [tid(tx), itemIds],
+    )
+    for (const l of lines) {
+      orderLines.set(l.id, {
+        product_id: l.product_id || '',
+        product_name: l.product_name || '',
+        variant_label: l.variant_label || '',
+        modifiers: l.modifiers || '',
+      })
+      if (l.product_id) productIds.add(l.product_id)
+    }
+    // Net qty already sent per item + the station of the latest "order" ticket for it.
+    const sentRows = await tx.query(
+      `SELECT i.order_item_id,
+              SUM(i.qty::numeric) AS net_qty,
+              (ARRAY_AGG(t.station_id ORDER BY t.created_at DESC) FILTER (WHERE t.kind = 'order'))[1] AS station_id,
+              (ARRAY_AGG(i.product_id ORDER BY t.created_at DESC))[1] AS product_id,
+              (ARRAY_AGG(i.product_name ORDER BY t.created_at DESC))[1] AS product_name,
+              (ARRAY_AGG(i.variant_label ORDER BY t.created_at DESC))[1] AS variant_label,
+              (ARRAY_AGG(i.modifiers ORDER BY t.created_at DESC))[1] AS modifiers
+         FROM kitchen_ticket_items i
+         JOIN kitchen_tickets t ON t.id = i.ticket_id AND t.tenant_id = i.tenant_id
+        WHERE i.tenant_id = $1 AND i.branch_id = $2 AND i.order_item_id = ANY($3::text[])
+        GROUP BY i.order_item_id`,
+      [tid(tx), shopId, itemIds],
+    )
+    for (const s of sentRows) {
+      sent.set(s.order_item_id, {
+        net_qty: Number(s.net_qty) || 0,
+        station_id: s.station_id || '',
+        product_id: s.product_id || '',
+        product_name: s.product_name || '',
+        variant_label: s.variant_label || '',
+        modifiers: s.modifiers || '',
+      })
+    }
+  }
+
+  const productCategories = new Map<string, string>()
+  if (productIds.size > 0) {
+    const prods = await tx.query(`SELECT id, category_id FROM products WHERE tenant_id = $1 AND id = ANY($2::text[])`, [
+      tid(tx),
+      [...productIds],
+    ])
+    for (const p of prods) if (p.category_id) productCategories.set(p.id, p.category_id)
+  }
+  return { stations, routes, productCategories, orderLines, sent }
+}
+
 /**
- * Generate kitchen tickets for the ops just applied to a table session. Runs in its own
- * transaction AFTER the ops commit; the caller treats failures as best-effort.
- * Returns the created tickets (empty when the branch has no station).
+ * Applied ops of a session that are not on any kitchen ticket yet ("chưa báo bếp"), oldest first.
+ * Ops that net to zero (added then removed before sending) stay here and keep netting to zero.
  */
-export async function generateKitchenTicketsForOps(
+async function loadUnsentOps(tx: TransactionClient, shopId: string, sessionId: string) {
+  const rows = await tx.query(
+    `SELECT o.id, o.payload, o.result FROM order_item_ops o
+      WHERE o.tenant_id = $1 AND o.branch_id = $2 AND o.session_id = $3 AND o.status = 'applied'
+        AND o.op_type IN ('add_item', 'change_qty', 'remove_item')
+        AND NOT EXISTS (SELECT 1 FROM kitchen_fired_ops f WHERE f.tenant_id = o.tenant_id AND f.op_id = o.id)
+      ORDER BY o.created_at, o.id`,
+    [tid(tx), shopId, sessionId],
+  )
+  const ops: PlannerOp[] = []
+  const results: PlannerOpResult[] = []
+  for (const r of rows) {
+    const payload = typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload || {}
+    const result = typeof r.result === 'string' ? JSON.parse(r.result) : r.result || {}
+    ops.push({ ...payload, op_id: r.id })
+    results.push({ op_id: r.id, status: 'applied', item_id: result.item_id, reason: result.reason })
+  }
+  return { ops, results }
+}
+
+async function planSession(tx: TransactionClient, shopId: string, sessionId: string, batchId: string) {
+  const { ops, results } = await loadUnsentOps(tx, shopId, sessionId)
+  if (ops.length === 0) return { planned: [] as PlannedTicket[], hasStations: true, opIds: [] as string[] }
+  const opsById = new Map(ops.map((o) => [o.op_id, o]))
+  const itemIds = [...new Set(results.map((r) => r.item_id || opsById.get(r.op_id)?.item_id || '').filter(Boolean))]
+  const productIds = new Set(ops.filter((o) => o.type === 'add_item' && o.product_id).map((o) => String(o.product_id)))
+  const ctx = await loadPlanContext(tx, shopId, itemIds, productIds)
+  if (!ctx) return { planned: [] as PlannedTicket[], hasStations: false, opIds: [] as string[] }
+  // One send = one ticket per station, whatever batch the individual ops came from.
+  const batched = ops.map((o) => ({ ...o, batch_id: batchId }))
+  return {
+    planned: netPlannedTickets(planKitchenTickets({ ops: batched, results, ...ctx })),
+    hasStations: true,
+    opIds: ops.map((o) => o.op_id),
+  }
+}
+
+async function loadSessionInfo(tx: TransactionClient, sessionId: string) {
+  const rows = await tx.query(
+    `SELECT s.resource_id, s.order_id, r.name AS resource_name
+       FROM table_sessions s
+       LEFT JOIN location_resources r ON r.id = s.resource_id AND r.tenant_id = s.tenant_id
+      WHERE s.tenant_id = $1 AND s.id = $2`,
+    [tid(tx), sessionId],
+  )
+  return rows[0] || {}
+}
+
+/**
+ * "Gửi bếp": turn every applied-but-unsent op of a table session into kitchen tickets.
+ * Idempotent: ops already on a ticket are skipped, so a double tap sends nothing twice.
+ */
+export async function fireKitchenForSession(
   connector: TxConnector,
   shopId: string,
-  input: { sessionId: string; deviceId: string; ops: PlannerOp[]; results: PlannerOpResult[] },
+  sessionId: string,
+  opts: { deviceId?: string; batchId?: string } = {},
 ): Promise<KitchenTicket[]> {
-  const applied = input.results.filter((r) => r.status === 'applied' && !r.replayed)
-  if (applied.length === 0) return []
-
+  const batchId = (opts.batchId || crypto.randomUUID()).slice(0, 255)
   const created = await connector.withTransaction(async (tx) => {
-    const stations = await loadStations(tx, shopId)
-    if (stations.length === 0) return []
-    const routes = await loadRoutes(tx, shopId)
-
-    const opsById = new Map(input.ops.map((o) => [o?.op_id, o]))
-    const itemIds = [...new Set(applied.map((r) => r.item_id || opsById.get(r.op_id)?.item_id || '').filter(Boolean))]
-    const productIds = new Set<string>()
-    for (const r of applied) {
-      const op = opsById.get(r.op_id)
-      if (op?.type === 'add_item' && op.product_id) productIds.add(String(op.product_id))
-    }
-
-    const orderLines = new Map<string, OrderLineInfo>()
-    const sent = new Map<string, SentInfo>()
-    if (itemIds.length > 0) {
-      const lines = await tx.query(
-        `SELECT id, product_id, product_name, variant_label, modifiers FROM order_items
-          WHERE tenant_id = $1 AND id = ANY($2::text[])`,
-        [tid(tx), itemIds],
+    // Serialise sends of the same session (two devices tapping "Gửi bếp" at once).
+    await tx.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`kitchen_fire:${tid(tx)}:${sessionId}`])
+    const { planned, hasStations, opIds } = await planSession(tx, shopId, sessionId, batchId)
+    if (!hasStations) return []
+    // Mark every considered op as sent, including ones that netted out to nothing.
+    if (opIds.length > 0) {
+      await tx.query(
+        `INSERT INTO kitchen_fired_ops (tenant_id, branch_id, session_id, op_id, batch_id, created_at)
+         SELECT $1, $2, $3, unnest($4::text[]), $5, NOW()
+         ON CONFLICT (tenant_id, op_id) DO NOTHING`,
+        [tid(tx), shopId, sessionId, opIds, batchId],
       )
-      for (const l of lines) {
-        orderLines.set(l.id, {
-          product_id: l.product_id || '',
-          product_name: l.product_name || '',
-          variant_label: l.variant_label || '',
-          modifiers: l.modifiers || '',
-        })
-        if (l.product_id) productIds.add(l.product_id)
-      }
-      // Net qty already sent per item + the station of the latest "order" ticket for it.
-      const sentRows = await tx.query(
-        `SELECT i.order_item_id,
-                SUM(i.qty::numeric) AS net_qty,
-                (ARRAY_AGG(t.station_id ORDER BY t.created_at DESC) FILTER (WHERE t.kind = 'order'))[1] AS station_id,
-                (ARRAY_AGG(i.product_id ORDER BY t.created_at DESC))[1] AS product_id,
-                (ARRAY_AGG(i.product_name ORDER BY t.created_at DESC))[1] AS product_name,
-                (ARRAY_AGG(i.variant_label ORDER BY t.created_at DESC))[1] AS variant_label,
-                (ARRAY_AGG(i.modifiers ORDER BY t.created_at DESC))[1] AS modifiers
-           FROM kitchen_ticket_items i
-           JOIN kitchen_tickets t ON t.id = i.ticket_id AND t.tenant_id = i.tenant_id
-          WHERE i.tenant_id = $1 AND i.branch_id = $2 AND i.order_item_id = ANY($3::text[])
-          GROUP BY i.order_item_id`,
-        [tid(tx), shopId, itemIds],
-      )
-      for (const s of sentRows) {
-        sent.set(s.order_item_id, {
-          net_qty: Number(s.net_qty) || 0,
-          station_id: s.station_id || '',
-          product_id: s.product_id || '',
-          product_name: s.product_name || '',
-          variant_label: s.variant_label || '',
-          modifiers: s.modifiers || '',
-        })
-      }
     }
-
-    const productCategories = new Map<string, string>()
-    if (productIds.size > 0) {
-      const prods = await tx.query(`SELECT id, category_id FROM products WHERE tenant_id = $1 AND id = ANY($2::text[])`, [
-        tid(tx),
-        [...productIds],
-      ])
-      for (const p of prods) if (p.category_id) productCategories.set(p.id, p.category_id)
-    }
-
-    const planned = planKitchenTickets({ ops: input.ops, results: applied, stations, routes, productCategories, orderLines, sent })
     if (planned.length === 0) return []
-
-    const sessionRows = await tx.query(
-      `SELECT s.resource_id, s.order_id, r.name AS resource_name
-         FROM table_sessions s
-         LEFT JOIN location_resources r ON r.id = s.resource_id AND r.tenant_id = s.tenant_id
-        WHERE s.tenant_id = $1 AND s.id = $2`,
-      [tid(tx), input.sessionId],
-    )
-    const session = sessionRows[0] || {}
+    const session = await loadSessionInfo(tx, sessionId)
     return insertPlannedTickets(tx, shopId, planned, {
-      sessionId: input.sessionId,
+      sessionId,
       orderId: session.order_id || '',
       resourceId: session.resource_id || '',
       resourceName: session.resource_name || '',
-      deviceId: input.deviceId,
+      deviceId: opts.deviceId || '',
+      source: 'table_ops',
     })
   })
+  for (const t of created) {
+    void broadcastKitchen(shopId, { kind: 'ticket_created', ticket_id: t.id, station_id: t.station_id })
+  }
+  return created
+}
 
+export interface SessionKitchenStatus {
+  /** false when the branch has no station (POS hides every kitchen control) */
+  enabled: boolean
+  /** lines a "Gửi bếp" would send now (after netting) */
+  unsent_lines: number
+  unsent_qty: number
+  /** per order item: qty on kitchen tickets, of which ready */
+  items: Record<string, { sent: number; ready: number }>
+}
+
+export async function getSessionKitchenStatus(connector: TxConnector, shopId: string, sessionId: string): Promise<SessionKitchenStatus> {
+  return connector.withTransaction(async (tx) => {
+    if ((await loadStations(tx, shopId)).length === 0) return { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {} }
+    const { planned } = await planSession(tx, shopId, sessionId, 'preview')
+    const lines = planned.flatMap((p) => p.lines)
+    const rows = await tx.query(
+      `SELECT i.order_item_id,
+              SUM(i.qty::numeric) AS sent,
+              SUM(CASE WHEN i.status = 'ready' THEN i.qty::numeric ELSE 0 END) AS ready
+         FROM kitchen_ticket_items i
+         JOIN kitchen_tickets t ON t.id = i.ticket_id AND t.tenant_id = i.tenant_id
+        WHERE i.tenant_id = $1 AND i.branch_id = $2 AND t.session_id = $3 AND i.order_item_id IS NOT NULL
+        GROUP BY i.order_item_id`,
+      [tid(tx), shopId, sessionId],
+    )
+    const items: SessionKitchenStatus['items'] = {}
+    for (const r of rows) items[r.order_item_id] = { sent: Number(r.sent) || 0, ready: Number(r.ready) || 0 }
+    return {
+      enabled: true,
+      unsent_lines: lines.length,
+      unsent_qty: lines.reduce((n, l) => n + Math.abs(l.qty), 0),
+      items,
+    }
+  })
+}
+
+/**
+ * QR orders are written straight to order_items (legacy path, no table-sync ops): ticket the
+ * accepted items right after the accept. Idempotent per request via synthetic op ids.
+ */
+export async function generateKitchenTicketsForQr(
+  connector: TxConnector,
+  shopId: string,
+  input: {
+    requestId: string
+    orderId: string
+    resourceId: string
+    resourceName: string
+    items: { product_id: string; product_name: string; variant_label?: string; modifiers?: unknown; qty: number; order_item_id?: string; note?: string }[]
+  },
+): Promise<KitchenTicket[]> {
+  const ops: PlannerOp[] = []
+  const results: PlannerOpResult[] = []
+  input.items.forEach((it, idx) => {
+    const opId = `qr:${input.requestId}:${idx}`
+    ops.push({
+      op_id: opId, type: 'add_item', product_id: it.product_id, product_name: it.product_name, qty: Number(it.qty) || 0,
+      variant_label: it.variant_label, modifiers: it.modifiers, note: it.note, batch_id: `qr:${input.requestId}`,
+    })
+    // order_item_id lets a later cancel (via table ops) void the right line; fall back to the op id.
+    results.push({ op_id: opId, status: 'applied', item_id: it.order_item_id || opId })
+  })
+  const created = await connector.withTransaction(async (tx) => {
+    const productIds = new Set(input.items.map((i) => i.product_id).filter(Boolean))
+    const ctx = await loadPlanContext(tx, shopId, [], productIds)
+    if (!ctx) return []
+    const planned = planKitchenTickets({ ops, results, ...ctx })
+    if (planned.length === 0) return []
+    return insertPlannedTickets(tx, shopId, planned, {
+      sessionId: '',
+      orderId: input.orderId,
+      resourceId: input.resourceId,
+      resourceName: input.resourceName,
+      deviceId: 'qr',
+      source: 'qr',
+    })
+  })
   for (const t of created) {
     void broadcastKitchen(shopId, { kind: 'ticket_created', ticket_id: t.id, station_id: t.station_id })
   }
@@ -171,7 +317,7 @@ async function insertPlannedTickets(
   tx: TransactionClient,
   shopId: string,
   planned: PlannedTicket[],
-  ctx: { sessionId: string; orderId: string; resourceId: string; resourceName: string; deviceId: string },
+  ctx: { sessionId: string; orderId: string; resourceId: string; resourceName: string; deviceId: string; source: string },
 ): Promise<KitchenTicket[]> {
   // Serialise ticket numbering per branch for this transaction.
   await tx.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`kitchen_ticket_no:${tid(tx)}:${shopId}`])
@@ -212,14 +358,14 @@ async function insertPlannedTickets(
       `INSERT INTO kitchen_tickets
          (id, tenant_id, branch_id, ticket_no, business_date, station_id, station_name, session_id, order_id, resource_id,
           resource_name, batch_id, source, kind, status, print_count, created_by_device, active, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'table_ops',$13,'open',0,$14,'TRUE',$15,$15)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$16,$13,'open',0,$14,'TRUE',$15,$15)`,
       [ticketId, tid(tx), shopId, ticketNo, businessDate, p.station.id, p.station.name, ctx.sessionId, ctx.orderId,
-        ctx.resourceId, ctx.resourceName, p.batch_id, p.kind, ctx.deviceId, now],
+        ctx.resourceId, ctx.resourceName, p.batch_id, p.kind, ctx.deviceId, now, ctx.source],
     )
     out.push({
       id: ticketId, ticket_no: ticketNo, business_date: businessDate, station_id: p.station.id, station_name: p.station.name,
       session_id: ctx.sessionId, order_id: ctx.orderId, resource_id: ctx.resourceId, resource_name: ctx.resourceName,
-      batch_id: p.batch_id, source: 'table_ops', kind: p.kind, status: 'open', print_count: 0, printed_at: null,
+      batch_id: p.batch_id, source: ctx.source, kind: p.kind, status: 'open', print_count: 0, printed_at: null,
       created_at: now, items,
     })
   }
