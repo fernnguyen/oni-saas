@@ -4,6 +4,8 @@
 // Tickets / kitchen screen come in K1–K3; this page only stores the setup.
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ChefHat, CupSoda, Star, Pencil, Trash2, Sparkles, Info } from 'lucide-react';
@@ -54,6 +56,7 @@ function KindIcon({ kind, className }: { kind: PrepStationKind; className?: stri
 export function KitchenStationsClient({ shopId, shopName, industryType, canManage }: Props) {
   const queryClient = useQueryClient();
   const confirm = useConfirm();
+  const pathname = usePathname();
   const [slideOpen, setSlideOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<StationForm>(EMPTY_FORM);
@@ -239,7 +242,8 @@ export function KitchenStationsClient({ shopId, shopName, industryType, canManag
       <div className="flex gap-3 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">
         <Info className="h-4 w-4 mt-0.5 shrink-0" />
         <p>
-          Đây là bước thiết lập. Gửi món xuống bar/bếp, in phiếu chế biến và màn hình bếp sẽ được bật ở bản cập nhật tiếp theo.
+          Món thêm vào bàn sẽ tự tạo phiếu cho đúng trạm. Xem, tích món và in phiếu ở trang{' '}
+          <Link href={pathname.replace(/\/settings\/kitchen\/?$/, '/kitchen')} className="font-semibold underline">Màn hình Bar/Bếp</Link>.
           Khi chưa có trạm nào, quầy thu ngân hoạt động như hiện tại.
         </p>
       </div>

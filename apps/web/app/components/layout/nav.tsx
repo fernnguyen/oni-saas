@@ -258,6 +258,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Vận hành',
       items: [
+        { href: joinPath(base, '/kitchen'), label: 'Màn hình Bar/Bếp', icon: ChefHat, permission: 'pos.use', featureGate: 'kitchen_display' },
         { href: joinPath(base, '/housekeeping'), label: 'Buồng phòng', icon: BedDouble, permission: 'housekeeping.view', featureGate: 'location_resource' },
         { href: joinPath(base, '/inventory'), label: 'Kho',             icon: Warehouse, permission: 'inventory.view', exact: true },
         { href: joinPath(base, '/inventory/expiring-batches'), label: 'Lô sắp hết hạn', icon: AlertTriangle, permission: 'inventory.view' },
