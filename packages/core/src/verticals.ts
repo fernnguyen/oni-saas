@@ -31,6 +31,8 @@ export interface VerticalFeatures {
   reservation: boolean;
   /** Product variants (size, color) */
   product_variants: boolean;
+  /** Housekeeping (Buồng phòng): room cleaning/inspection workflow. Lodging only. */
+  housekeeping: boolean;
 }
 
 export interface ResourceTemplate {
@@ -58,6 +60,11 @@ export interface ResourceTemplate {
     depositAmount: boolean;
     surfaceType: boolean;
     expectedReturn: boolean;
+    /**
+     * "Khóa giờ & Kiểm phòng": lock the billed time and hand the room to housekeeping
+     * (minibar check) before payment. Lodging only; tables/courts/machines pay directly.
+     */
+    checkoutInspection?: boolean;
   };
   /** Localized labels for UI */
   metaLabels: {
@@ -149,6 +156,7 @@ const ROOM_TEMPLATE: ResourceTemplate = {
   sections: {
     guestRegistration: true, bookingSource: true, bedType: true, amenities: true,
     overnightRate: true, depositAmount: true, surfaceType: false, expectedReturn: true,
+    checkoutInspection: true,
   },
   metaLabels: { expectedReturn: 'Dự kiến trả phòng', sessionInfo: 'Thông tin thuê', tabServices: 'Phòng & Dịch vụ' },
 };
@@ -180,6 +188,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
       kitchen_display: false,
       reservation: false,
       product_variants: false,
+      housekeeping: false,
     },
     posLayout: 'product_grid',
     extraEntities: [],
@@ -199,6 +208,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
       kitchen_display: true,
       reservation: true,
       product_variants: false,
+      housekeeping: false,
     },
     posLayout: 'table_map',
     extraEntities: ['location_resources'],
@@ -221,6 +231,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
       kitchen_display: true,
       reservation: false,
       product_variants: false,
+      housekeeping: false,
     },
     posLayout: 'table_map',
     extraEntities: ['location_resources'],
@@ -243,6 +254,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
       kitchen_display: true,
       reservation: true,
       product_variants: false,
+      housekeeping: false,
     },
     posLayout: 'table_map',
     extraEntities: ['location_resources'],
@@ -265,6 +277,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
       kitchen_display: false,
       reservation: true,
       product_variants: false,
+      housekeeping: true,
     },
     posLayout: 'room_map',
     extraEntities: ['location_resources'],
@@ -287,6 +300,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
       kitchen_display: false,
       reservation: false,
       product_variants: true,
+      housekeeping: false,
     },
     posLayout: 'product_grid',
     extraEntities: [],
@@ -306,6 +320,7 @@ export const VERTICAL_REGISTRY: Record<IndustryType, VerticalConfig> = {
       kitchen_display: true,
       reservation: false,
       product_variants: false,
+      housekeeping: false,
     },
     posLayout: 'table_map',
     extraEntities: ['location_resources'],
@@ -343,6 +358,7 @@ export const NAV_FEATURE_GATES: Record<string, keyof VerticalFeatures> = {
   'location_resources': 'location_resource',
   'kitchen_display': 'kitchen_display',
   'reservations': 'reservation',
+  'housekeeping': 'housekeeping',
 };
 
 /**

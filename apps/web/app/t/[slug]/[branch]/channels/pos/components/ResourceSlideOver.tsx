@@ -105,7 +105,7 @@ const DEFAULT_TEMPLATE: import('@oni/core').ResourceTemplate = {
   type: 'room', label: 'Phòng', icon: '🛏',
   subTypes: [{ value: 'standard', label: 'Standard' }],
   actions: { checkIn: 'Nhận phòng', checkOut: 'Trả phòng', payAndClose: 'Thanh toán & Trả phòng' },
-  sections: { guestRegistration: true, bookingSource: true, bedType: true, amenities: true, overnightRate: true, depositAmount: true, surfaceType: false, expectedReturn: true },
+  sections: { guestRegistration: true, bookingSource: true, bedType: true, amenities: true, overnightRate: true, depositAmount: true, surfaceType: false, expectedReturn: true, checkoutInspection: true },
   metaLabels: { expectedReturn: 'Dự kiến trả phòng', sessionInfo: 'Thông tin thuê', tabServices: 'Phòng & Dịch vụ' },
 }
 
@@ -2741,7 +2741,7 @@ export function ResourceSlideOver({
           {!isOccupied ? (
             (() => {
               const housekeepingMode = settings?.housekeeping_workflow_mode || 'SIMPLE'
-              const needsInspection = housekeepingMode === 'ENTERPRISE' && resource.type === 'room'
+              const needsInspection = housekeepingMode === 'ENTERPRISE' && !!tpl.sections.checkoutInspection
               const isReady = !needsInspection || resource.status === 'inspected'
               
               return (
@@ -2789,7 +2789,7 @@ export function ResourceSlideOver({
                   </button>
                 ) : (
                   <div className="flex gap-3 w-full">
-                    {resource.status === 'occupied' && !resource.id.startsWith('takeaway') && (
+                    {tpl.sections.checkoutInspection && resource.status === 'occupied' && !resource.id.startsWith('takeaway') && (
                       <button
                         onClick={handleRequestCheckout}
                         className="rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-3.5 text-sm font-bold text-white shadow-sm transition-all"
