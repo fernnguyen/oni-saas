@@ -5,8 +5,9 @@ import type { IDataConnector, TransactionClient } from '@oni/adapters'
 import { getGMT7Time, toPrepStation, type PrepStation, type PrepStationRoute } from '@oni/core'
 import { mergeSameItemLines, netPlannedTickets, planKitchenTickets, type OrderLineInfo, type PlannedTicket, type PlannerOp, type PlannerOpResult, type SentInfo } from './ticketPlanner'
 import { broadcastKitchen } from './broadcast'
+import { getKitchenSettings, KITCHEN_SETTINGS_DEFAULTS, type KitchenSettings } from './settings'
 
-type TxConnector = IDataConnector & { withTransaction: NonNullable<IDataConnector['withTransaction']> }
+export type TxConnector = IDataConnector & { withTransaction: NonNullable<IDataConnector['withTransaction']> }
 
 const tid = (tx: TransactionClient) => tx.tenantId ?? ''
 /** Note the POS puts on a cancel line removed because the kitchen reported it sold out (see voidOpFields). */
@@ -258,10 +259,13 @@ export interface SessionKitchenStatus {
   items: Record<string, { sent: number; ready: number; unavailable: number }>
   /** products on today's "Tạm hết" list */
   unavailable_products: string[]
+  /** branch setting: send new dishes without pressing "Gửi bếp" (see kitchen/settings.ts) */
+  auto_send: boolean
 }
 
 export async function getSessionKitchenStatus(connector: TxConnector, shopId: string, sessionId: string): Promise<SessionKitchenStatus> {
-  return connector.withTransaction(async (tx) => {
+  const { auto_send } = await getKitchenSettingsSafe(connector, shopId)
+  const status = await connector.withTransaction(async (tx) => {
     if ((await loadStations(tx, shopId)).length === 0) return { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {}, unavailable_products: [] }
     const { planned } = await planSession(tx, shopId, sessionId, 'preview')
     const lines = planned.flatMap((p) => p.lines)
@@ -291,6 +295,16 @@ export async function getSessionKitchenStatus(connector: TxConnector, shopId: st
       unavailable_products: (await listUnavailableProductsTx(tx, shopId)).map((p) => p.product_id),
     }
   })
+  return { ...status, auto_send }
+}
+
+/** Branch kitchen settings, defaults when the table is missing (DB not migrated yet) or unreadable. */
+export async function getKitchenSettingsSafe(connector: TxConnector, shopId: string): Promise<KitchenSettings> {
+  try {
+    return await getKitchenSettings(connector, shopId)
+  } catch {
+    return { ...KITCHEN_SETTINGS_DEFAULTS }
+  }
 }
 
 /**

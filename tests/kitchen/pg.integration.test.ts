@@ -11,6 +11,7 @@ import {
   fireKitchenForSession, generateKitchenTicketsForQr, getSessionKitchenStatus, listKitchenTickets, listUnavailableProducts,
   markTicketItemUnavailable, markTicketPrinted, setProductUnavailable, setTicketDone, setTicketItemStatus,
 } from '../../apps/web/lib/server/kitchen/tickets'
+import { getKitchenSettings, saveKitchenSettings } from '../../apps/web/lib/server/kitchen/settings'
 
 // Bar/Bếp K1 against a DISPOSABLE Postgres (same DB as the table-sync integration tests):
 //   KITCHEN_TEST_PG_URI=<uri of a db whose name contains "test"> pnpm test:kitchen
@@ -72,7 +73,7 @@ before(async () => {
   pool = new Pool({ connectionString: uri, max: 10 })
   const { rows } = await pool.query('SELECT current_database() AS db')
   if (!String(rows[0].db).includes('test')) throw new Error(`Refusing to run on non-test database ${rows[0].db}`)
-  for (const t of ['kitchen_unavailable_products', 'kitchen_fired_ops', 'kitchen_ticket_items', 'kitchen_tickets', 'prep_station_routes', 'prep_stations', 'products',
+  for (const t of ['kitchen_settings', 'kitchen_unavailable_products', 'kitchen_fired_ops', 'kitchen_ticket_items', 'kitchen_tickets', 'prep_station_routes', 'prep_stations', 'products',
     'table_sync_events', 'order_item_ops', 'table_sessions', 'order_items', 'orders', 'location_resources']) {
     await pool.query(`DELETE FROM ${t} WHERE tenant_id = $1`, [TENANT])
   }
@@ -279,4 +280,16 @@ test('removing a dish the kitchen reported sold out files the cancel ticket as d
   assert.equal(byStation['ST-K'], 'done', 'kitchen asked for it: nothing to acknowledge')
   assert.equal(byStation['ST-B'], 'open', 'bar never reported it: it must see the cancel')
   assert.deepEqual((await getSessionKitchenStatus(connector, BRANCH, 'KS-7')).items[phoId]?.unavailable ?? 0, 0)
+})
+
+test('kitchen settings: auto send defaults on, is saved per branch, and shows in the table status', { skip }, async () => {
+  assert.deepEqual(await getKitchenSettings(connector, BRANCH), { auto_send: true })
+  await seedSession('KS-8', 'KO-8', 'KR-8')
+  assert.equal((await getSessionKitchenStatus(connector, BRANCH, 'KS-8')).auto_send, true)
+  await saveKitchenSettings(connector, BRANCH, { auto_send: false })
+  assert.deepEqual(await getKitchenSettings(connector, BRANCH), { auto_send: false })
+  assert.equal((await getSessionKitchenStatus(connector, BRANCH, 'KS-8')).auto_send, false)
+  assert.deepEqual(await getKitchenSettings(connector, 'other-branch'), { auto_send: true })
+  await saveKitchenSettings(connector, BRANCH, { auto_send: true })
+  assert.equal((await getKitchenSettings(connector, BRANCH)).auto_send, true)
 })

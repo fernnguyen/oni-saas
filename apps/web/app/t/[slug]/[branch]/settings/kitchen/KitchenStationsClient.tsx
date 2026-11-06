@@ -65,12 +65,13 @@ export function KitchenStationsClient({ shopId, shopName, industryType, canManag
 
   const stationsQ = useQuery({
     queryKey: ['prep-stations', shopId],
-    queryFn: () => fetchJson<{ data: PrepStation[] }>(`/api/shops/${shopId}/prep-stations`),
+    queryFn: () => fetchJson<{ data: PrepStation[]; settings?: { auto_send: boolean } }>(`/api/shops/${shopId}/prep-stations`),
     retry: (count, err) => !(err instanceof UnsupportedError) && count < 2,
   });
   const unsupported = stationsQ.error instanceof UnsupportedError;
   const stations = useMemo(() => stationsQ.data?.data ?? [], [stationsQ.data]);
   const defaultStation = stations.find((s) => s.is_default);
+  const autoSend = stationsQ.data?.settings?.auto_send !== false;
 
   const routesQ = useQuery({
     queryKey: ['prep-station-routes', shopId],
@@ -177,6 +178,20 @@ export function KitchenStationsClient({ shopId, shopName, industryType, canManag
       toast.success('Đã lưu phân luồng món');
       setRouteDirty(false);
       queryClient.invalidateQueries({ queryKey: ['prep-station-routes', shopId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const saveAutoSend = useMutation({
+    mutationFn: (auto_send: boolean) =>
+      fetchJson<{ auto_send: boolean }>(`/api/shops/${shopId}/kitchen/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_send }),
+      }),
+    onSuccess: (res) => {
+      toast.success(res.auto_send ? 'Đã bật tự gửi bếp' : 'Đã tắt tự gửi bếp – nhân viên bấm "Gửi bếp" để báo');
+      queryClient.invalidateQueries({ queryKey: ['prep-stations', shopId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -338,6 +353,36 @@ export function KitchenStationsClient({ shopId, shopName, industryType, canManag
                 )}
               </div>
             ))}
+          </section>
+
+          <section className="bg-white rounded-2xl border border-slate-200 px-4 py-3">
+            <label className={`flex items-start gap-3 ${canManage ? 'cursor-pointer' : 'cursor-default'}`}>
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold text-slate-900">Tự gửi bếp</span>
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  {autoSend
+                    ? 'Món mới tự xuống bar/bếp: trên máy tính sau vài giây kể từ lần sửa cuối hoặc khi đóng bàn; trên điện thoại khi bấm "Lưu & báo bếp".'
+                    : 'Nhân viên tự bấm "Gửi bếp" khi khách gọi xong. Phù hợp khi muốn gom món hoặc xác nhận với khách trước.'}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label="Tự gửi bếp"
+                checked={autoSend}
+                disabled={!canManage || saveAutoSend.isPending}
+                onChange={(e) => saveAutoSend.mutate(e.target.checked)}
+                className="peer sr-only"
+              />
+              <span
+                aria-hidden
+                className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-primary/40 ${
+                  autoSend ? 'bg-primary' : 'bg-slate-300'
+                } ${!canManage || saveAutoSend.isPending ? 'opacity-60' : ''}`}
+              >
+                <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${autoSend ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </span>
+            </label>
           </section>
 
           <section className="bg-white rounded-2xl border border-slate-200">

@@ -4,6 +4,7 @@ import { requireShopAccess } from '@/lib/server/shopAccess'
 import {
   clearOtherDefaults, kitchenErrorResponse, listStations, requireKitchenConnector, stationCreateSchema,
 } from '@/lib/server/kitchen/stations'
+import { getKitchenSettingsSafe } from '@/lib/server/kitchen/tickets'
 import { handleApiError } from '../../_helpers'
 
 // Bar/Bếp K0 — list / create prep stations (docs/KITCHEN-BAR-PLAN.md)
@@ -11,9 +12,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ sho
   try {
     const { shopId } = await params
     const { connector } = await requireShopAccess(shopId)
-    requireKitchenConnector(connector)
+    const tx = requireKitchenConnector(connector)
     const data = await listStations(connector, shopId)
-    return NextResponse.json({ data })
+    // `settings` lets clients pick their save flow (mobile: "Lưu & báo bếp" vs "Lưu vào bàn")
+    return NextResponse.json({ data, settings: await getKitchenSettingsSafe(tx, shopId) })
   } catch (e) {
     return kitchenErrorResponse(e) ?? handleApiError(e, 'GET prep-stations')
   }

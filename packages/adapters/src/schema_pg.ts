@@ -972,6 +972,16 @@ export const kitchen_unavailable_products = pgTable('kitchen_unavailable_product
   pk: primaryKey({ columns: [table.tenant_id, table.branch_id, table.product_id, table.business_date] }),
 }));
 
+// Bar/Bếp settings per branch (one row; missing row = defaults). auto_send: 'TRUE' | 'FALSE'
+export const kitchen_settings = pgTable('kitchen_settings', {
+  tenant_id: varchar('tenant_id', { length: 255 }).notNull(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  auto_send: varchar('auto_send', { length: 10 }).notNull().default('TRUE'),
+  updated_at: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.tenant_id, table.branch_id] }),
+}));
+
 export const kitchen_ticket_items = pgTable('kitchen_ticket_items', {
   ...getBaseColumns(),
   id: varchar('id', { length: 255 }).primaryKey(),

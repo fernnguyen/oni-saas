@@ -16,9 +16,14 @@ export interface TableKitchenStatus {
   unsent_qty: number;
   items: Record<string, { sent: number; ready: number; unavailable?: number }>;
   unavailable_products?: string[];
+  /** Branch setting: send new dishes without pressing "Gửi bếp" */
+  auto_send?: boolean;
 }
 
 const EMPTY: TableKitchenStatus = { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {}, unavailable_products: [] };
+
+/** Auto send: quiet time after the last change on the table before the dishes go to the kitchen. */
+export const KITCHEN_AUTO_SEND_DELAY_MS = 8000;
 
 /**
  * Kitchen state of a table session. Refreshes when the table changes (v2 changeTick, local
@@ -28,7 +33,7 @@ export function useTableKitchen(
   shopId: string,
   sessionId: string,
   v2: TableSyncV2Api | null,
-  opts: { canVoid?: boolean } = {},
+  opts: { canVoid?: boolean; /** the table panel is shown (closing it sends right away) */ active?: boolean } = {},
 ) {
   const [status, setStatus] = useState<TableKitchenStatus>(EMPTY);
   const [sending, setSending] = useState(false);
@@ -37,8 +42,10 @@ export function useTableKitchen(
   /** Open "reason for cancelling a dish already sent" prompt, resolved by VoidReasonDialog. */
   const [voidAsk, setVoidAsk] = useState<{ name: string; qty: number; resolve: (reason: string | null) => void } | null>(null);
   const canVoid = Boolean(opts.canVoid);
+  const active = opts.active !== false;
   const pendingLocal = v2 && sessionId ? v2.pendingFor(sessionId).filter((e) => e.kind === 'op').length : 0;
   const reqId = useRef(0);
+  const sendingRef = useRef(false);
   // useTableSyncV2 returns a new object every render: keep it in a ref so callbacks/effects
   // only depend on stable values (otherwise the status probe re-runs on every render).
   const v2Ref = useRef(v2);
@@ -69,9 +76,10 @@ export function useTableKitchen(
     return () => { void supabase.removeChannel(channel); };
   }, [shopId, status.enabled, refresh]);
 
-  const send = useCallback(async () => {
+  const send = useCallback(async (opts: { auto?: boolean } = {}) => {
     const v2 = v2Ref.current;
-    if (!v2 || !sessionId || sending) return;
+    if (!v2 || !sessionId || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
     try {
       // Items still in this device's outbox must reach the server first.
@@ -93,14 +101,43 @@ export function useTableKitchen(
       if (json.status) setStatus(json.status);
       setNotes({});
       const n = Array.isArray(json.tickets) ? json.tickets.length : 0;
-      if (n > 0) toast.success(`Đã gửi ${n} phiếu xuống bar/bếp`);
-      else toast.info('Không có món mới để gửi');
+      if (n > 0) toast.success(opts.auto ? `Đã tự báo bếp ${n} phiếu` : `Đã gửi ${n} phiếu xuống bar/bếp`);
+      else if (!opts.auto) toast.info('Không có món mới để gửi');
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(opts.auto ? `Chưa tự báo bếp được: ${(e as Error).message}` : (e as Error).message);
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
-  }, [sessionId, sending, shopId, notes]);
+  }, [sessionId, shopId, notes]);
+
+  // Auto send (branch setting): once the table has been quiet for a few seconds, and when the
+  // table closes / switches. Each change (dish, qty, note) restarts the countdown.
+  // Unsent dishes as the bar sees them on screen (reported by TableKitchenBar): this device's own
+  // ops can sync before the server status is refetched, so the server count alone may lag.
+  const [visibleUnsent, setVisibleUnsent] = useState(0);
+  const unsentNow = status.enabled ? Math.max(status.unsent_lines + pendingLocal, visibleUnsent) : 0;
+  const autoOn = Boolean(status.enabled && status.auto_send);
+  const [autoAt, setAutoAt] = useState<number | null>(null);
+  /** A dish note is being typed: hold the countdown so the note goes with the dish. */
+  const [noteEditing, setNoteEditing] = useState(false);
+  useEffect(() => {
+    if (!autoOn || unsentNow === 0 || noteEditing) { setAutoAt(null); return; }
+    setAutoAt(Date.now() + KITCHEN_AUTO_SEND_DELAY_MS);
+    const t = setTimeout(() => { void send({ auto: true }); }, KITCHEN_AUTO_SEND_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [autoOn, unsentNow, tick, notes, noteEditing, send]);
+  // Latest values for the close-time send (updated after cleanups run, so a cleanup sees the
+  // table being left, not the next one).
+  const leaveRef = useRef({ autoOn, unsentNow, send });
+  useEffect(() => { leaveRef.current = { autoOn, unsentNow, send }; });
+  useEffect(() => {
+    if (!active) return;
+    return () => {
+      const l = leaveRef.current;
+      if (l.autoOn && l.unsentNow > 0) void l.send({ auto: true });
+    };
+  }, [sessionId, active]);
 
   /** "Đã có hàng": take a product off today's sold-out list from the POS (no kitchen/manager needed). */
   const setBackInStock = useCallback(async (productId: string, productName: string): Promise<boolean> => {
@@ -149,7 +186,7 @@ export function useTableKitchen(
     [status, canVoid],
   );
 
-  return { status, sending, send, pendingLocal, refresh, notes, setNote, confirmReduce, voidAsk, setBackInStock };
+  return { status, sending, send, pendingLocal, refresh, notes, setNote, confirmReduce, voidAsk, setBackInStock, autoOn, autoAt, setNoteEditing, setVisibleUnsent };
 }
 
 /** Op fields for a reduction approved by confirmReduce: reason on the cancel ticket, sent now. */
@@ -224,7 +261,8 @@ function VoidReasonDialog({ ask }: { ask: NonNullable<ReturnType<typeof useTable
 
 /** Note link / text under a dish that is not (fully) sent yet. */
 export function KitchenItemNote({ kitchen, itemId, qty }: { kitchen: ReturnType<typeof useTableKitchen>; itemId?: string; qty: number }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditingState] = useState(false);
+  const setEditing = (v: boolean) => { setEditingState(v); kitchen.setNoteEditing(v); };
   const id = String(itemId || '');
   const real = id && !id.startsWith('pending-') && !id.startsWith('temp-');
   const sent = real ? Math.max(0, kitchen.status.items[id]?.sent ?? 0) : 0;
@@ -253,6 +291,18 @@ export function KitchenItemNote({ kitchen, itemId, qty }: { kitchen: ReturnType<
   );
 }
 
+/** Whole seconds until `at` (epoch ms), ticking every second; 0 when unset or past. */
+function useCountdown(at: number | null): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!at) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [at]);
+  return at ? Math.max(0, Math.ceil((at - now) / 1000)) : 0;
+}
+
 /** "Món chưa báo bếp (N) · Gửi bếp" — hidden when Bar/Bếp is off for this branch. */
 export function TableKitchenBar({
   kitchen,
@@ -265,14 +315,16 @@ export function TableKitchenBar({
   /** "Bỏ món" on a line the kitchen reported sold out */
   onRemoveSoldOut?: (itemId: string, qty: number) => void;
 }) {
-  const { status, sending, send, pendingLocal } = kitchen;
-  if (!status.enabled) return null;
-  const visibleUnsent = lines.reduce((n, l) => {
+  const { status, sending, send, pendingLocal, autoOn, autoAt, setVisibleUnsent } = kitchen;
+  const secondsLeft = useCountdown(autoAt);
+  const visibleUnsent = status.enabled ? lines.reduce((n, l) => {
     const qty = Number(l.qty) || 0;
     const id = String(l.id || '');
     const sent = id && !id.startsWith('pending-') && !id.startsWith('temp-') ? Math.max(0, status.items[id]?.sent ?? 0) : 0;
     return n + Math.max(0, qty - sent);
-  }, 0);
+  }, 0) : 0;
+  useEffect(() => { setVisibleUnsent(visibleUnsent); }, [visibleUnsent, setVisibleUnsent]);
+  if (!status.enabled) return null;
   const unsentQty = Math.max(status.unsent_qty, visibleUnsent);
   const unsent = Math.max(status.unsent_lines + pendingLocal, visibleUnsent > 0 ? 1 : 0);
   const soldOutLines = lines
@@ -309,6 +361,11 @@ export function TableKitchenBar({
       <ChefHat className={`h-4 w-4 shrink-0 ${unsent > 0 ? 'text-amber-600' : 'text-slate-400'}`} />
       <span className={`flex-1 text-xs font-medium ${unsent > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
         {unsent > 0 ? `Món chưa báo bếp: ${unsentQty || unsent}` : 'Đã báo bếp đủ món'}
+        {unsent > 0 && autoOn && !sending && (
+          <span className="block text-[11px] font-normal text-amber-700">
+            {secondsLeft > 0 ? `Tự báo bếp sau ${secondsLeft} giây` : 'Tự báo bếp khi đóng bàn'}
+          </span>
+        )}
       </span>
       <button
         onClick={() => void send()}
@@ -316,7 +373,7 @@ export function TableKitchenBar({
         className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-dark disabled:opacity-40 cursor-pointer"
       >
         <Send className="h-3.5 w-3.5" />
-        {sending ? 'Đang gửi...' : 'Gửi bếp'}
+        {sending ? 'Đang gửi...' : autoOn ? 'Gửi ngay' : 'Gửi bếp'}
       </button>
     </div>
     </>
