@@ -918,4 +918,52 @@ export const prep_station_routes = pgTable('prep_station_routes', {
   targetIdx: uniqueIndex('uq_prep_station_routes_target').on(table.tenant_id, table.branch_id, table.target_type, table.target_id),
 }));
 
+// K1: kitchen/bar tickets generated from table sync v2 ops after they commit.
+// One ticket = one send (batch) for one station; kind 'void' carries cancellations.
+export const kitchen_tickets = pgTable('kitchen_tickets', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  ticket_no: integer('ticket_no').notNull(),                       // per branch per day (GMT+7)
+  business_date: varchar('business_date', { length: 10 }).notNull(), // YYYY-MM-DD (GMT+7)
+  station_id: varchar('station_id', { length: 255 }).notNull(),
+  station_name: varchar('station_name', { length: 255 }),
+  session_id: varchar('session_id', { length: 255 }),
+  order_id: varchar('order_id', { length: 255 }),
+  resource_id: varchar('resource_id', { length: 255 }),
+  resource_name: varchar('resource_name', { length: 255 }),
+  batch_id: varchar('batch_id', { length: 255 }),
+  source: varchar('source', { length: 30 }),                        // 'table_ops' (later: 'qr', …)
+  kind: varchar('kind', { length: 20 }).notNull().default('order'), // 'order' | 'void'
+  status: varchar('status', { length: 20 }).notNull().default('open'), // 'open' | 'done'
+  print_count: integer('print_count').notNull().default(0),
+  printed_at: varchar('printed_at', { length: 50 }),
+  created_by_device: varchar('created_by_device', { length: 255 }),
+}, (table) => ({
+  branchStatusIdx: index('idx_kitchen_tickets_branch_status').on(table.tenant_id, table.branch_id, table.status, table.created_at),
+  sessionIdx: index('idx_kitchen_tickets_session').on(table.tenant_id, table.session_id),
+}));
+
+export const kitchen_ticket_items = pgTable('kitchen_ticket_items', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  ticket_id: varchar('ticket_id', { length: 255 }).notNull(),
+  op_id: varchar('op_id', { length: 255 }).notNull(),               // source op → never ticketed twice
+  line_no: integer('line_no').notNull().default(0),                // print/display order within the ticket
+  order_item_id: varchar('order_item_id', { length: 255 }),
+  product_id: varchar('product_id', { length: 255 }),
+  product_name: varchar('product_name', { length: 255 }),
+  variant_label: varchar('variant_label', { length: 500 }),
+  modifiers: text('modifiers'),
+  note: text('note'),
+  qty: varchar('qty', { length: 50 }).notNull(),                     // negative = cancelled
+  status: varchar('status', { length: 20 }).notNull().default('pending'), // 'pending' | 'ready' | 'voided'
+  ready_at: varchar('ready_at', { length: 50 }),
+}, (table) => ({
+  opIdx: uniqueIndex('uq_kitchen_ticket_items_op').on(table.tenant_id, table.op_id),
+  ticketIdx: index('idx_kitchen_ticket_items_ticket').on(table.tenant_id, table.ticket_id),
+  orderItemIdx: index('idx_kitchen_ticket_items_order_item').on(table.tenant_id, table.order_item_id),
+}));
+
 export * from './hrm/schema';

@@ -7,6 +7,8 @@ import { cleanResourceSessionMetadata, parseMetadataSafe } from '@/lib/server/ta
 import { applyTableOps, isTimeChargeLine, TableSyncError, type ApplyOpsResult, type TableOp } from './engine'
 import { createPgTableSyncRepo, mapSessionRow } from './pgRepository'
 import { broadcastTableSync } from './broadcast'
+import { generateKitchenTicketsForOps } from '../kitchen/tickets'
+import type { PlannerOp } from '../kitchen/ticketPlanner'
 
 // Table sync v2 service (docs/TABLE-SESSION-SYNC-PLAN.md Phase 1): sessions, idempotent ops,
 // change feed. On by default for every shop whose connector supports transactions (Postgres);
@@ -273,6 +275,18 @@ export async function applyTableSessionOps(
     invalidate(shopId, 'orders')
     invalidate(shopId, 'order-items')
     void broadcastTableSync(shopId, { session_id: input.sessionId, kind: 'op_applied', version: result.session_version })
+    // Bar/Bếp K1: after commit, best-effort. Branches without stations return immediately;
+    // a failure here never fails the ops (the items are already saved).
+    try {
+      await generateKitchenTicketsForOps(connector, shopId, {
+        sessionId: input.sessionId,
+        deviceId: input.deviceId,
+        ops: input.ops as PlannerOp[],
+        results: result.results,
+      })
+    } catch (err) {
+      console.error('[kitchen] ticket generation failed (ops already applied):', err)
+    }
   }
   return result
 }
