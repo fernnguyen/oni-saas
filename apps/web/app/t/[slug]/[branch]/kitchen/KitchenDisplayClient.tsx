@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Check, ChefHat, Maximize2, Minimize2, Printer, RotateCcw, Volume2, VolumeX, Ban, PackageX } from 'lucide-react';
+import { Check, ChefHat, Maximize2, Minimize2, Printer, RotateCcw, Bell, BellOff, Ban, PackageX } from 'lucide-react';
 import type { PrepStation } from '@oni/core';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser';
 import { kitchenItemDetail, kitchenTime, printKitchenTicket, type KitchenPaperWidth } from '@/lib/pos/printKitchenTicket';
@@ -79,10 +79,13 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 
+// Bell for new tickets. Replace public/sounds/kitchen-bell.mp3 to change the sound for every kitchen
+// screen (keep .mp3 or .wav: the tenant proxy only serves those extensions as static files).
+const KITCHEN_BELL_SRC = '/sounds/kitchen-bell.mp3';
 let _chime: HTMLAudioElement | null = null;
 function playChime() {
   try {
-    if (!_chime) _chime = new Audio('/beep.wav');
+    if (!_chime) _chime = new Audio(KITCHEN_BELL_SRC);
     _chime.currentTime = 0;
     void _chime.play().catch(() => {});
   } catch { /* no audio */ }
@@ -308,11 +311,17 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
         </div>
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setSound(sound === 'on' ? 'off' : 'on')}
-            title={sound === 'on' ? 'Tắt chuông' : 'Bật chuông'}
-            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50 cursor-pointer"
+            onClick={() => {
+              const next = sound === 'on' ? 'off' : 'on';
+              setSound(next);
+              // Preview the bell; this tap also unlocks audio playback in the browser.
+              if (next === 'on') playChime();
+            }}
+            title={sound === 'on' ? 'Tắt chuông báo phiếu mới' : 'Bật chuông báo phiếu mới'}
+            aria-label={sound === 'on' ? 'Tắt chuông báo phiếu mới' : 'Bật chuông báo phiếu mới'}
+            className={`rounded-lg border p-2 cursor-pointer ${sound === 'on' ? 'border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100' : 'border-slate-200 bg-white text-slate-400 hover:bg-slate-50'}`}
           >
-            {sound === 'on' ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            {sound === 'on' ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
           </button>
           <button
             onClick={toggleFullscreen}
