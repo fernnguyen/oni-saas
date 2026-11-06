@@ -26,6 +26,8 @@ export interface MobileCartLine {
   _serverItemId?: string;
   /** true while some of this line's change is still queued on this device */
   _pending?: boolean;
+  /** Bar/Bếp: note for the kitchen typed on the draft ("ít đá"); sent with the add, never stored */
+  kitchen_note?: string;
 }
 
 export type MobileCart = Record<string, MobileCartLine>;
@@ -129,11 +131,13 @@ export function diffCartToOps(base: MobileCart, next: MobileCart): ClientTableOp
         modifier_total: Number(line.modifier_total) || 0,
         tax_rate: line.tax_rate || '0',
         tax_group: line.tax_group || '',
+        ...(after?.kitchen_note ? { note: after.kitchen_note } : {}),
       });
     } else if (afterQty === 0) {
       ops.push({ type: 'remove_item', ...ref });
     } else {
-      ops.push({ type: 'change_qty', ...ref, delta: afterQty - beforeQty });
+      const delta = afterQty - beforeQty;
+      ops.push({ type: 'change_qty', ...ref, delta, ...(delta > 0 && after?.kitchen_note ? { note: after.kitchen_note } : {}) });
     }
   }
   return ops;
@@ -145,4 +149,16 @@ export function mobileCartSubtotal(cart: MobileCart): number {
     (sum, l) => sum + ((Number(l.price) || 0) + (Number(l.modifier_total) || 0)) * (Number(l.quantity) || 0),
     0
   );
+}
+
+/** Drop draft-only kitchen notes before a cart is kept as the table's state. */
+export function withoutKitchenNotes(cart: MobileCart): MobileCart {
+  const out: MobileCart = {};
+  for (const [k, line] of Object.entries(cart || {})) {
+    if (line && 'kitchen_note' in line) {
+      const { kitchen_note: _drop, ...rest } = line;
+      out[k] = rest;
+    } else out[k] = line;
+  }
+  return out;
 }

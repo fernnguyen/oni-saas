@@ -888,4 +888,110 @@ export const table_sync_events = pgTable('table_sync_events', {
   branchSeqIdx: index('idx_table_sync_events_branch_seq').on(table.tenant_id, table.branch_id, table.seq),
 }));
 
+// ── Bar/Bếp (docs/KITCHEN-BAR-PLAN.md, K0) ───────────────────────────────
+// Additive only: orders / order_items are untouched. A branch with no active station
+// behaves exactly as before (feature off).
+export const prep_stations = pgTable('prep_stations', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),             // Bếp, Bar, Quầy nước…
+  kind: varchar('kind', { length: 20 }).notNull().default('kitchen'),   // 'kitchen' | 'bar' | 'other'
+  output: varchar('output', { length: 20 }).notNull().default('print'), // 'print' | 'screen' | 'both'
+  is_default: varchar('is_default', { length: 10 }).default('FALSE'),   // catch-all for unrouted items
+  sort_order: varchar('sort_order', { length: 50 }),
+  metadata: jsonb('metadata'),                                          // printer config etc. (later phases)
+}, (table) => ({
+  tenantBranchIdx: index('idx_prep_stations_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
+
+// Routing: category (MVP) or product (override, later) → station. Rows are hard-replaced
+// per branch by the routes API, so at most one row per target.
+export const prep_station_routes = pgTable('prep_station_routes', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  station_id: varchar('station_id', { length: 255 }).notNull(),
+  target_type: varchar('target_type', { length: 20 }).notNull(),  // 'category' | 'product'
+  target_id: varchar('target_id', { length: 255 }).notNull(),
+}, (table) => ({
+  targetIdx: uniqueIndex('uq_prep_station_routes_target').on(table.tenant_id, table.branch_id, table.target_type, table.target_id),
+}));
+
+// K1: kitchen/bar tickets generated from table sync v2 ops after they commit.
+// One ticket = one send (batch) for one station; kind 'void' carries cancellations.
+export const kitchen_tickets = pgTable('kitchen_tickets', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  ticket_no: integer('ticket_no').notNull(),                       // per branch per day (GMT+7)
+  business_date: varchar('business_date', { length: 10 }).notNull(), // YYYY-MM-DD (GMT+7)
+  station_id: varchar('station_id', { length: 255 }).notNull(),
+  station_name: varchar('station_name', { length: 255 }),
+  session_id: varchar('session_id', { length: 255 }),
+  order_id: varchar('order_id', { length: 255 }),
+  resource_id: varchar('resource_id', { length: 255 }),
+  resource_name: varchar('resource_name', { length: 255 }),
+  batch_id: varchar('batch_id', { length: 255 }),
+  source: varchar('source', { length: 30 }),                        // 'table_ops' (later: 'qr', …)
+  kind: varchar('kind', { length: 20 }).notNull().default('order'), // 'order' | 'void'
+  status: varchar('status', { length: 20 }).notNull().default('open'), // 'open' | 'done'
+  print_count: integer('print_count').notNull().default(0),
+  printed_at: varchar('printed_at', { length: 50 }),
+  created_by_device: varchar('created_by_device', { length: 255 }),
+}, (table) => ({
+  branchStatusIdx: index('idx_kitchen_tickets_branch_status').on(table.tenant_id, table.branch_id, table.status, table.created_at),
+  sessionIdx: index('idx_kitchen_tickets_session').on(table.tenant_id, table.session_id),
+}));
+
+// K3: every table op considered by a "Gửi bếp" (printed, netted out or no-op) is marked here, so
+// a later send never re-reads it. Ops not listed are "chưa báo bếp".
+export const kitchen_fired_ops = pgTable('kitchen_fired_ops', {
+  tenant_id: varchar('tenant_id', { length: 255 }).notNull(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  session_id: varchar('session_id', { length: 255 }).notNull(),
+  op_id: varchar('op_id', { length: 255 }).notNull(),
+  batch_id: varchar('batch_id', { length: 255 }),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.tenant_id, table.op_id] }),
+  sessionIdx: index('idx_kitchen_fired_ops_session').on(table.tenant_id, table.session_id),
+}));
+
+// "Tạm hết" (86 list): products the kitchen cannot make today. POS / QR show them as sold out.
+// One row per branch + product + business day (GMT+7); a new day starts empty.
+export const kitchen_unavailable_products = pgTable('kitchen_unavailable_products', {
+  tenant_id: varchar('tenant_id', { length: 255 }).notNull(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  product_id: varchar('product_id', { length: 255 }).notNull(),
+  product_name: varchar('product_name', { length: 255 }),
+  business_date: varchar('business_date', { length: 10 }).notNull(),
+  station_id: varchar('station_id', { length: 255 }),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.tenant_id, table.branch_id, table.product_id, table.business_date] }),
+}));
+
+export const kitchen_ticket_items = pgTable('kitchen_ticket_items', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  ticket_id: varchar('ticket_id', { length: 255 }).notNull(),
+  op_id: varchar('op_id', { length: 255 }).notNull(),               // source op → never ticketed twice
+  line_no: integer('line_no').notNull().default(0),                // print/display order within the ticket
+  order_item_id: varchar('order_item_id', { length: 255 }),
+  product_id: varchar('product_id', { length: 255 }),
+  product_name: varchar('product_name', { length: 255 }),
+  variant_label: varchar('variant_label', { length: 500 }),
+  modifiers: text('modifiers'),
+  note: text('note'),
+  qty: varchar('qty', { length: 50 }).notNull(),                     // negative = cancelled
+  status: varchar('status', { length: 20 }).notNull().default('pending'), // 'pending' | 'ready' | 'voided' | 'unavailable'
+  ready_at: varchar('ready_at', { length: 50 }),
+}, (table) => ({
+  opIdx: uniqueIndex('uq_kitchen_ticket_items_op').on(table.tenant_id, table.op_id),
+  ticketIdx: index('idx_kitchen_ticket_items_ticket').on(table.tenant_id, table.ticket_id),
+  orderItemIdx: index('idx_kitchen_ticket_items_order_item').on(table.tenant_id, table.order_item_id),
+}));
+
 export * from './hrm/schema';

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ChevronDown, MoreHorizontal, Settings2, LayoutPanelLeft } from 'lucide-react';
@@ -45,6 +45,7 @@ export function NavHorizontal({
   const [overflowStart, setOverflowStart] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const tabWidths = useRef<number[]>([]);
   const canUpgrade = canManageSubscription(permissions);
 
   // Ensure unlabelled group (Tổng quan) is always first, then apply prefs to the rest
@@ -73,10 +74,14 @@ export function NavHorizontal({
     let accumulated = 0;
     let cutoff: number | null = null;
 
-    for (let i = 0; i < tabRefs.current.length; i++) {
+    // Tabs moved into "Thêm" are unmounted (ref = null). Count them with their last measured
+    // width; skipping them made the row look like it fits, re-render every tab, overflow again
+    // and loop forever (visible jitter on short pages near the scrollbar threshold).
+    const count = Math.max(tabRefs.current.length, tabWidths.current.length);
+    for (let i = 0; i < count; i++) {
       const el = tabRefs.current[i];
-      if (!el) continue;
-      accumulated += el.offsetWidth;
+      if (el) tabWidths.current[i] = el.offsetWidth;
+      accumulated += tabWidths.current[i] ?? 0;
       if (accumulated > containerWidth && cutoff === null) {
         cutoff = i;
       }
@@ -84,12 +89,23 @@ export function NavHorizontal({
     setOverflowStart(cutoff);
   }, []);
 
-  useEffect(() => {
+  // Group set/order changed: cached widths no longer match their indexes.
+  const mainKey = main.map((g) => g.label ?? '').join('|');
+  useLayoutEffect(() => {
+    tabWidths.current = [];
+  }, [mainKey]);
+
+  // Re-measure after every cutoff change too: newly shown tabs get their real width cached,
+  // and with cached widths the result converges (same cutoff → no further re-render).
+  useLayoutEffect(() => {
     measureOverflow();
+  }, [measureOverflow, mainKey, overflowStart]);
+
+  useEffect(() => {
     const observer = new ResizeObserver(measureOverflow);
     if (containerRef.current) observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, [measureOverflow, main.length]);
+  }, [measureOverflow]);
 
   // Close "Thêm" dropdown on outside click
   useEffect(() => {

@@ -38,9 +38,20 @@ export interface PosDialogAction<K extends string = string> {
   loadingLabel?: string;
 }
 
+export interface PosDialogDetail {
+  label: string;
+  value: string;
+  /** Highlight a row (danger = rose, warning = amber) */
+  tone?: 'default' | 'warning' | 'danger';
+  /** Bold value (e.g. a total) */
+  strong?: boolean;
+}
+
 export interface PosDialogOptions<K extends string = string> {
   title: string;
   message?: string;
+  /** Optional summary rows (label · value) shown under the message, e.g. what a cancel will drop. */
+  details?: PosDialogDetail[];
   tone?: PosDialogTone;
   /** Override the tone's Feather icon */
   icon?: FeatherName;
@@ -96,7 +107,7 @@ const fallbackApi: PosDialogApi = {
       const actions = actionsOf(opts as PosDialogOptions<string>) as PosDialogAction<K>[];
       Alert.alert(
         opts.title,
-        opts.message,
+        [opts.message, ...(opts.details || []).map(d => `${d.label}: ${d.value}`)].filter(Boolean).join('\n'),
         actions.map(a => ({
           text: a.label,
           style: a.style === 'destructive' ? 'destructive' : a.style === 'secondary' ? 'cancel' : 'default',
@@ -307,6 +318,26 @@ function PosDialogView({ pending, onSettle }: { pending: PendingDialog; onSettle
                 <Text className="text-xs text-slate-500 text-center mt-1.5 leading-5">{opts.message}</Text>
               )}
             </View>
+
+            {!!opts.details?.length && (
+              <View className="mt-4 rounded-xl border border-slate-100 bg-slate-50 px-3 py-1">
+                {opts.details.map((d, i) => {
+                  const valueCls =
+                    d.tone === 'danger' ? 'text-rose-700' : d.tone === 'warning' ? 'text-amber-700' : 'text-slate-800';
+                  return (
+                    <View
+                      key={`${d.label}-${i}`}
+                      className={`flex-row items-start py-2 ${i > 0 ? 'border-t border-slate-100' : ''}`}
+                    >
+                      <Text className="text-xs text-slate-500 mr-3">{d.label}</Text>
+                      <Text className={`flex-1 text-xs text-right ${d.strong ? 'font-bold' : 'font-semibold'} ${valueCls}`}>
+                        {d.value}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
 
             <View className={stacked ? 'mt-5' : 'mt-5 flex-row'} style={stacked ? { gap: 8 } : { gap: 10 }}>
               {ordered.map((action) => {

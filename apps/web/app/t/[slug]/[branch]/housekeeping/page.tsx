@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import { getSupabaseServerClient } from '@/lib/server/supabaseServer'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
+import { getVerticalConfig } from '@oni/core'
 import { HousekeepingClient } from './HousekeepingClient'
 
 interface Props {
@@ -32,6 +33,8 @@ export default async function HousekeepingPage({ params }: Props) {
     .eq('tenant_id', tenant.id)
     .maybeSingle()
   if (!shop) notFound()
+  // Buồng phòng is a lodging workflow; other verticals clean tables straight from the POS.
+  if (!getVerticalConfig(shop.industry_type ?? tenant.industry_type ?? 'retail').features.housekeeping) notFound()
 
   const { getUserPermissions } = await import('@/lib/server/permissions')
   const permissions = await getUserPermissions(authData.user.id, shop.tenant_id, shop.id).catch(() => [] as string[])

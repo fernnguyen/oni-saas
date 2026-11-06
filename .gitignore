@@ -12,11 +12,6 @@ supabase/.temp
 .codex
 .pnpm-store
 scratch/
-tests/*
-!tests/hrm/
-!tests/hrm/**
-!tests/table-sync/
-!tests/table-sync/**
 # Firebase credentials
 google-services.json
 GoogleService-Info.plist
@@ -42,3 +37,4 @@ CLAUDE.md
 .agents/
 .cursor/
 .gemini/
+.env.development.local

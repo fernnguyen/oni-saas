@@ -849,7 +849,13 @@ export function useTableManager(props: UseTableManagerProps) {
     }
   };
 
-  const syncOrderItemsOnline = async (orderId: string, cartItems: any, tableId?: string, baseCart?: any) => {
+  const syncOrderItemsOnline = async (
+    orderId: string,
+    cartItems: any,
+    tableId?: string,
+    baseCart?: any,
+    opts?: { kitchenFire?: boolean; voidReason?: string },
+  ) => {
     // Table sync v2: send only the DIFFERENCE between the cart the user started from and the cart
     // they saved, through the persistent outbox (no SQLite rows, no absolute PUT/POST/DELETE).
     const v2Session = tableId ? getV2Session(tableId) : null;
@@ -858,6 +864,20 @@ export function useTableManager(props: UseTableManagerProps) {
         const base = withoutTimeCharge(baseCart ?? lastV2CartRef.current[tableId] ?? {});
         const next = withoutTimeCharge(cartItems);
         const ops = diffCartToOps(base as any, next as any);
+        // Bar/Bếp K3 "Lưu & báo bếp": flag the last op; the server sends everything unsent for the
+        // table once it applies. Rides the outbox, so it also works after an offline save.
+        if (opts?.kitchenFire && ops.length > 0) {
+          ops[ops.length - 1] = { ...ops[ops.length - 1], kitchen_fire: true } as (typeof ops)[number];
+        }
+        // Bar/Bếp: an approved cut into dishes already sent → cancel ticket with its reason, now
+        if (opts?.voidReason) {
+          for (let i = 0; i < ops.length; i++) {
+            const op = ops[i] as any;
+            if (op.type === 'remove_item' || (op.type === 'change_qty' && Number(op.delta) < 0)) {
+              ops[i] = { ...op, note: `Lý do: ${opts.voidReason}`, kitchen_fire: true };
+            }
+          }
+        }
         if (ops.length > 0) await v2.enqueueOps(v2Session.sessionId, ops);
         lastV2CartRef.current[tableId] = next;
         return true;
@@ -2014,12 +2034,22 @@ export function useTableManager(props: UseTableManagerProps) {
     const targetGuestCount = roomGuestCount;
     const targetRoomRentalType = roomRentalType;
 
-    // Dialog xác nhận an toàn trước khi cập nhật
-    const confirmUpdate = Platform.OS === 'web'
-      ? window.confirm("Bạn có chắc chắn muốn cập nhật thông tin khách lưu trú này?")
-      : (await dialog.confirm({
+    // Dialog xác nhận an toàn trước khi cập nhật (app dialog on every platform: window.confirm is
+    // blocked in embedded browsers / PWAs and made the button do nothing on web)
+    const guestNames = targetGuests.map(g => String(g.name || '').trim()).filter(Boolean);
+    const confirmUpdate = (await dialog.confirm({
         title: 'Xác nhận cập nhật',
         message: `Cập nhật danh sách khách lưu trú của ${getResourceDisplayName(targetTable, shopVertical, false)} lên hệ thống?`,
+        details: [
+          { label: 'Số khách', value: String(targetGuestCount || guestNames.length || 0) },
+          {
+            label: 'Khách lưu trú',
+            value: guestNames.length > 0
+              ? `${guestNames.slice(0, 3).join(', ')}${guestNames.length > 3 ? ` +${guestNames.length - 3}` : ''}`
+              : 'Chưa nhập tên',
+            tone: guestNames.length > 0 ? 'default' : 'warning',
+          },
+        ],
         tone: 'info',
         icon: 'users',
         actions: [
@@ -2590,13 +2620,17 @@ export function useTableManager(props: UseTableManagerProps) {
 
   // Thay đổi số lượng món ăn/dịch vụ của phòng bàn trực tiếp
   /** v2: apply an edit to a table cart and enqueue its delta (no side effects inside setState) */
-  const applyV2TableCartEdit = (tableId: string, edit: (cart: Record<string, any>) => Record<string, any> | null) => {
+  const applyV2TableCartEdit = (
+    tableId: string,
+    edit: (cart: Record<string, any>) => Record<string, any> | null,
+    opts?: { voidReason?: string },
+  ) => {
     const base = tableCartsRef.current[tableId] || {};
     const next = edit(base);
     if (!next) return;
     tableCartsRef.current = { ...tableCartsRef.current, [tableId]: next };
     setTableCarts(prev => ({ ...prev, [tableId]: next }));
-    void syncOrderItemsOnline('', next, tableId, base);
+    void syncOrderItemsOnline('', next, tableId, base, opts?.voidReason ? { voidReason: opts.voidReason } : undefined);
   };
 
   const handleIncreaseTableItemQty = (tableId: string, cartItemId: string) => {
@@ -2632,7 +2666,7 @@ export function useTableManager(props: UseTableManagerProps) {
     });
   };
 
-  const handleDecreaseTableItemQty = (tableId: string, cartItemId: string) => {
+  const handleDecreaseTableItemQty = (tableId: string, cartItemId: string, opts?: { voidReason?: string }) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     if (getV2Session(tableId)) {
       applyV2TableCartEdit(tableId, (cart) => {
@@ -2640,7 +2674,7 @@ export function useTableManager(props: UseTableManagerProps) {
         if (!item) return null;
         const newQty = Math.max(1, item.quantity - 1);
         return newQty === item.quantity ? null : { ...cart, [cartItemId]: { ...item, quantity: newQty } };
-      });
+      }, opts);
       return;
     }
     setTableCarts(prev => {
@@ -2668,7 +2702,7 @@ export function useTableManager(props: UseTableManagerProps) {
     });
   };
 
-  const handleRemoveTableItem = (tableId: string, cartItemId: string) => {
+  const handleRemoveTableItem = (tableId: string, cartItemId: string, opts?: { voidReason?: string }) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => { });
     if (getV2Session(tableId)) {
       applyV2TableCartEdit(tableId, (cart) => {
@@ -2676,7 +2710,7 @@ export function useTableManager(props: UseTableManagerProps) {
         const next = { ...cart };
         delete next[cartItemId];
         return next;
-      });
+      }, opts);
       return;
     }
     setTableCarts(prev => {
@@ -4303,6 +4337,7 @@ export function useTableManager(props: UseTableManagerProps) {
     pendingConflictTableIds,
     // Table sync v2
     isV2Table,
+    getV2Session,
     beginTableOrdering,
     takeOrderingBaseCart,
     verifyV2SessionOpen,

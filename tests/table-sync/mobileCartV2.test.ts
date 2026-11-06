@@ -74,3 +74,18 @@ test('lines not yet on the server are referenced by the same line key the server
 test('subtotal matches the server rule (price + modifier) × qty', () => {
   assert.equal(mobileCartSubtotal(v2LinesToCart(server, [])), 2 * 25000 + (30000 + 5000))
 })
+
+test('Bar/Bếp: kitchen_note rides add / qty-up ops only, and is stripped from the kept cart', async () => {
+  const { withoutKitchenNotes } = await import('../../apps/mobile/lib/pos/tableCartV2')
+  const line = (qty: number, extra: Record<string, unknown> = {}) =>
+    ({ productId: 'P-CAFE', name: 'Cà phê', price: 25000, quantity: qty, ...extra }) as any
+  const base: MobileCart = { a: line(1, { _serverItemId: 'OI-1' }) }
+  const ops = diffCartToOps(base, {
+    a: line(3, { _serverItemId: 'OI-1', kitchen_note: 'ít đá' }),
+    b: { ...line(1, { kitchen_note: 'nóng' }), productId: 'P-TRA', name: 'Trà' },
+  })
+  assert.deepEqual(ops.map((o: any) => [o.type, o.note]), [['change_qty', 'ít đá'], ['add_item', 'nóng']])
+  const down = diffCartToOps({ a: line(3, { _serverItemId: 'OI-1' }) }, { a: line(1, { _serverItemId: 'OI-1', kitchen_note: 'x' }) })
+  assert.equal((down[0] as any).note, undefined, 'a reduction never carries the draft note')
+  assert.deepEqual(Object.keys(withoutKitchenNotes({ a: line(1, { kitchen_note: 'ít đá' }) }).a).includes('kitchen_note'), false)
+})

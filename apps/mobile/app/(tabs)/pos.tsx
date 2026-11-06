@@ -15,7 +15,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { formatCurrency, maskCurrencyInput, parseCurrencyToNumber } from '../../lib/utils/format';
 import { formatResourceStartTime, getResourceBillingPresentationForResource } from '../../lib/utils/resource-billing-presentation';
-import { allowsProductNegativeStock, buildQuickCreateMetadata, calculateHourlyBilling, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
+import { allowsProductNegativeStock, buildQuickCreateMetadata, calculateHourlyBilling, isKitchenEligibleIndustry, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
 
 // Import hệ thống component dùng chung
 import { Header } from '../../components/layout/Header';
@@ -38,7 +38,7 @@ import { PosDatePicker } from '../../components/pos/PosDatePicker';
 import { PosDateTimePicker } from '../../components/pos/PosDateTimePicker';
 import { PosToast } from '../../components/pos/PosToast';
 import { TableOrderTicketSheet } from '../../components/pos/TableOrderTicketSheet';
-import { PosDialogHost, PosDialogProvider, usePosDialogController } from '../../components/pos/PosDialog';
+import { PosDialogHost, PosDialogProvider, usePosDialogController, type PosDialogDetail } from '../../components/pos/PosDialog';
 import { getResourceDisplayName, getResourceNouns } from '../../lib/pos/resourceLabels';
 import { useCart } from '../../hooks/pos/useCart';
 import { usePosData } from '../../hooks/pos/usePosData';
@@ -47,6 +47,8 @@ import { useTableSyncV2 } from '../../hooks/pos/useTableSyncV2';
 import TableSyncInboxModal from '../../components/pos/TableSyncInboxModal';
 import { usePosToast } from '../../hooks/pos/usePosToast';
 import { usePermissions } from '../../lib/auth/PermissionsContext';
+import { useTableKitchen, sentQtyOf, soldOutQtyOf, kitchenBadge, fetchSoldOutProducts, setProductBackInStock } from '../../hooks/pos/useTableKitchen';
+import { withoutKitchenNotes } from '../../lib/pos/tableCartV2';
 import { useRealtimeSync } from '../../hooks/pos/useRealtimeSync';
 export type SelectedModifier = { option: string; price_adj: number };
 export type CartItem = {
@@ -59,6 +61,10 @@ export type CartItem = {
   modifier_total?: number;
 };
 
+
+/** The default walk-in customer ("Khách lẻ") counts as no customer chosen: the picker stays visible. */
+const isWalkInCustomer = (c: any): boolean =>
+  !c || c.id === 'C-DEFAULT-RETAIL' || (String(c.name || '').trim().toLowerCase() === 'khách lẻ' && !c.phone);
 
 export default function PosScreen() {
   const router = useRouter();
@@ -418,6 +424,24 @@ export default function PosScreen() {
 
   // Table sync v2 (table/room/court flows only; retail never enables it)
   const tableSync = useTableSyncV2(activeShopId, shopVertical !== 'retail', isOnline);
+
+  // Bar/Bếp K3: when the branch has prep stations, saving a table draft also sends it to the
+  // kitchen ("Lưu & báo bếp"). Probed once per shop; any error → off (plain "Lưu vào bàn").
+  const [kitchenEnabled, setKitchenEnabled] = useState(false);
+  useEffect(() => {
+    if (!activeShopId || !isKitchenEligibleIndustry(shopVertical || 'retail') || !isOnline) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/api/shops/${activeShopId}/prep-stations`, { headers: await getApiHeaders() });
+        const json = res.ok ? await res.json() : null;
+        if (alive) setKitchenEnabled(Array.isArray(json?.data) && json.data.length > 0);
+      } catch {
+        /* offline / unsupported: keep the last known value */
+      }
+    })();
+    return () => { alive = false; };
+  }, [activeShopId, shopVertical, isOnline]);
   const [isTableSyncInboxOpen, setIsTableSyncInboxOpen] = useState(false);
 
   const {
@@ -477,6 +501,7 @@ export default function PosScreen() {
     openPendingConflict,
     pendingConflictTableIds,
     isV2Table,
+    getV2Session,
     beginTableOrdering,
     takeOrderingBaseCart,
     verifyV2SessionOpen,
@@ -526,8 +551,9 @@ export default function PosScreen() {
       const qty = Number((line as any)?.quantity) || 0;
       if (qty <= 0) continue;
       const existing = next[key];
+      const note = (line as any)?.kitchen_note;
       next[key] = existing
-        ? { ...existing, quantity: (Number(existing.quantity) || 0) + qty }
+        ? { ...existing, quantity: (Number(existing.quantity) || 0) + qty, ...(note ? { kitchen_note: note } : {}) }
         : { ...(line as any) };
     }
     return next;
@@ -598,6 +624,12 @@ export default function PosScreen() {
     setActiveVertical(tableMapVertical);
   };
 
+  // "Lưu & báo bếp" only where the save really reaches the kitchen (v2 table + stations).
+  const tableSaveLabel = (table: { id: string; name: string }) => {
+    const live = tables.find(t => t.id === table.id) || table;
+    return kitchenEnabled && isV2Table(live as any) ? 'Lưu & báo bếp' : `Lưu vào ${table.name}`;
+  };
+
   const saveTableOrderDraft = async () => {
     const target = orderingTable;
     if (!target || orderingSavingRef.current) return;
@@ -628,21 +660,23 @@ export default function PosScreen() {
           return;
         }
         // v2: base = món đã có trên bàn → chỉ gửi add_item / change_qty cho phần nháp
-        const ok = await syncOrderItemsOnline(latestOrderId, next, target.id, base);
+        const ok = await syncOrderItemsOnline(latestOrderId, next, target.id, base, { kitchenFire: kitchenEnabled });
         if (!ok) {
           // Hộp thoại (không phải toast): toast bị phiếu gọi món (Modal) che mất
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => { });
           void dialog.alert('Chưa lưu được món', `Không ghi được món vào ${target.name}. Các món mới vẫn được giữ trong nháp, vui lòng thử lại.`, 'danger');
           return;
         }
-        setTableCarts(prev => ({ ...prev, [target.id]: next }));
+        setTableCarts(prev => ({ ...prev, [target.id]: withoutKitchenNotes(next) }));
         setIsTableTicketOpen(false);
         exitTableOrdering('saved');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
         showToast(
           sessionState === 'offline'
-            ? `Đã lưu ${count} món trên máy cho ${target.name}, sẽ gửi khi có mạng`
-            : `Đã lưu ${count} món vào ${target.name}`,
+            ? `Đã lưu ${count} món trên máy cho ${target.name}, sẽ gửi${kitchenEnabled ? ' và báo bếp' : ''} khi có mạng`
+            : kitchenEnabled
+              ? `Đã lưu ${count} món vào ${target.name} và báo bếp`
+              : `Đã lưu ${count} món vào ${target.name}`,
           'success',
           { silent: true }
         );
@@ -692,7 +726,7 @@ export default function PosScreen() {
       cancelKey: 'stay',
       actions: [
         // Nút lưu hiện spinner tới khi lưu xong (lỗi → hộp thoại lỗi hiện tiếp sau)
-        { key: 'save', label: `Lưu vào ${orderingTable.name}`, style: 'primary', loadingLabel: 'Đang lưu…', onPress: () => saveTableOrderDraft() },
+        { key: 'save', label: tableSaveLabel(orderingTable), style: 'primary', loadingLabel: 'Đang lưu…', onPress: () => saveTableOrderDraft() },
         { key: 'keep', label: 'Giữ nháp, thoát', style: 'secondary' },
         { key: 'discard', label: 'Bỏ món mới', style: 'destructive' },
       ],
@@ -804,6 +838,84 @@ export default function PosScreen() {
   // State thêm nhanh khách hàng cho sơ đồ phòng bàn
   const { hasPermission } = usePermissions();
   const canModifyOrders = hasPermission(['orders.edit', 'orders.update', 'owner', 'admin']);
+
+  // ── Bar/Bếp on the table detail: per-dish state, "Gửi bếp" fallback, guarded cancels ──
+  const activeV2SessionId = kitchenEnabled && activeTable ? (getV2Session(activeTable)?.sessionId || '') : '';
+  const tableKitchen = useTableKitchen(activeShopId, activeV2SessionId, Boolean(activeV2SessionId), tableSync);
+  const canVoidSentDish = hasPermission(['orders.delete', 'owner', 'admin']);
+
+  /** Before cutting a table line: dishes already sent need permission + a reason (cancel ticket). */
+  const guardKitchenReduce = async (item: any, newQty: number): Promise<{ ok: boolean; reason?: string }> => {
+    const sent = sentQtyOf(tableKitchen.status, item?._serverItemId);
+    const voidQty = sent - Math.max(0, newQty);
+    if (sent <= 0 || voidQty <= 0) return { ok: true };
+    // The kitchen itself reported it sold out: removing that part is not the floor's fault.
+    if (voidQty <= soldOutQtyOf(tableKitchen.status, item?._serverItemId)) return { ok: true, reason: 'Hết món' };
+    if (!canVoidSentDish) {
+      await dialog.alert('Món đã báo bếp', `"${item?.name || 'Món'}" đã gửi xuống bếp. Cần quyền huỷ đơn để bớt hoặc huỷ món này.`, 'warning');
+      return { ok: false };
+    }
+    const choice = await dialog.confirm({
+      title: 'Huỷ món đã báo bếp',
+      message: `${item?.name || 'Món'}: huỷ ${voidQty} phần đã gửi xuống bếp. Bếp sẽ nhận phiếu huỷ kèm lý do.`,
+      tone: 'warning',
+      icon: 'x-circle',
+      cancelKey: 'keep',
+      actions: [
+        { key: 'Khách đổi ý', label: 'Khách đổi ý', style: 'destructive' },
+        { key: 'Nhập nhầm', label: 'Nhập nhầm', style: 'destructive' },
+        { key: 'keep', label: 'Giữ món', style: 'secondary' },
+      ],
+    });
+    return choice && choice !== 'keep' ? { ok: true, reason: choice } : { ok: false };
+  };
+
+  // "Tạm hết" list while ordering for a table (refreshed every 30 s)
+  const [soldOutIds, setSoldOutIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!orderingTable || !kitchenEnabled || !activeShopId) return;
+    let alive = true;
+    const load = async () => {
+      const ids = await fetchSoldOutProducts(activeShopId);
+      if (alive && ids) setSoldOutIds(ids);
+    };
+    void load();
+    const t = setInterval(() => { void load(); }, 30_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [orderingTable, kitchenEnabled, activeShopId]);
+
+  /** Add a product to the cart; while ordering for a table, sold-out products ask first. */
+  const orderProduct = async (p: any) => {
+    if (orderingTable && soldOutIds.includes(String(p?.id))) {
+      const choice = await dialog.confirm({
+        title: 'Món đang tạm hết',
+        message: `${p?.name || 'Món'} được báo tạm hết hôm nay. Nếu đã có hàng lại, bấm "Đã có hàng" để gọi tiếp.`,
+        tone: 'warning',
+        icon: 'alert-triangle',
+        cancelKey: 'skip',
+        actions: [
+          {
+            key: 'back', label: 'Đã có hàng', style: 'primary', loadingLabel: 'Đang cập nhật…',
+            onPress: async () => {
+              if (!(await setProductBackInStock(activeShopId, String(p.id), String(p.name || '')))) {
+                throw new Error('back_in_stock_failed');
+              }
+              setSoldOutIds((ids) => ids.filter((id) => id !== String(p.id)));
+            },
+          },
+          { key: 'skip', label: 'Không gọi', style: 'secondary' },
+        ],
+      });
+      if (choice !== 'back') return;
+    }
+    addToCart(p);
+  };
+
+  const sendTableToKitchen = async () => {
+    const n = await tableKitchen.send();
+    if (n === null) showToast('Chưa gửi được xuống bếp (mất mạng?). Thử lại khi có mạng.', 'error');
+    else showToast(n > 0 ? `Đã gửi ${n} phiếu xuống bar/bếp` : 'Không có món mới để gửi', n > 0 ? 'success' : 'info', { silent: true });
+  };
 
   const [isTransferModalVisible, setIsTransferModalVisible] = useState(false);
   const [isMergeModalVisible, setIsMergeModalVisible] = useState(false);
@@ -2120,8 +2232,13 @@ export default function PosScreen() {
                     activeOpacity={0.85}
                     className={`w-[48%] mb-4 p-3 rounded-2xl border bg-white justify-between active:scale-[0.98] ${draftQty > 0 ? 'border-orange-300' : 'border-slate-100'}`} style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 }}
                     disabled={!!orderingTable && isSavingTableDraft}
-                    onPress={() => addToCart(p)}
+                    onPress={() => { void orderProduct(p); }}
                   >
+                    {!!orderingTable && soldOutIds.includes(String(p.id)) && (
+                      <View className="absolute top-1.5 left-1.5 z-10 rounded-md bg-rose-50 border border-rose-200 px-1.5 py-0.5">
+                        <Text className="text-[10px] font-semibold text-rose-700">Tạm hết</Text>
+                      </View>
+                    )}
                     {draftQty > 0 && (
                       <View
                         className="absolute top-1.5 right-1.5 z-10 min-w-[24px] h-6 px-1.5 rounded-full items-center justify-center border-2 border-white"
@@ -2170,7 +2287,7 @@ export default function PosScreen() {
                           </TouchableOpacity>
                           <Text className="min-w-[18px] text-center text-xs font-bold text-orange-600" style={{ fontVariant: ['tabular-nums'] }}>{draftQty}</Text>
                           <TouchableOpacity
-                            onPress={() => addToCart(p)}
+                            onPress={() => { void orderProduct(p); }}
                             disabled={isSavingTableDraft}
                             hitSlop={{ top: 8, bottom: 8, left: 2, right: 6 }}
                             className="w-7 h-7 items-center justify-center active:bg-orange-100 rounded-r-lg"
@@ -2834,7 +2951,7 @@ export default function PosScreen() {
               onPress={() => { void saveTableOrderDraft(); }}
               className={`h-11 px-4 rounded-xl flex-row items-center justify-center ${canSave ? 'bg-orange-500 active:bg-orange-600' : 'bg-slate-300'}`}
               style={{ maxWidth: '58%' }}
-              accessibilityLabel={`Lưu vào ${orderingTable.name}`}
+              accessibilityLabel={tableSaveLabel(orderingTable)}
             >
               {isSavingTableDraft ? (
                 <ActivityIndicator size="small" color="white" />
@@ -2842,7 +2959,7 @@ export default function PosScreen() {
                 <Feather name="save" size={14} color="white" />
               )}
               <Text className="text-xs font-semibold text-white ml-1.5" numberOfLines={1}>
-                Lưu vào {orderingTable.name}
+                {tableSaveLabel(orderingTable)}
               </Text>
             </TouchableOpacity>
           </View>
@@ -2856,6 +2973,12 @@ export default function PosScreen() {
           draft={cart}
           previousItems={tableCarts[orderingTable.id] || {}}
           saving={isSavingTableDraft}
+          saveLabel={tableSaveLabel(orderingTable)}
+          onSetNote={kitchenEnabled ? (cartItemId: string, note: string) => {
+            setCart((prev: any) => prev?.[cartItemId]
+              ? { ...prev, [cartItemId]: { ...prev[cartItemId], kitchen_note: note.trim() || undefined } }
+              : prev);
+          } : undefined}
           onClose={() => setIsTableTicketOpen(false)}
           onIncrease={increaseDraftLine}
           onDecrease={decreaseDraftLine}
@@ -3034,13 +3157,22 @@ export default function PosScreen() {
                   })()}
 
                   {/* CHỌN KHÁCH HÀNG CRM (Premium component replicated) */}
-                  <Text className="text-tiny text-slate-400 font-medium mb-2">Thông tin Khách hàng (CRM):</Text>
+                  <View className="flex-row justify-between items-center mb-2">
+                    <Text className="text-tiny text-slate-400 font-medium">Thông tin Khách hàng (CRM):</Text>
+                    {isWalkInCustomer(selectedCustomer) && (
+                      <View className="bg-slate-200/60 px-2 py-0.5 rounded">
+                        <Text className="text-[9.5px] font-bold text-slate-600">Khách lẻ</Text>
+                      </View>
+                    )}
+                  </View>
                   <View className="mb-4">
-                    {selectedCustomer ? (
+                    {!isWalkInCustomer(selectedCustomer) ? (
                       <View className="flex-row justify-between items-center bg-slate-50 border border-slate-200 p-3 rounded-xl">
                         <View className="flex-1 mr-4">
                           <Text className="text-xs font-semibold text-slate-800">{selectedCustomer.name}</Text>
-                          <Text className="text-tiny text-slate-500 font-medium mt-0.5">📞 {selectedCustomer.phone}</Text>
+                          {selectedCustomer.phone ? (
+                            <Text className="text-tiny text-slate-500 font-medium mt-0.5">📞 {selectedCustomer.phone}</Text>
+                          ) : null}
                           {selectedCustomer.address ? (
                             <Text className="text-[9.5px] text-slate-400 font-semibold mt-1">📍 {selectedCustomer.address}</Text>
                           ) : null}
@@ -3481,7 +3613,7 @@ export default function PosScreen() {
                 {activeTableTab === 'billing' || shopVertical !== 'lodging' ? (
                   <View>
                     {/* GIAO DIỆN KHÁCH HÀNG CRM TRONG CHI TIẾT PHÒNG */}
-                    {tableCustomers[activeTable.id] ? (
+                    {!isWalkInCustomer(tableCustomers[activeTable.id]) ? (
                       <View className="mb-4 bg-slate-50 border border-slate-200 p-3 rounded-xl flex-row items-center justify-between">
                         <View className="flex-1">
                           <Text className="text-[10px] text-slate-400 font-semibold mb-1">Khách hàng đại diện:</Text>
@@ -3611,23 +3743,93 @@ export default function PosScreen() {
                             )}
                           </Text>
                         </View>
+                        {tableKitchen.status.enabled && (() => {
+                          const gone = Object.entries(tableCarts[activeTable.id])
+                            .map(([key, it]: [string, any]) => ({ key, it, n: soldOutQtyOf(tableKitchen.status, it._serverItemId) }))
+                            .filter((x) => x.n > 0);
+                          if (gone.length === 0) return null;
+                          return (
+                            <View className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 mb-2">
+                              <Text className="text-xs font-semibold text-rose-800">Bếp báo hết món – báo khách và bỏ món:</Text>
+                              {gone.map(({ key, it, n }) => (
+                                <View key={key} className="flex-row items-center mt-1.5">
+                                  <Text className="flex-1 text-xs text-rose-700" numberOfLines={1}>{it.name} · hết {n}</Text>
+                                  <TouchableOpacity
+                                    onPress={() => {
+                                      const qty = Number(it.quantity) || 0;
+                                      if (n >= qty) handleRemoveTableItem(activeTable.id, key, { voidReason: 'Hết món' });
+                                      else for (let i = 0; i < n; i++) handleDecreaseTableItemQty(activeTable.id, key, { voidReason: 'Hết món' });
+                                    }}
+                                    className="rounded-md border border-rose-300 bg-white px-2 py-1 active:bg-rose-100"
+                                    accessibilityLabel={`Bỏ món ${it.name}`}
+                                  >
+                                    <Text className="text-[11px] font-semibold text-rose-700">Bỏ món</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              ))}
+                            </View>
+                          );
+                        })()}
+                        {tableKitchen.status.enabled && (() => {
+                          const unsentQty = Object.entries(tableCarts[activeTable.id]).reduce((n, [key, it]: [string, any]) =>
+                            isTimeChargeProduct(it.productId || key, it.name)
+                              ? n
+                              : n + Math.max(0, (Number(it.quantity) || 0) - sentQtyOf(tableKitchen.status, it._serverItemId)), 0);
+                          return (
+                            <View className={`flex-row items-center rounded-xl border px-3 py-2 mb-2 ${unsentQty > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                              <Feather name="coffee" size={14} color={unsentQty > 0 ? '#d97706' : '#94a3b8'} />
+                              <Text className={`flex-1 ml-2 text-xs font-medium ${unsentQty > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
+                                {unsentQty > 0 ? `Món chưa báo bếp: ${unsentQty}` : 'Đã báo bếp đủ món'}
+                              </Text>
+                              {unsentQty > 0 && (
+                                <TouchableOpacity
+                                  onPress={() => { void sendTableToKitchen(); }}
+                                  disabled={tableKitchen.sending}
+                                  className={`flex-row items-center rounded-lg px-3 py-1.5 ${tableKitchen.sending ? 'bg-orange-300' : 'bg-orange-500 active:bg-orange-600'}`}
+                                  accessibilityLabel="Gửi bếp"
+                                >
+                                  {tableKitchen.sending ? <ActivityIndicator size="small" color="white" /> : <Feather name="send" size={12} color="white" />}
+                                  <Text className="text-xs font-semibold text-white ml-1.5">Gửi bếp</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          );
+                        })()}
                         <View className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                           {Object.entries(tableCarts[activeTable.id]).map(([cartItemId, item]) => (
                             <View 
                               key={cartItemId} 
                               className="flex-row justify-between items-center py-2 border-b border-slate-100 last:border-0"
                             >
-                              <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>
-                                {item.name}
-                                {((item as any).original_price != null && Number(item.price) !== Number((item as any).original_price) || Number((item as any).discount_amount || 0) > 0) && (
-                                  <Text className="text-orange-500 font-bold ml-1 text-[10px]"> *</Text>
-                                )}
-                              </Text>
+                              <View className="flex-1 mr-2">
+                                <Text className="text-xs font-semibold text-slate-700" numberOfLines={1}>
+                                  {item.name}
+                                  {((item as any).original_price != null && Number(item.price) !== Number((item as any).original_price) || Number((item as any).discount_amount || 0) > 0) && (
+                                    <Text className="text-orange-500 font-bold ml-1 text-[10px]"> *</Text>
+                                  )}
+                                </Text>
+                                {(() => {
+                                  if (isTimeChargeProduct((item as any).productId || cartItemId, item.name)) return null;
+                                  const b = kitchenBadge(tableKitchen.status, (item as any)._serverItemId, Number(item.quantity) || 0);
+                                  if (!b) return null;
+                                  const cls = b.tone === 'emerald' ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                    : b.tone === 'sky' ? 'bg-sky-50 border-sky-200 text-sky-700'
+                                    : b.tone === 'rose' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-amber-50 border-amber-200 text-amber-700';
+                                  return (
+                                    <View className="flex-row mt-0.5">
+                                      <Text className={`text-[10px] font-semibold border rounded px-1 ${cls}`}>{b.label}</Text>
+                                    </View>
+                                  );
+                                })()}
+                              </View>
 
                               <View className="flex-row items-center gap-2">
                                 {/* Nút giảm số lượng */}
                                 <TouchableOpacity
-                                  onPress={() => handleDecreaseTableItemQty(activeTable.id, cartItemId)}
+                                  onPress={async () => {
+                                    const g = await guardKitchenReduce(item, Math.max(1, (Number(item.quantity) || 0) - 1));
+                                    if (g.ok) handleDecreaseTableItemQty(activeTable.id, cartItemId, g.reason ? { voidReason: g.reason } : undefined);
+                                  }}
                                   className="w-7 h-7 bg-slate-100 rounded-lg justify-center items-center active:bg-slate-200"
                                 >
                                   <Text className="text-slate-600 font-bold text-sm">-</Text>
@@ -3677,7 +3879,10 @@ export default function PosScreen() {
 
                                 {/* Nút Xóa món */}
                                 <TouchableOpacity
-                                  onPress={() => handleRemoveTableItem(activeTable.id, cartItemId)}
+                                  onPress={async () => {
+                                    const g = await guardKitchenReduce(item, 0);
+                                    if (g.ok) handleRemoveTableItem(activeTable.id, cartItemId, g.reason ? { voidReason: g.reason } : undefined);
+                                  }}
                                   className="p-1 ml-1"
                                 >
                                   <Ionicons name="close" size={16} color="#94a3b8" />
@@ -3748,25 +3953,45 @@ export default function PosScreen() {
                         onPress={async () => {
                           // Hộp thoại xác nhận hủy an toàn
                           const cancelName = getResourceDisplayName(activeTable, shopVertical);
-                          const confirmCancel = Platform.OS === 'web'
-                            ? window.confirm(`Bạn có chắc chắn muốn Hủy và giải phóng ${cancelName}?`)
-                            : (await dialog.confirm({
-                              title: `Hủy đơn ${cancelName}?`,
-                              message: `Tất cả thông tin sử dụng và dịch vụ hiện tại sẽ bị xóa sạch, ${resNouns.noun} được trả về trạng thái trống.`,
-                              tone: 'danger',
-                              icon: 'x-circle',
-                              actions: [
-                                { key: 'no', label: 'Không', style: 'secondary' },
-                                { key: 'yes', label: 'Hủy đơn', style: 'destructive' },
-                              ],
-                            })) === 'yes';
-
-                          if (!confirmCancel) return;
-
+                          // App dialog on every platform: window.confirm is blocked in embedded
+                          // browsers / PWAs, which silently made this button do nothing on web.
+                          // What the cancel drops, so the cashier sees it before confirming.
+                          const cancelLines = Object.entries(tableCarts[activeTable.id] || {})
+                            .filter(([cartItemId, it]: [string, any]) => !isTimeChargeProduct(it.productId || cartItemId, it.name));
+                          const cancelQty = cancelLines.reduce((n, [, it]: [string, any]) => n + (Number(it.quantity) || 0), 0);
+                          const cancelItemsCost = cancelLines.reduce(
+                            (sum, [, it]: [string, any]) => sum + ((Number(it.price) || 0) + (Number(it.modifier_total) || 0)) * (Number(it.quantity) || 0),
+                            0,
+                          );
+                          const cancelBilling = calculateBilling(activeTable);
+                          let cancelMeta: any = {};
+                          try {
+                            cancelMeta = typeof activeTable.metadata === 'string' ? JSON.parse(activeTable.metadata || '{}') : (activeTable.metadata || {});
+                          } catch {}
+                          const cancelTimeCost = getResourceBillingPresentationForResource(shopVertical, { ...activeTable, metadata: cancelMeta }).showCost
+                            ? (Number(cancelBilling.cost) || 0) : 0;
+                          const cancelSentQty = cancelLines.reduce((n, [, it]: [string, any]) => n + sentQtyOf(tableKitchen.status, it._serverItemId), 0);
+                          const cancelDetails: PosDialogDetail[] = [
+                            { label: 'Khách', value: tableCustomers[activeTable.id]?.name || 'Khách lẻ' },
+                            { label: 'Thời gian dùng', value: cancelBilling.label || '—' },
+                            {
+                              label: 'Món đã gọi',
+                              value: cancelQty > 0
+                                ? `${cancelQty} món · ${cancelLines.slice(0, 3).map(([, it]: [string, any]) => it.name).join(', ')}${cancelLines.length > 3 ? '…' : ''}`
+                                : 'Chưa gọi món',
+                            },
+                            ...(cancelSentQty > 0
+                              ? [{ label: 'Đã báo bếp', value: `${cancelSentQty} món – bếp sẽ nhận phiếu huỷ`, tone: 'warning' as const }]
+                              : []),
+                            { label: 'Tạm tính bị huỷ', value: formatCurrency(cancelTimeCost + cancelItemsCost), tone: 'danger', strong: true },
+                          ];
+                          // The cancel runs inside the dialog's "Hủy đơn" button (spinner, other buttons locked,
+                          // dialog kept open on failure so the cashier can retry); the sheet closes after.
+                          let cancelToast: { msg: string; kind: 'success' | 'info' } | null = null;
+                          const runCancel = async (): Promise<void> => {
                           try {
                             const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
                             let syncSucceeded = false;
-
                             let cleanedCancelledMeta = '{}';
                             try {
                               const parsedMeta = typeof activeTable.metadata === 'string'
@@ -3799,11 +4024,9 @@ export default function PosScreen() {
                             // Table sync v2: online-only cancel through the order cancel endpoint (ends the session)
                             if (isV2Table(activeTable)) {
                               const cancelled = await cancelV2Table(activeTable, cleanedCancelledMeta);
-                              if (cancelled) {
-                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-                                setActiveTable(null);
-                                showToast(`Đã hủy đơn & giải phóng ${getResourceDisplayName(activeTable, shopVertical)}!`, "success");
-                              }
+                              // cancelV2Table already explained a failure with a toast: keep the dialog open
+                              if (!cancelled) throw new Error('cancel_failed');
+                              cancelToast = { msg: `Đã hủy đơn & giải phóng ${getResourceDisplayName(activeTable, shopVertical)}!`, kind: 'success' };
                               return;
                             }
 
@@ -3893,18 +4116,34 @@ export default function PosScreen() {
                               return copy;
                             });
 
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-                            setActiveTable(null);
-
-                            if (syncSucceeded) {
-                              showToast(`Đã hủy đơn & giải phóng ${getResourceDisplayName(activeTable, shopVertical)}!`, "success");
-                            } else {
-                              showToast(`Đã giải phóng ${getResourceDisplayName(activeTable, shopVertical)} (ngoại tuyến)!`, "info");
-                            }
+                            cancelToast = syncSucceeded
+                              ? { msg: `Đã hủy đơn & giải phóng ${getResourceDisplayName(activeTable, shopVertical)}!`, kind: 'success' }
+                              : { msg: `Đã giải phóng ${getResourceDisplayName(activeTable, shopVertical)} (ngoại tuyến)!`, kind: 'info' };
                           } catch (err) {
+                            if ((err as Error)?.message === 'cancel_failed') throw err;
                             console.error('Không thể hủy ca hoạt động:', err);
                             showToast("Có lỗi xảy ra khi hủy ca!", "error");
+                            throw err;
                           }
+                          };
+                          const confirmCancel = (await dialog.confirm({
+                              title: `Hủy đơn ${cancelName}?`,
+                              message: `Đơn sẽ bị huỷ, không thu tiền. ${resNouns.noun.charAt(0).toUpperCase()}${resNouns.noun.slice(1)} được trả về trạng thái trống.`,
+                              details: cancelDetails,
+                              tone: 'danger',
+                              icon: 'x-circle',
+                              actions: [
+                                { key: 'no', label: 'Không', style: 'secondary' },
+                                { key: 'yes', label: 'Hủy đơn', style: 'destructive', loadingLabel: 'Đang huỷ…', onPress: runCancel },
+                              ],
+                            })) === 'yes';
+
+                          // (assigned inside runCancel: TS cannot see that through the closure)
+                          const cancelDone = cancelToast as { msg: string; kind: 'success' | 'info' } | null;
+                          if (!confirmCancel || !cancelDone) return;
+                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+                          setActiveTable(null);
+                          showToast(cancelDone.msg, cancelDone.kind);
                         }}
                       >
                         <Ionicons name="close-circle-outline" size={16} color="#e11d48" />

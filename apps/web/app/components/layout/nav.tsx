@@ -55,6 +55,7 @@ import {
   Settings2,
   Clock,
   Banknote,
+  ChefHat,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -257,7 +258,8 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
     {
       label: 'Vận hành',
       items: [
-        { href: joinPath(base, '/housekeeping'), label: 'Buồng phòng', icon: BedDouble, permission: 'housekeeping.view', featureGate: 'location_resource' },
+        { href: joinPath(base, '/kitchen'), label: 'Màn hình Bar/Bếp', icon: ChefHat, permission: 'pos.use', featureGate: 'kitchen_display' },
+        { href: joinPath(base, '/housekeeping'), label: 'Buồng phòng', icon: BedDouble, permission: 'housekeeping.view', featureGate: 'housekeeping' },
         { href: joinPath(base, '/inventory'), label: 'Kho',             icon: Warehouse, permission: 'inventory.view', exact: true },
         { href: joinPath(base, '/inventory/expiring-batches'), label: 'Lô sắp hết hạn', icon: AlertTriangle, permission: 'inventory.view' },
         // Tạm thời comment Vận chuyển vì chưa implement
@@ -323,6 +325,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
         { href: options.settingsHref ?? '#',   label: 'Cài đặt',         icon: Settings, permission: 'settings.view', exact: true },
         { href: joinPath(base, '/settings/tax'), label: 'Thuế & Khóa sổ', icon: Receipt, permission: 'settings.view' },
         { href: joinPath(base, '/settings/departments'), label: 'Phòng ban', icon: Network, permission: 'departments.view' },
+        { href: joinPath(base, '/settings/kitchen'), label: 'Bar / Bếp', icon: ChefHat, permission: 'settings.view', featureGate: 'kitchen_display' },
         { href: joinPath(base, '/settings/employees'),  label: 'Nhân viên',   icon: Contact,     permission: 'dashboard.view' },
         { href: joinPath(base, '/settings/cost-allocation'), label: 'Phân bổ chi phí', icon: Percent, permission: 'settings.view' },
         { href: joinPath(base, '/settings/assets'), label: 'Tài sản', icon: Landmark, permission: 'assets.view' },

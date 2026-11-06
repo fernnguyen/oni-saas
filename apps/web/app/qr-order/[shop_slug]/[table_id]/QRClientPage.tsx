@@ -1568,12 +1568,15 @@ export default function QRClientPage({
             {filteredProducts.map((p) => {
               const config = safeJson(p.variant_options);
               const hasOptions = p.product_type === 'variant_parent' || (Array.isArray(config?.groups) && config.groups.length > 0);
+              // Bar/Bếp: sold out today (set by the kitchen / staff) → visible but not orderable
+              const soldOut = String((p as any).kitchen_unavailable || '').toUpperCase() === 'TRUE';
 
               return (
                 <div
                   key={p.id || p.product_id}
-                  onClick={() => handleProductAddClick(p)}
-                  className={`group border rounded-2xl overflow-hidden flex flex-col justify-between transition-all duration-200 cursor-pointer active:scale-[0.99] ${themeClasses.cardBg}`}
+                  onClick={() => { if (!soldOut) handleProductAddClick(p); }}
+                  aria-disabled={soldOut}
+                  className={`group border rounded-2xl overflow-hidden flex flex-col justify-between transition-all duration-200 ${soldOut ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-[0.99]'} ${themeClasses.cardBg}`}
                 >
                   {/* Image fallback with premium styling */}
                   <div className="relative w-full aspect-[4/3] bg-gradient-to-tr from-slate-200 to-slate-300 dark:from-slate-800 dark:to-slate-900 overflow-hidden flex items-center justify-center text-slate-500 shrink-0">
@@ -1595,9 +1598,14 @@ export default function QRClientPage({
                         </span>
                       </div>
                     )}
-                    {hasOptions && (
+                    {hasOptions && !soldOut && (
                       <span className={`absolute top-2 right-2 rounded-full backdrop-blur-sm border px-2 py-0.5 text-[9px] font-semibold ${themeClasses.badgeBg}`}>
                         Tuỳ chọn
+                      </span>
+                    )}
+                    {soldOut && (
+                      <span className="absolute top-2 left-2 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                        Tạm hết
                       </span>
                     )}
                   </div>

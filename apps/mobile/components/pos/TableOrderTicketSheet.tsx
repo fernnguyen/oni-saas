@@ -1,5 +1,5 @@
-import React from 'react';
-import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View, ActivityIndicator, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { Modal, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View, ActivityIndicator, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { formatCurrency } from '../../lib/utils/format';
 import { PosDialogHost, usePosDialog } from './PosDialog';
@@ -22,6 +22,10 @@ interface TableOrderTicketSheetProps {
   /** Lines already on the table (read-only here) */
   previousItems: Record<string, CartLine>;
   saving: boolean;
+  /** Save button text; defaults to "Lưu vào <bàn>" ("Lưu & báo bếp" when Bar/Bếp is on) */
+  saveLabel?: string;
+  /** Bar/Bếp on: each new line can carry a note for the kitchen ("ít đá") */
+  onSetNote?: (cartItemId: string, note: string) => void;
   onClose: () => void;
   onIncrease: (cartItemId: string) => void;
   onDecrease: (cartItemId: string) => void;
@@ -54,6 +58,8 @@ export function TableOrderTicketSheet({
   draft,
   previousItems,
   saving,
+  saveLabel,
+  onSetNote,
   onClose,
   onIncrease,
   onDecrease,
@@ -66,6 +72,7 @@ export function TableOrderTicketSheet({
   const draftTotal = draftEntries.reduce((sum, [, l]) => sum + lineUnitPrice(l) * (Number(l.quantity) || 0), 0);
   const previousEntries = Object.entries(previousItems || {}).filter(([key, l]) => key !== 'TIME_CHARGE' && l?.productId !== 'TIME_CHARGE');
   const dialog = usePosDialog();
+  const [noteKey, setNoteKey] = useState<string | null>(null);
   const requestClose = () => {
     // Android back: close an open PosDialog first; never close the sheet while saving
     if (dialog.handleBack() || saving) return;
@@ -125,6 +132,27 @@ export function TableOrderTicketSheet({
                             <Text className="text-[11px] text-slate-500 mt-0.5" numberOfLines={2}>{label}</Text>
                           )}
                           <Text className="text-[11px] text-slate-400 mt-0.5">{formatCurrency(unit)} / món</Text>
+                          {!!onSetNote && (noteKey === cartItemId ? (
+                            <TextInput
+                              autoFocus
+                              defaultValue={(line as any).kitchen_note || ''}
+                              maxLength={200}
+                              placeholder="Ghi chú cho bếp (ít đá, không hành...)"
+                              placeholderTextColor="#94a3b8"
+                              onEndEditing={(e) => { onSetNote(cartItemId, e.nativeEvent.text || ''); setNoteKey(null); }}
+                              onSubmitEditing={(e) => { onSetNote(cartItemId, e.nativeEvent.text || ''); setNoteKey(null); }}
+                              returnKeyType="done"
+                              className="mt-1.5 border border-amber-300 rounded-lg px-2 py-1.5 text-xs text-slate-800 bg-white"
+                            />
+                          ) : (
+                            <TouchableOpacity onPress={() => setNoteKey(cartItemId)} disabled={saving} className="mt-1" accessibilityLabel={`Ghi chú cho bếp: ${line.name}`}>
+                              {(line as any).kitchen_note ? (
+                                <Text className="text-[11px] font-medium italic text-amber-700" numberOfLines={2}>» {(line as any).kitchen_note}</Text>
+                              ) : (
+                                <Text className="text-[11px] font-medium text-slate-400">+ Ghi chú cho bếp</Text>
+                              )}
+                            </TouchableOpacity>
+                          ))}
                         </View>
                         <Text className="text-xs font-bold text-slate-800">{formatCurrency(unit * (Number(line.quantity) || 0))}</Text>
                       </View>
@@ -203,7 +231,7 @@ export function TableOrderTicketSheet({
                 <Feather name="save" size={15} color="white" />
               )}
               <Text className="text-sm font-semibold text-white ml-2" numberOfLines={1}>
-                {saving ? 'Đang lưu…' : `Lưu vào ${tableName}`}
+                {saving ? 'Đang lưu…' : (saveLabel || `Lưu vào ${tableName}`)}
               </Text>
             </TouchableOpacity>
           </View>

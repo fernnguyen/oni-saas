@@ -465,6 +465,26 @@ export function TableMapPOS({
   }, [selectedResourceIds, resources])
 
   const vertical = getVerticalConfig(industryType)
+  // Bar/Bếp: the kitchen reported a dish sold out → tell the floor, whichever table is open
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase || !vertical.features.kitchen_display) return
+    const channel = supabase
+      .channel(`kitchen_${shopId}`)
+      .on('broadcast', { event: 'changes' }, (msg: { payload?: { kind?: string; product_name?: string; resource_name?: string } }) => {
+        const pl = msg?.payload
+        if (pl?.kind === 'item_unavailable') {
+          toast.error(`Bếp báo hết: ${pl.product_name || 'món'}${pl.resource_name ? ` – ${pl.resource_name}` : ''}`, { duration: 10000 })
+        }
+      })
+      .subscribe()
+    return () => { void supabase.removeChannel(channel) }
+  }, [shopId, vertical.features.kitchen_display])
+  // Housekeeping (Buồng phòng) exists for lodging only. Elsewhere dirty tables are always cleaned
+  // from the POS (SIMPLE), even if the shop setting says ENTERPRISE, so nothing gets stuck.
+  const housekeepingMode: 'SIMPLE' | 'ENTERPRISE' = vertical.features.housekeeping
+    ? ((shopSettings?.housekeeping_workflow_mode as 'SIMPLE' | 'ENTERPRISE') || 'SIMPLE')
+    : 'SIMPLE'
   const [viewMode, setViewMode] = useState<ViewMode>('map')
   const [sortMode, setSortMode] = useState<'last_checkout' | 'latest_checkout' | 'name_asc' | 'name_desc'>('last_checkout')
   const [selectedZone, setSelectedZone] = useState<string | null>(null)
@@ -847,7 +867,6 @@ export function TableMapPOS({
       }
 
       if (r.status === 'cleaning' || r.status === 'dirty') {
-        const housekeepingMode = shopSettings?.housekeeping_workflow_mode || 'SIMPLE'
         if (housekeepingMode === 'SIMPLE') {
           setResourceToClean(r)
           setCleanConfirmModalOpen(true)
@@ -1534,9 +1553,9 @@ export function TableMapPOS({
                         )}
 
                         {/* Status label at the bottom */}
-                        <div className={`mt-3.5 w-full rounded-lg px-2 py-1.5 text-center transition-colors ${(r.status === 'cleaning' || r.status === 'dirty') && (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE' ? 'bg-amber-100 hover:bg-amber-200' : st.bg}`}>
+                        <div className={`mt-3.5 w-full rounded-lg px-2 py-1.5 text-center transition-colors ${(r.status === 'cleaning' || r.status === 'dirty') && housekeepingMode === 'SIMPLE' ? 'bg-amber-100 hover:bg-amber-200' : st.bg}`}>
                           <p className={`text-[12px] font-bold flex items-center justify-center gap-1.5 ${st.text}`}>
-                            {(r.status === 'cleaning' || r.status === 'dirty') && (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE'
+                            {(r.status === 'cleaning' || r.status === 'dirty') && housekeepingMode === 'SIMPLE'
                               ? <><CheckCircle2 className="w-3.5 h-3.5" /> Đã dọn dẹp</>
                               : r.status === 'occupied' || r.status === 'checking_out'
                               ? (activeOrder?.customer_name || 'Khách lẻ')
@@ -1677,7 +1696,7 @@ export function TableMapPOS({
                   align: 'right',
                   className: 'w-[10%]',
                   render: (r) => {
-                    const isSimple = (shopSettings?.housekeeping_workflow_mode || 'SIMPLE') === 'SIMPLE'
+                    const isSimple = housekeepingMode === 'SIMPLE'
                     const canToggleClean = (r.status === 'cleaning' || r.status === 'dirty') && isSimple
                     return (
                       <button
