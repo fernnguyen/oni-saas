@@ -996,7 +996,23 @@ export function ResourceSlideOver({
     }
   }
 
-  async function handleProductSelect(p: LocalProduct) {
+  async function handleProductSelect(p: LocalProduct, opts?: { backInStock?: boolean }) {
+    // Bar/Bếp: sold out today → warn, but anyone at the POS can say it is back (SME: the cashier
+    // and the cook are often the same person) and order it right away.
+    if (!opts?.backInStock && kitchen.status.unavailable_products?.includes(p.product_id)) {
+      toast.warning(`${p.name} đang được báo tạm hết hôm nay.`, {
+        duration: 8000,
+        action: {
+          label: 'Đã có hàng – gọi tiếp',
+          onClick: () => {
+            void (async () => {
+              if (await kitchen.setBackInStock(p.product_id, p.name)) await handleProductSelect(p, { backInStock: true })
+            })()
+          },
+        },
+      })
+      return
+    }
     const type = (p as any).product_type ?? 'simple'
     if (type === 'variant_parent') {
       setVariantParent(p)
@@ -2362,10 +2378,19 @@ export function ResourceSlideOver({
                           <p className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-3">Sản phẩm/Dịch vụ</p>
 
                           <div className="mb-4 shrink-0">
-                            <SlideProductSearch onSelect={handleProductSelect} />
+                            <SlideProductSearch onSelect={handleProductSelect} soldOutIds={kitchen.status.unavailable_products} />
                           </div>
 
-                          <TableKitchenBar kitchen={kitchen} lines={existingItems.filter(it => !isTimeChargeProduct(it.product_id, it.product_name))} />
+                          <TableKitchenBar
+                            kitchen={kitchen}
+                            lines={existingItems.filter(it => !isTimeChargeProduct(it.product_id, it.product_name))}
+                            onRemoveSoldOut={(itemId, n) => {
+                              const idx = existingItems.findIndex(it => it.id === itemId)
+                              if (idx < 0) return
+                              if ((Number(existingItems[idx].qty) || 0) - n <= 0) void handleDeleteExistingItem(itemId)
+                              else void handleAdjustExistingQty(idx, -n)
+                            }}
+                          />
 
                           <div className="space-y-3 flex-1 overflow-y-auto">
                             {showOrderSkeleton && (

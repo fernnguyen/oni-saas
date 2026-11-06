@@ -465,6 +465,21 @@ export function TableMapPOS({
   }, [selectedResourceIds, resources])
 
   const vertical = getVerticalConfig(industryType)
+  // Bar/Bếp: the kitchen reported a dish sold out → tell the floor, whichever table is open
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase || !vertical.features.kitchen_display) return
+    const channel = supabase
+      .channel(`kitchen_${shopId}`)
+      .on('broadcast', { event: 'changes' }, (msg: { payload?: { kind?: string; product_name?: string; resource_name?: string } }) => {
+        const pl = msg?.payload
+        if (pl?.kind === 'item_unavailable') {
+          toast.error(`Bếp báo hết: ${pl.product_name || 'món'}${pl.resource_name ? ` – ${pl.resource_name}` : ''}`, { duration: 10000 })
+        }
+      })
+      .subscribe()
+    return () => { void supabase.removeChannel(channel) }
+  }, [shopId, vertical.features.kitchen_display])
   // Housekeeping (Buồng phòng) exists for lodging only. Elsewhere dirty tables are always cleaned
   // from the POS (SIMPLE), even if the shop setting says ENTERPRISE, so nothing gets stuck.
   const housekeepingMode: 'SIMPLE' | 'ENTERPRISE' = vertical.features.housekeeping

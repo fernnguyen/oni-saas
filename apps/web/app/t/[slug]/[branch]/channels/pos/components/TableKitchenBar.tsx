@@ -14,10 +14,11 @@ export interface TableKitchenStatus {
   enabled: boolean;
   unsent_lines: number;
   unsent_qty: number;
-  items: Record<string, { sent: number; ready: number }>;
+  items: Record<string, { sent: number; ready: number; unavailable?: number }>;
+  unavailable_products?: string[];
 }
 
-const EMPTY: TableKitchenStatus = { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {} };
+const EMPTY: TableKitchenStatus = { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {}, unavailable_products: [] };
 
 /**
  * Kitchen state of a table session. Refreshes when the table changes (v2 changeTick, local
@@ -101,6 +102,23 @@ export function useTableKitchen(
     }
   }, [sessionId, sending, shopId, notes]);
 
+  /** "Đã có hàng": take a product off today's sold-out list from the POS (no kitchen/manager needed). */
+  const setBackInStock = useCallback(async (productId: string, productName: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/shops/${shopId}/kitchen/unavailable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: productId, product_name: productName, unavailable: false }),
+      });
+      if (!res.ok) throw new Error();
+      setStatus((st) => ({ ...st, unavailable_products: (st.unavailable_products || []).filter((id) => id !== productId) }));
+      return true;
+    } catch {
+      toast.error('Chưa bỏ được trạng thái tạm hết, thử lại.');
+      return false;
+    }
+  }, [shopId]);
+
   const setNote = useCallback((itemId: string, note: string) => {
     setNotes((prev) => ({ ...prev, [itemId]: note.slice(0, 200) }));
   }, []);
@@ -117,6 +135,8 @@ export function useTableKitchen(
       const sent = Math.max(0, status.items[id]?.sent ?? 0);
       const voidQty = sent - Math.max(0, newQty);
       if (sent <= 0 || voidQty <= 0) return { ok: true };
+      // The kitchen itself reported it sold out: removing that part is not the floor's fault.
+      if (voidQty <= Math.max(0, status.items[id]?.unavailable ?? 0)) return { ok: true, reason: 'Hết món' };
       const name = item.product_name || 'Món';
       if (!canVoid) {
         toast.error(`"${name}" đã báo bếp. Cần quyền huỷ đơn để bớt hoặc huỷ món này.`);
@@ -129,7 +149,7 @@ export function useTableKitchen(
     [status, canVoid],
   );
 
-  return { status, sending, send, pendingLocal, refresh, notes, setNote, confirmReduce, voidAsk };
+  return { status, sending, send, pendingLocal, refresh, notes, setNote, confirmReduce, voidAsk, setBackInStock };
 }
 
 /** Op fields for a reduction approved by confirmReduce: reason on the cancel ticket, sent now. */
@@ -138,6 +158,12 @@ export function voidOpFields(reason?: string): { note?: string; kitchen_fire?: b
 }
 
 const VOID_REASONS = ['Khách đổi ý', 'Nhập nhầm', 'Hết món', 'Ra món chậm'];
+
+/** Qty of a line the kitchen reported sold out and the floor has not removed yet. */
+export function outstandingUnavailable(status: TableKitchenStatus, itemId?: string): number {
+  const id = String(itemId || '');
+  return status.enabled && id ? Math.max(0, status.items[id]?.unavailable ?? 0) : 0;
+}
 
 function VoidReasonDialog({ ask }: { ask: NonNullable<ReturnType<typeof useTableKitchen>['voidAsk']> }) {
   const [choice, setChoice] = useState('');
@@ -231,10 +257,13 @@ export function KitchenItemNote({ kitchen, itemId, qty }: { kitchen: ReturnType<
 export function TableKitchenBar({
   kitchen,
   lines = [],
+  onRemoveSoldOut,
 }: {
   kitchen: ReturnType<typeof useTableKitchen>;
   /** Lines shown on screen (id + qty): covers the few seconds before the status refresh lands */
   lines?: { id?: string; qty: number | string; product_id?: string; product_name?: string }[];
+  /** "Bỏ món" on a line the kitchen reported sold out */
+  onRemoveSoldOut?: (itemId: string, qty: number) => void;
 }) {
   const { status, sending, send, pendingLocal } = kitchen;
   if (!status.enabled) return null;
@@ -246,9 +275,32 @@ export function TableKitchenBar({
   }, 0);
   const unsentQty = Math.max(status.unsent_qty, visibleUnsent);
   const unsent = Math.max(status.unsent_lines + pendingLocal, visibleUnsent > 0 ? 1 : 0);
+  const soldOutLines = lines
+    .map((l) => ({ l, n: outstandingUnavailable(status, l.id) }))
+    .filter((x) => x.n > 0);
   return (
     <>
     {kitchen.voidAsk && <VoidReasonDialog ask={kitchen.voidAsk} />}
+    {soldOutLines.length > 0 && (
+      <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2">
+        <p className="text-xs font-semibold text-rose-800">Bếp báo hết món – báo khách và bỏ món:</p>
+        <ul className="mt-1 space-y-1">
+          {soldOutLines.map(({ l, n }) => (
+            <li key={l.id} className="flex items-center gap-2 text-xs text-rose-700">
+              <span className="flex-1 truncate">{l.product_name} · hết {n}</span>
+              {onRemoveSoldOut && (
+                <button
+                  onClick={() => onRemoveSoldOut(String(l.id), n)}
+                  className="rounded-md border border-rose-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 cursor-pointer"
+                >
+                  Bỏ món
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
     <div
       className={`mb-3 flex items-center gap-2 rounded-xl border px-3 py-2 ${
         unsent > 0 ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'
@@ -279,7 +331,11 @@ export function KitchenItemBadge({ status, itemId, qty }: { status: TableKitchen
   const ready = Math.max(0, s?.ready ?? 0);
   let label: string;
   let cls: string;
-  if (sent === 0) {
+  const gone = Math.max(0, s?.unavailable ?? 0);
+  if (gone > 0) {
+    label = gone >= sent ? 'Hết món' : `Hết ${gone}/${sent}`;
+    cls = 'bg-rose-50 text-rose-700 border-rose-200';
+  } else if (sent === 0) {
     label = 'Chưa báo bếp';
     cls = 'bg-amber-50 text-amber-700 border-amber-200';
   } else if (sent < qty) {

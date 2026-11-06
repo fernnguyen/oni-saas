@@ -47,7 +47,7 @@ import { useTableSyncV2 } from '../../hooks/pos/useTableSyncV2';
 import TableSyncInboxModal from '../../components/pos/TableSyncInboxModal';
 import { usePosToast } from '../../hooks/pos/usePosToast';
 import { usePermissions } from '../../lib/auth/PermissionsContext';
-import { useTableKitchen, sentQtyOf, kitchenBadge } from '../../hooks/pos/useTableKitchen';
+import { useTableKitchen, sentQtyOf, soldOutQtyOf, kitchenBadge, fetchSoldOutProducts, setProductBackInStock } from '../../hooks/pos/useTableKitchen';
 import { withoutKitchenNotes } from '../../lib/pos/tableCartV2';
 import { useRealtimeSync } from '../../hooks/pos/useRealtimeSync';
 export type SelectedModifier = { option: string; price_adj: number };
@@ -845,6 +845,8 @@ export default function PosScreen() {
     const sent = sentQtyOf(tableKitchen.status, item?._serverItemId);
     const voidQty = sent - Math.max(0, newQty);
     if (sent <= 0 || voidQty <= 0) return { ok: true };
+    // The kitchen itself reported it sold out: removing that part is not the floor's fault.
+    if (voidQty <= soldOutQtyOf(tableKitchen.status, item?._serverItemId)) return { ok: true, reason: 'Hết món' };
     if (!canVoidSentDish) {
       await dialog.alert('Món đã báo bếp', `"${item?.name || 'Món'}" đã gửi xuống bếp. Cần quyền huỷ đơn để bớt hoặc huỷ món này.`, 'warning');
       return { ok: false };
@@ -862,6 +864,47 @@ export default function PosScreen() {
       ],
     });
     return choice && choice !== 'keep' ? { ok: true, reason: choice } : { ok: false };
+  };
+
+  // "Tạm hết" list while ordering for a table (refreshed every 30 s)
+  const [soldOutIds, setSoldOutIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!orderingTable || !kitchenEnabled || !activeShopId) return;
+    let alive = true;
+    const load = async () => {
+      const ids = await fetchSoldOutProducts(activeShopId);
+      if (alive && ids) setSoldOutIds(ids);
+    };
+    void load();
+    const t = setInterval(() => { void load(); }, 30_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [orderingTable, kitchenEnabled, activeShopId]);
+
+  /** Add a product to the cart; while ordering for a table, sold-out products ask first. */
+  const orderProduct = async (p: any) => {
+    if (orderingTable && soldOutIds.includes(String(p?.id))) {
+      const choice = await dialog.confirm({
+        title: 'Món đang tạm hết',
+        message: `${p?.name || 'Món'} được báo tạm hết hôm nay. Nếu đã có hàng lại, bấm "Đã có hàng" để gọi tiếp.`,
+        tone: 'warning',
+        icon: 'alert-triangle',
+        cancelKey: 'skip',
+        actions: [
+          {
+            key: 'back', label: 'Đã có hàng – gọi tiếp', style: 'primary', loadingLabel: 'Đang cập nhật…',
+            onPress: async () => {
+              if (!(await setProductBackInStock(activeShopId, String(p.id), String(p.name || '')))) {
+                throw new Error('back_in_stock_failed');
+              }
+              setSoldOutIds((ids) => ids.filter((id) => id !== String(p.id)));
+            },
+          },
+          { key: 'skip', label: 'Không gọi', style: 'secondary' },
+        ],
+      });
+      if (choice !== 'back') return;
+    }
+    addToCart(p);
   };
 
   const sendTableToKitchen = async () => {
@@ -2185,8 +2228,13 @@ export default function PosScreen() {
                     activeOpacity={0.85}
                     className={`w-[48%] mb-4 p-3 rounded-2xl border bg-white justify-between active:scale-[0.98] ${draftQty > 0 ? 'border-orange-300' : 'border-slate-100'}`} style={{ shadowColor: '#000000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 }}
                     disabled={!!orderingTable && isSavingTableDraft}
-                    onPress={() => addToCart(p)}
+                    onPress={() => { void orderProduct(p); }}
                   >
+                    {!!orderingTable && soldOutIds.includes(String(p.id)) && (
+                      <View className="absolute top-1.5 left-1.5 z-10 rounded-md bg-rose-50 border border-rose-200 px-1.5 py-0.5">
+                        <Text className="text-[10px] font-semibold text-rose-700">Tạm hết</Text>
+                      </View>
+                    )}
                     {draftQty > 0 && (
                       <View
                         className="absolute top-1.5 right-1.5 z-10 min-w-[24px] h-6 px-1.5 rounded-full items-center justify-center border-2 border-white"
@@ -2235,7 +2283,7 @@ export default function PosScreen() {
                           </TouchableOpacity>
                           <Text className="min-w-[18px] text-center text-xs font-bold text-orange-600" style={{ fontVariant: ['tabular-nums'] }}>{draftQty}</Text>
                           <TouchableOpacity
-                            onPress={() => addToCart(p)}
+                            onPress={() => { void orderProduct(p); }}
                             disabled={isSavingTableDraft}
                             hitSlop={{ top: 8, bottom: 8, left: 2, right: 6 }}
                             className="w-7 h-7 items-center justify-center active:bg-orange-100 rounded-r-lg"
@@ -3683,6 +3731,33 @@ export default function PosScreen() {
                           </Text>
                         </View>
                         {tableKitchen.status.enabled && (() => {
+                          const gone = Object.entries(tableCarts[activeTable.id])
+                            .map(([key, it]: [string, any]) => ({ key, it, n: soldOutQtyOf(tableKitchen.status, it._serverItemId) }))
+                            .filter((x) => x.n > 0);
+                          if (gone.length === 0) return null;
+                          return (
+                            <View className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 mb-2">
+                              <Text className="text-xs font-semibold text-rose-800">Bếp báo hết món – báo khách và bỏ món:</Text>
+                              {gone.map(({ key, it, n }) => (
+                                <View key={key} className="flex-row items-center mt-1.5">
+                                  <Text className="flex-1 text-xs text-rose-700" numberOfLines={1}>{it.name} · hết {n}</Text>
+                                  <TouchableOpacity
+                                    onPress={() => {
+                                      const qty = Number(it.quantity) || 0;
+                                      if (n >= qty) handleRemoveTableItem(activeTable.id, key, { voidReason: 'Hết món' });
+                                      else for (let i = 0; i < n; i++) handleDecreaseTableItemQty(activeTable.id, key, { voidReason: 'Hết món' });
+                                    }}
+                                    className="rounded-md border border-rose-300 bg-white px-2 py-1 active:bg-rose-100"
+                                    accessibilityLabel={`Bỏ món ${it.name}`}
+                                  >
+                                    <Text className="text-[11px] font-semibold text-rose-700">Bỏ món</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              ))}
+                            </View>
+                          );
+                        })()}
+                        {tableKitchen.status.enabled && (() => {
                           const unsentQty = Object.entries(tableCarts[activeTable.id]).reduce((n, [key, it]: [string, any]) =>
                             isTimeChargeProduct(it.productId || key, it.name)
                               ? n
@@ -3725,7 +3800,8 @@ export default function PosScreen() {
                                   const b = kitchenBadge(tableKitchen.status, (item as any)._serverItemId, Number(item.quantity) || 0);
                                   if (!b) return null;
                                   const cls = b.tone === 'emerald' ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                                    : b.tone === 'sky' ? 'bg-sky-50 border-sky-200 text-sky-700' : 'bg-amber-50 border-amber-200 text-amber-700';
+                                    : b.tone === 'sky' ? 'bg-sky-50 border-sky-200 text-sky-700'
+                                    : b.tone === 'rose' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-amber-50 border-amber-200 text-amber-700';
                                   return (
                                     <View className="flex-row mt-0.5">
                                       <Text className={`text-[10px] font-semibold border rounded px-1 ${cls}`}>{b.label}</Text>

@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Check, ChefHat, Maximize2, Minimize2, Printer, RotateCcw, Volume2, VolumeX, Ban } from 'lucide-react';
+import { Check, ChefHat, Maximize2, Minimize2, Printer, RotateCcw, Volume2, VolumeX, Ban, PackageX } from 'lucide-react';
 import type { PrepStation } from '@oni/core';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser';
 import { kitchenItemDetail, kitchenTime, printKitchenTicket, type KitchenPaperWidth } from '@/lib/pos/printKitchenTicket';
@@ -28,7 +28,7 @@ interface TicketItem {
   modifiers: string;
   note: string;
   qty: number;
-  status: 'pending' | 'ready' | 'voided';
+  status: 'pending' | 'ready' | 'voided' | 'unavailable';
 }
 
 interface Ticket {
@@ -141,8 +141,18 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
   });
   const tickets = useMemo(() => ticketsQ.data?.data ?? [], [ticketsQ.data]);
 
+  // Today's "Tạm hết" list (products the kitchen cannot make any more today)
+  const soldOutQ = useQuery({
+    queryKey: ['kitchen-unavailable', shopId],
+    enabled: stations.length > 0,
+    queryFn: () => api<{ data: { product_id: string; product_name: string }[] }>(`/api/shops/${shopId}/kitchen/unavailable`),
+  });
+  const soldOut = soldOutQ.data?.data ?? [];
+  const [soldOutAsk, setSoldOutAsk] = useState<TicketItem | null>(null);
+
   const refetchAll = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['kitchen-tickets', shopId] });
+    void queryClient.invalidateQueries({ queryKey: ['kitchen-unavailable', shopId] });
   }, [queryClient, shopId]);
 
   // Realtime hint → refetch (the payload is never trusted as data).
@@ -211,7 +221,8 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
   }
 
   const toggleItem = (item: TicketItem) => {
-    const ready = item.status !== 'ready';
+    // ready ↔ pending; a "hết món" line goes back to pending (kitchen found more after all)
+    const ready = item.status !== 'ready' && item.status !== 'unavailable';
     return run(
       `i:${item.id}`,
       () => api(`/api/shops/${shopId}/kitchen/items/${item.id}`, {
@@ -223,6 +234,26 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
       })),
     );
   };
+
+  /** "Hết món": this line cannot be made; optionally the product is sold out for the rest of today. */
+  const markUnavailable = (item: TicketItem, soldOutToday: boolean) =>
+    run(
+      `i:${item.id}`,
+      () => api(`/api/shops/${shopId}/kitchen/items/${item.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unavailable: true, sold_out_today: soldOutToday }),
+      }),
+      (list) => list.map((t) => ({
+        ...t,
+        items: t.items.map((i) => (i.id === item.id ? { ...i, status: 'unavailable' as const } : i)),
+      })),
+    );
+
+  const setBackInStock = (productId: string, productName: string) =>
+    run(`u:${productId}`, () => api(`/api/shops/${shopId}/kitchen/unavailable`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product_id: productId, product_name: productName, unavailable: false }),
+    }));
 
   // Done (or reopened) tickets leave the current tab right away.
   const setDone = (t: Ticket, done: boolean) =>
@@ -340,6 +371,53 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
         </span>
       </div>
 
+      {soldOut.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm">
+          <PackageX className="h-4 w-4 text-rose-600" />
+          <span className="font-medium text-rose-800">Tạm hết hôm nay:</span>
+          {soldOut.map((p) => (
+            <span key={p.product_id} className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-white pl-2.5 pr-1 py-0.5 text-xs font-medium text-rose-700">
+              {p.product_name || p.product_id}
+              <button
+                onClick={() => setBackInStock(p.product_id, p.product_name)}
+                disabled={busy[`u:${p.product_id}`]}
+                className="rounded-full px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 cursor-pointer"
+              >
+                Có lại
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {soldOutAsk && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setSoldOutAsk(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-slate-900">Báo hết món</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {soldOutAsk.product_name} (x{soldOutAsk.qty}): phục vụ sẽ nhận cảnh báo ngay trên máy bán hàng.
+            </p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                onClick={() => { const it = soldOutAsk; setSoldOutAsk(null); void markUnavailable(it, true); }}
+                className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 cursor-pointer"
+              >
+                Hết cả hôm nay (không cho gọi thêm)
+              </button>
+              <button
+                onClick={() => { const it = soldOutAsk; setSoldOutAsk(null); void markUnavailable(it, false); }}
+                className="rounded-xl border border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50 cursor-pointer"
+              >
+                Chỉ báo cho phiếu này
+              </button>
+              <button onClick={() => setSoldOutAsk(null)} className="rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-50 cursor-pointer">
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tickets */}
       {ticketsQ.isLoading || stationsQ.isLoading ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-400 animate-pulse">Đang tải phiếu...</div>
@@ -404,21 +482,24 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
                   {t.items.map((it) => {
                     const detail = kitchenItemDetail(it.variant_label, it.modifiers);
                     const ready = it.status === 'ready';
+                    const gone = it.status === 'unavailable';
                     const content = (
                       <>
-                        <span className={`w-10 shrink-0 text-sm font-semibold tabular-nums ${isVoid ? 'text-rose-600' : ready ? 'text-slate-400' : 'text-slate-900'}`}>
+                        <span className={`w-10 shrink-0 text-sm font-semibold tabular-nums ${isVoid || gone ? 'text-rose-600' : ready ? 'text-slate-400' : 'text-slate-900'}`}>
                           {isVoid ? `−${Math.abs(it.qty)}` : `x${it.qty}`}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className={`block text-sm font-medium leading-tight ${ready ? 'text-slate-400 line-through' : isVoid ? 'text-rose-700 line-through' : 'text-slate-900'}`}>
+                          <span className={`block text-sm font-medium leading-tight ${ready ? 'text-slate-400 line-through' : isVoid || gone ? 'text-rose-700 line-through' : 'text-slate-900'}`}>
                             {it.product_name}
                           </span>
+                          {gone && <span className="mt-0.5 inline-block rounded border border-rose-200 bg-rose-50 px-1 text-[10px] font-semibold text-rose-700">Hết món · bấm để hoàn tác</span>}
                           {detail && <span className="mt-0.5 block text-xs font-medium text-violet-600">{detail}</span>}
                           {it.note && <span className="mt-0.5 block text-xs font-medium italic text-amber-700">» {it.note}</span>}
                         </span>
                         {!isVoid && (
-                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${ready ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300'}`}>
+                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${ready ? 'border-emerald-500 bg-emerald-500 text-white' : gone ? 'border-rose-300 text-rose-500' : 'border-slate-300'}`}>
                             {ready && <Check className="h-3.5 w-3.5" />}
+                            {gone && <span className="text-xs font-bold leading-none">–</span>}
                           </span>
                         )}
                       </>
@@ -428,13 +509,25 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
                         {isVoid ? (
                           <div className="flex items-center gap-2 px-4 py-2">{content}</div>
                         ) : (
-                          <button
-                            onClick={() => toggleItem(it)}
-                            disabled={busy[`i:${it.id}`]}
-                            className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
-                          >
-                            {content}
-                          </button>
+                          <div className="flex items-center">
+                            <button
+                              onClick={() => toggleItem(it)}
+                              disabled={busy[`i:${it.id}`]}
+                              className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4 pr-2 text-left hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+                            >
+                              {content}
+                            </button>
+                            {view === 'open' && it.status === 'pending' && (
+                              <button
+                                onClick={() => setSoldOutAsk(it)}
+                                disabled={busy[`i:${it.id}`]}
+                                title="Báo hết món"
+                                className="mr-2 shrink-0 rounded-md border border-slate-200 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50 cursor-pointer"
+                              >
+                                Hết
+                              </button>
+                            )}
+                          </div>
                         )}
                       </li>
                     );

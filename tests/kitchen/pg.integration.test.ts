@@ -8,7 +8,8 @@ import { PostgresConnector } from '../../packages/adapters/src/postgresAdapter'
 import type { TableOp } from '../../apps/web/lib/server/tableSync/engine'
 import { applyTableSessionOps, cancelTableSession, transferTableSession } from '../../apps/web/lib/server/tableSync/service'
 import {
-  fireKitchenForSession, generateKitchenTicketsForQr, getSessionKitchenStatus, listKitchenTickets, markTicketPrinted, setTicketDone, setTicketItemStatus,
+  fireKitchenForSession, generateKitchenTicketsForQr, getSessionKitchenStatus, listKitchenTickets, listUnavailableProducts,
+  markTicketItemUnavailable, markTicketPrinted, setProductUnavailable, setTicketDone, setTicketItemStatus,
 } from '../../apps/web/lib/server/kitchen/tickets'
 
 // Bar/Bếp K1 against a DISPOSABLE Postgres (same DB as the table-sync integration tests):
@@ -71,7 +72,7 @@ before(async () => {
   pool = new Pool({ connectionString: uri, max: 10 })
   const { rows } = await pool.query('SELECT current_database() AS db')
   if (!String(rows[0].db).includes('test')) throw new Error(`Refusing to run on non-test database ${rows[0].db}`)
-  for (const t of ['kitchen_fired_ops', 'kitchen_ticket_items', 'kitchen_tickets', 'prep_station_routes', 'prep_stations', 'products',
+  for (const t of ['kitchen_unavailable_products', 'kitchen_fired_ops', 'kitchen_ticket_items', 'kitchen_tickets', 'prep_station_routes', 'prep_stations', 'products',
     'table_sync_events', 'order_item_ops', 'table_sessions', 'order_items', 'orders', 'location_resources']) {
     await pool.query(`DELETE FROM ${t} WHERE tenant_id = $1`, [TENANT])
   }
@@ -111,7 +112,7 @@ test('saving never prints; "Gửi bếp" sends per station, idempotent; voids; s
   assert.notEqual(barT.ticket_no, kitT.ticket_no)
   st = await getSessionKitchenStatus(connector, BRANCH, 'KS-1')
   assert.equal(st.unsent_lines, 0)
-  assert.deepEqual(st.items[barT.items[0].order_item_id], { sent: 2, ready: 0 })
+  assert.deepEqual(st.items[barT.items[0].order_item_id], { sent: 2, ready: 0, unavailable: 0 })
 
   // Double tap / two devices: nothing new
   await Promise.all([fireKitchenForSession(connector, BRANCH, 'KS-1'), fireKitchenForSession(connector, BRANCH, 'KS-1')])
@@ -239,4 +240,22 @@ test('notes typed at send time land on the order lines; void reason rides the op
   })
   const v = (await ticketsOf('KS-5')).find((t) => t.kind === 'void')!
   assert.deepEqual(v.items.map((i) => [i.qty, i.note]), [[-1, 'Lý do: Khách đổi ý']])
+})
+
+test('kitchen reports "hết món": line unavailable, table status shows it, product on today\'s sold-out list', { skip }, async () => {
+  await seedSession('KS-6', 'KO-6', 'KR-6')
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-6', deviceId: 'd1', ops: [add('k6-a', 'KP-PHO', 2, { kitchen_fire: true }), add('k6-b', 'KP-CAFE', 1, { kitchen_fire: true })] })
+  const phoId = r.results[0].item_id!
+  const pho = (await ticketsOf('KS-6')).find((t) => t.station_id === 'ST-K')!
+  const t = await markTicketItemUnavailable(connector, BRANCH, pho.items[0].id, { soldOutToday: true })
+  assert.equal(t?.items[0].status, 'unavailable')
+  assert.equal(t?.status, 'done', 'nothing left to cook on that ticket')
+  const st = await getSessionKitchenStatus(connector, BRANCH, 'KS-6')
+  assert.deepEqual(st.items[phoId], { sent: 2, ready: 0, unavailable: 2 })
+  assert.deepEqual(st.unavailable_products, ['KP-PHO'])
+  assert.deepEqual((await listUnavailableProducts(connector, BRANCH)).map((p) => p.product_id), ['KP-PHO'])
+  // Kitchen found more after all: undo, and take it off the list
+  const back = await setTicketItemStatus(connector, BRANCH, pho.items[0].id, false)
+  assert.equal(back?.items[0].status, 'pending')
+  assert.deepEqual(await setProductUnavailable(connector, BRANCH, { product_id: 'KP-PHO' }, false), [])
 })

@@ -20,7 +20,7 @@ export interface KitchenTicketItem {
   modifiers: string
   note: string
   qty: number
-  status: 'pending' | 'ready' | 'voided'
+  status: 'pending' | 'ready' | 'voided' | 'unavailable'
   ready_at: string | null
 }
 
@@ -252,19 +252,23 @@ export interface SessionKitchenStatus {
   /** lines a "Gửi bếp" would send now (after netting) */
   unsent_lines: number
   unsent_qty: number
-  /** per order item: qty on kitchen tickets, of which ready */
-  items: Record<string, { sent: number; ready: number }>
+  /** per order item: qty on kitchen tickets, of which ready / reported sold out by the kitchen */
+  items: Record<string, { sent: number; ready: number; unavailable: number }>
+  /** products on today's "Tạm hết" list */
+  unavailable_products: string[]
 }
 
 export async function getSessionKitchenStatus(connector: TxConnector, shopId: string, sessionId: string): Promise<SessionKitchenStatus> {
   return connector.withTransaction(async (tx) => {
-    if ((await loadStations(tx, shopId)).length === 0) return { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {} }
+    if ((await loadStations(tx, shopId)).length === 0) return { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {}, unavailable_products: [] }
     const { planned } = await planSession(tx, shopId, sessionId, 'preview')
     const lines = planned.flatMap((p) => p.lines)
     const rows = await tx.query(
       `SELECT i.order_item_id,
               SUM(i.qty::numeric) AS sent,
-              SUM(CASE WHEN i.status = 'ready' THEN i.qty::numeric ELSE 0 END) AS ready
+              SUM(CASE WHEN i.status = 'ready' THEN i.qty::numeric ELSE 0 END) AS ready,
+              SUM(CASE WHEN i.status = 'unavailable' THEN i.qty::numeric ELSE 0 END) AS unavailable,
+              SUM(CASE WHEN t.kind = 'void' THEN -i.qty::numeric ELSE 0 END) AS voided
          FROM kitchen_ticket_items i
          JOIN kitchen_tickets t ON t.id = i.ticket_id AND t.tenant_id = i.tenant_id
         WHERE i.tenant_id = $1 AND i.branch_id = $2 AND t.session_id = $3 AND i.order_item_id IS NOT NULL
@@ -272,12 +276,17 @@ export async function getSessionKitchenStatus(connector: TxConnector, shopId: st
       [tid(tx), shopId, sessionId],
     )
     const items: SessionKitchenStatus['items'] = {}
-    for (const r of rows) items[r.order_item_id] = { sent: Number(r.sent) || 0, ready: Number(r.ready) || 0 }
+    for (const r of rows) {
+      // "hết món" still to be dealt with on the floor: reported minus what was cancelled since
+      const unavailable = Math.max(0, (Number(r.unavailable) || 0) - (Number(r.voided) || 0))
+      items[r.order_item_id] = { sent: Number(r.sent) || 0, ready: Number(r.ready) || 0, unavailable }
+    }
     return {
       enabled: true,
       unsent_lines: lines.length,
       unsent_qty: lines.reduce((n, l) => n + Math.abs(l.qty), 0),
       items,
+      unavailable_products: (await listUnavailableProductsTx(tx, shopId)).map((p) => p.product_id),
     }
   })
 }
@@ -562,7 +571,7 @@ export async function setTicketItemStatus(connector: TxConnector, shopId: string
   const ticketId = await connector.withTransaction(async (tx) => {
     const rows = await tx.query(
       `UPDATE kitchen_ticket_items SET status = $1, ready_at = $2, updated_at = NOW()
-        WHERE tenant_id = $3 AND branch_id = $4 AND id = $5 AND status IN ('pending', 'ready')
+        WHERE tenant_id = $3 AND branch_id = $4 AND id = $5 AND status IN ('pending', 'ready', 'unavailable')
         RETURNING ticket_id`,
       [ready ? 'ready' : 'pending', ready ? now : null, tid(tx), shopId, itemId],
     )
@@ -574,6 +583,94 @@ export async function setTicketItemStatus(connector: TxConnector, shopId: string
   const ticket = await getKitchenTicket(connector, shopId, ticketId)
   if (ticket) void broadcastKitchen(shopId, { kind: 'ticket_updated', ticket_id: ticketId, station_id: ticket.station_id })
   return ticket
+}
+
+// ── "Hết món" (sold out) ────────────────────────────────────────────────────
+
+export interface UnavailableProduct {
+  product_id: string
+  product_name: string
+  station_id: string
+  business_date: string
+}
+
+const todayGMT7 = () => getGMT7Time().slice(0, 10)
+
+async function listUnavailableProductsTx(tx: TransactionClient, shopId: string): Promise<UnavailableProduct[]> {
+  const rows = await tx.query(
+    `SELECT product_id, product_name, station_id, business_date FROM kitchen_unavailable_products
+      WHERE tenant_id = $1 AND branch_id = $2 AND business_date = $3 ORDER BY created_at`,
+    [tid(tx), shopId, todayGMT7()],
+  )
+  return rows.map((r) => ({
+    product_id: r.product_id, product_name: r.product_name || '', station_id: r.station_id || '', business_date: r.business_date,
+  }))
+}
+
+export async function listUnavailableProducts(connector: TxConnector, shopId: string): Promise<UnavailableProduct[]> {
+  return connector.withTransaction((tx) => listUnavailableProductsTx(tx, shopId))
+}
+
+export async function setProductUnavailable(
+  connector: TxConnector,
+  shopId: string,
+  product: { product_id: string; product_name?: string; station_id?: string },
+  unavailable: boolean,
+): Promise<UnavailableProduct[]> {
+  const list = await connector.withTransaction(async (tx) => {
+    if (unavailable) {
+      await tx.query(
+        `INSERT INTO kitchen_unavailable_products (tenant_id, branch_id, product_id, product_name, business_date, station_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT (tenant_id, branch_id, product_id, business_date) DO NOTHING`,
+        [tid(tx), shopId, product.product_id, product.product_name || '', todayGMT7(), product.station_id || ''],
+      )
+    } else {
+      await tx.query(
+        `DELETE FROM kitchen_unavailable_products WHERE tenant_id = $1 AND branch_id = $2 AND product_id = $3 AND business_date = $4`,
+        [tid(tx), shopId, product.product_id, todayGMT7()],
+      )
+    }
+    return listUnavailableProductsTx(tx, shopId)
+  })
+  void broadcastKitchen(shopId, { kind: 'unavailable_changed', product_name: product.product_name || '' })
+  return list
+}
+
+/**
+ * The kitchen cannot make this dish: the line turns "unavailable" (no longer pending), the floor
+ * is alerted in real time, and with `soldOutToday` the product joins today's "Tạm hết" list.
+ */
+export async function markTicketItemUnavailable(
+  connector: TxConnector,
+  shopId: string,
+  itemId: string,
+  opts: { soldOutToday?: boolean } = {},
+): Promise<KitchenTicket | null> {
+  const hit = await connector.withTransaction(async (tx) => {
+    const rows = await tx.query(
+      `UPDATE kitchen_ticket_items SET status = 'unavailable', ready_at = NULL, updated_at = NOW()
+        WHERE tenant_id = $1 AND branch_id = $2 AND id = $3 AND status IN ('pending', 'ready')
+        RETURNING ticket_id, product_id, product_name`,
+      [tid(tx), shopId, itemId],
+    )
+    if (!rows[0]) return null
+    await refreshTicketStatus(tx, shopId, rows[0].ticket_id)
+    const [t] = await tx.query(
+      `SELECT station_id, resource_name, session_id FROM kitchen_tickets WHERE tenant_id = $1 AND id = $2`,
+      [tid(tx), rows[0].ticket_id],
+    )
+    return { ...rows[0], ...(t || {}) }
+  })
+  if (!hit) return null
+  if (opts.soldOutToday && hit.product_id) {
+    await setProductUnavailable(connector, shopId, { product_id: hit.product_id, product_name: hit.product_name, station_id: hit.station_id }, true)
+  }
+  void broadcastKitchen(shopId, {
+    kind: 'item_unavailable', ticket_id: hit.ticket_id, station_id: hit.station_id,
+    product_name: hit.product_name, resource_name: hit.resource_name, session_id: hit.session_id,
+  })
+  return getKitchenTicket(connector, shopId, hit.ticket_id)
 }
 
 /**

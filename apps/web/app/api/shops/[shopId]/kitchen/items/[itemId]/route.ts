@@ -3,18 +3,26 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireShopAccess } from '@/lib/server/shopAccess'
 import { kitchenErrorResponse, requireKitchenConnector } from '@/lib/server/kitchen/stations'
-import { setTicketItemStatus } from '@/lib/server/kitchen/tickets'
+import { markTicketItemUnavailable, setTicketItemStatus } from '@/lib/server/kitchen/tickets'
 import { handleApiError } from '../../../../_helpers'
 
-// PATCH { ready: true|false } – tick one dish done / undo. Returns the whole ticket.
-const schema = z.object({ ready: z.boolean() })
+// PATCH { ready: true|false } – tick one dish done / undo (also undoes "hết món").
+// PATCH { unavailable: true, sold_out_today?: boolean } – the kitchen cannot make it ("Hết món").
+// Returns the whole ticket.
+const schema = z.union([
+  z.object({ ready: z.boolean() }),
+  z.object({ unavailable: z.literal(true), sold_out_today: z.boolean().optional() }),
+])
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ shopId: string; itemId: string }> }) {
   try {
     const { shopId, itemId } = await params
     const { connector } = await requireShopAccess(shopId, 'pos.use')
-    const { ready } = schema.parse(await req.json())
-    const ticket = await setTicketItemStatus(requireKitchenConnector(connector), shopId, itemId, ready)
+    const body = schema.parse(await req.json())
+    const tx = requireKitchenConnector(connector)
+    const ticket = 'unavailable' in body
+      ? await markTicketItemUnavailable(tx, shopId, itemId, { soldOutToday: body.sold_out_today })
+      : await setTicketItemStatus(tx, shopId, itemId, body.ready)
     return ticket ? NextResponse.json(ticket) : NextResponse.json({ error: 'Không tìm thấy món' }, { status: 404 })
   } catch (e) {
     return kitchenErrorResponse(e) ?? handleApiError(e, 'PATCH kitchen/item')

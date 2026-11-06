@@ -5,9 +5,13 @@
 import { env } from '../../env'
 
 export interface KitchenBroadcast {
-  kind: 'ticket_created' | 'ticket_updated'
-  ticket_id: string
-  station_id: string
+  kind: 'ticket_created' | 'ticket_updated' | 'item_unavailable' | 'unavailable_changed'
+  ticket_id?: string
+  station_id?: string
+  /** item_unavailable: what to tell the floor ("Bếp báo hết: Mì tôm – Bàn 2") */
+  product_name?: string
+  resource_name?: string
+  session_id?: string
 }
 
 export function kitchenChannel(shopId: string) {

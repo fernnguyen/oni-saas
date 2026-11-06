@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin';
 import { getConnectorForShop } from '@/lib/server/connectorFactory';
 import { checkFeatureAccess } from '@/lib/server/features';
+import { listUnavailableProducts } from '@/lib/server/kitchen/tickets';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +77,22 @@ export async function GET(
         const id = p.id || p.product_id;
         p.product_units = unitsByProduct[id] || [];
       });
+    }
+
+    // Bar/Bếp: dishes the kitchen marked sold out today are shown as "Tạm hết" (best-effort)
+    if (typeof connector.withTransaction === 'function' && products.length > 0) {
+      try {
+        const soldOut = new Set(
+          (await listUnavailableProducts(connector as Parameters<typeof listUnavailableProducts>[0], shopId)).map((x) => x.product_id),
+        );
+        if (soldOut.size > 0) {
+          products.forEach((p: any) => {
+            if (soldOut.has(p.id || p.product_id)) p.kitchen_unavailable = 'TRUE';
+          });
+        }
+      } catch {
+        /* no kitchen tables yet / not Postgres: menu as before */
+      }
     }
 
     return NextResponse.json({

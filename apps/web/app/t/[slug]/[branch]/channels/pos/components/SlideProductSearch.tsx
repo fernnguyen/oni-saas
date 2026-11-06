@@ -6,13 +6,15 @@ import { cleanSku } from '@/lib/sku'
 
 interface Props {
   onSelect: (product: LocalProduct) => void
+  /** Bar/Bếp: products the kitchen marked sold out today (shown as "Tạm hết") */
+  soldOutIds?: string[]
 }
 
 function fmtVND(v: number | string | null | undefined) {
   return Number(v ?? 0).toLocaleString('vi-VN') + 'đ'
 }
 
-export function SlideProductSearch({ onSelect }: Props) {
+export function SlideProductSearch({ onSelect, soldOutIds = [] }: Props) {
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
@@ -122,7 +124,12 @@ export function SlideProductSearch({ onSelect }: Props) {
                   >
                     <div className="min-w-0 flex-1 flex items-center gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-slate-900 truncate">{p.name}</p>
+                        <p className={`text-sm font-medium truncate ${soldOutIds.includes(p.product_id) ? 'text-slate-400' : 'text-slate-900'}`}>
+                          {p.name}
+                          {soldOutIds.includes(p.product_id) && (
+                            <span className="ml-1.5 rounded border border-rose-200 bg-rose-50 px-1 text-[10px] font-semibold text-rose-700">Tạm hết</span>
+                          )}
+                        </p>
                         {p.sku && <p className="text-xs text-slate-500">{cleanSku(p.sku)}</p>}
                       </div>
                       {(index === highlightedIndex || displayResults.length === 1) && (

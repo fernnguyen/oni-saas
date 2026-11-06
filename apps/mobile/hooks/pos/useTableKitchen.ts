@@ -10,10 +10,11 @@ export interface MobileTableKitchenStatus {
   enabled: boolean;
   unsent_lines: number;
   unsent_qty: number;
-  items: Record<string, { sent: number; ready: number }>;
+  items: Record<string, { sent: number; ready: number; unavailable?: number }>;
+  unavailable_products?: string[];
 }
 
-const EMPTY: MobileTableKitchenStatus = { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {} };
+const EMPTY: MobileTableKitchenStatus = { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {}, unavailable_products: [] };
 
 export function useTableKitchen(
   shopId: string,
@@ -88,13 +89,47 @@ export function sentQtyOf(status: MobileTableKitchenStatus, serverItemId?: strin
   return Math.max(0, status.items[serverItemId]?.sent ?? 0);
 }
 
+/** Qty of a line the kitchen reported sold out and the floor has not removed yet. */
+export function soldOutQtyOf(status: MobileTableKitchenStatus, serverItemId?: string): number {
+  if (!status.enabled || !serverItemId) return 0;
+  return Math.max(0, status.items[serverItemId]?.unavailable ?? 0);
+}
+
 export function kitchenBadge(status: MobileTableKitchenStatus, serverItemId: string | undefined, qty: number) {
   if (!status.enabled || qty <= 0) return null;
   const s = serverItemId ? status.items[serverItemId] : undefined;
   const sent = Math.max(0, s?.sent ?? 0);
   const ready = Math.max(0, s?.ready ?? 0);
+  const gone = Math.max(0, s?.unavailable ?? 0);
+  if (gone > 0) return { label: gone >= sent ? 'Hết món' : `Hết ${gone}/${sent}`, tone: 'rose' as const };
   if (sent === 0) return { label: 'Chưa báo bếp', tone: 'amber' as const };
   if (sent < qty) return { label: `Chưa báo +${qty - sent}`, tone: 'amber' as const };
   if (ready >= sent) return { label: 'Bếp xong', tone: 'emerald' as const };
   return { label: ready > 0 ? `Đang làm ${ready}/${sent}` : 'Đang làm', tone: 'sky' as const };
+}
+
+/** Today's "Tạm hết" list of the branch (product ids). */
+export async function fetchSoldOutProducts(shopId: string): Promise<string[] | null> {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/kitchen/unavailable`, { headers: await getApiHeaders() });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return Array.isArray(json?.data) ? json.data.map((p: { product_id: string }) => p.product_id) : [];
+  } catch {
+    return null;
+  }
+}
+
+/** "Đã có hàng": anyone at the POS can take a product off the list (SME: cashier = cook). */
+export async function setProductBackInStock(shopId: string, productId: string, productName: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/shops/${shopId}/kitchen/unavailable`, {
+      method: 'POST',
+      headers: await getApiHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ product_id: productId, product_name: productName, unavailable: false }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

@@ -958,6 +958,20 @@ export const kitchen_fired_ops = pgTable('kitchen_fired_ops', {
   sessionIdx: index('idx_kitchen_fired_ops_session').on(table.tenant_id, table.session_id),
 }));
 
+// "Tạm hết" (86 list): products the kitchen cannot make today. POS / QR show them as sold out.
+// One row per branch + product + business day (GMT+7); a new day starts empty.
+export const kitchen_unavailable_products = pgTable('kitchen_unavailable_products', {
+  tenant_id: varchar('tenant_id', { length: 255 }).notNull(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  product_id: varchar('product_id', { length: 255 }).notNull(),
+  product_name: varchar('product_name', { length: 255 }),
+  business_date: varchar('business_date', { length: 10 }).notNull(),
+  station_id: varchar('station_id', { length: 255 }),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.tenant_id, table.branch_id, table.product_id, table.business_date] }),
+}));
+
 export const kitchen_ticket_items = pgTable('kitchen_ticket_items', {
   ...getBaseColumns(),
   id: varchar('id', { length: 255 }).primaryKey(),
@@ -972,7 +986,7 @@ export const kitchen_ticket_items = pgTable('kitchen_ticket_items', {
   modifiers: text('modifiers'),
   note: text('note'),
   qty: varchar('qty', { length: 50 }).notNull(),                     // negative = cancelled
-  status: varchar('status', { length: 20 }).notNull().default('pending'), // 'pending' | 'ready' | 'voided'
+  status: varchar('status', { length: 20 }).notNull().default('pending'), // 'pending' | 'ready' | 'voided' | 'unavailable'
   ready_at: varchar('ready_at', { length: 50 }),
 }, (table) => ({
   opIdx: uniqueIndex('uq_kitchen_ticket_items_op').on(table.tenant_id, table.op_id),
