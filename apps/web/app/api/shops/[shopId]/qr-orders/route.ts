@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import { checkFeatureAccess } from '@/lib/server/features'
 import { requireShopAccess } from '@/lib/server/shopAccess'
+import { kitchenActorOf } from '@/lib/server/kitchen/actor'
 import { getConnectorForShop } from '@/lib/server/connectorFactory'
 import { NotificationDispatcher } from '@/lib/server/notificationDispatcher'
 import crypto from 'crypto'
@@ -217,7 +218,7 @@ export async function PATCH(
 
     if (action === 'accept') {
       // 1. Get connector via shop access
-      const { connector } = await requireShopAccess(shopId, 'pos.use')
+      const { connector, user: acceptedBy } = await requireShopAccess(shopId, 'pos.use')
       
       const resourceId = request.resource_id
       if (!resourceId) {
@@ -443,6 +444,7 @@ export async function PATCH(
           await generateKitchenTicketsForQr(connector as Parameters<typeof generateKitchenTicketsForQr>[0], shopId, {
             requestId: String(request_id),
             orderId: finalOrderId,
+            actor: kitchenActorOf(acceptedBy),
             resourceId,
             resourceName: table.name || '',
             items: requestItems.map((it: any) => ({

@@ -5,6 +5,7 @@ import type { IDataConnector, TransactionClient } from '@oni/adapters'
 import { getGMT7Time, toPrepStation, type PrepStation, type PrepStationRoute } from '@oni/core'
 import { mergeSameItemLines, netPlannedTickets, planKitchenTickets, type KitchenVoidOutcome, type OrderLineInfo, type PlannedLine, type PlannedTicket, type PlannerOp, type PlannerOpResult, type SentInfo } from './ticketPlanner'
 import { broadcastKitchen } from './broadcast'
+import type { KitchenActor } from './actor'
 import { getKitchenSettings, KITCHEN_SETTINGS_DEFAULTS, type KitchenSettings } from './settings'
 
 export type TxConnector = IDataConnector & { withTransaction: NonNullable<IDataConnector['withTransaction']> }
@@ -28,6 +29,8 @@ export interface KitchenTicketItem {
   /** void lines: what the kitchen did with the cancelled dish ('' = not answered yet) */
   void_outcome: '' | KitchenVoidOutcome
   unit_price: number
+  /** who answered the cancel at the station ('' = nobody yet / before audit) */
+  answered_by_name: string
 }
 
 export interface KitchenTicket {
@@ -47,6 +50,8 @@ export interface KitchenTicket {
   print_count: number
   printed_at: string | null
   created_at: string
+  /** signed-in user whose request made the ticket ('' = system / before audit) */
+  created_by_name: string
   items: KitchenTicketItem[]
 }
 
@@ -220,7 +225,7 @@ export async function fireKitchenForSession(
   connector: TxConnector,
   shopId: string,
   sessionId: string,
-  opts: { deviceId?: string; batchId?: string; notes?: Record<string, string> } = {},
+  opts: { deviceId?: string; batchId?: string; notes?: Record<string, string>; actor?: KitchenActor } = {},
 ): Promise<KitchenTicket[]> {
   const batchId = (opts.batchId || crypto.randomUUID()).slice(0, 255)
   const created = await connector.withTransaction(async (tx) => {
@@ -249,6 +254,7 @@ export async function fireKitchenForSession(
       resourceName: session.resource_name || '',
       deviceId: opts.deviceId || '',
       source: 'table_ops',
+      actor: opts.actor,
     })
   })
   for (const t of created) {
@@ -351,6 +357,8 @@ export async function generateKitchenTicketsForQr(
     resourceId: string
     resourceName: string
     items: { product_id: string; product_name: string; variant_label?: string; modifiers?: unknown; qty: number; order_item_id?: string; note?: string }[]
+    /** staff member who accepted the QR order */
+    actor?: KitchenActor
   },
 ): Promise<KitchenTicket[]> {
   const ops: PlannerOp[] = []
@@ -377,6 +385,7 @@ export async function generateKitchenTicketsForQr(
       resourceName: input.resourceName,
       deviceId: 'qr',
       source: 'qr',
+      actor: input.actor,
     })
   })
   for (const t of created) {
@@ -389,7 +398,7 @@ async function insertPlannedTickets(
   tx: TransactionClient,
   shopId: string,
   planned: PlannedTicket[],
-  ctx: { sessionId: string; orderId: string; resourceId: string; resourceName: string; deviceId: string; source: string },
+  ctx: { sessionId: string; orderId: string; resourceId: string; resourceName: string; deviceId: string; source: string; actor?: KitchenActor },
 ): Promise<KitchenTicket[]> {
   // Serialise ticket numbering per branch for this transaction.
   await tx.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`kitchen_ticket_no:${tid(tx)}:${shopId}`])
@@ -418,7 +427,7 @@ async function insertPlannedTickets(
       items.push({
         id: rows[0].id, op_id: l.op_id, order_item_id: l.order_item_id, product_id: l.product_id, product_name: l.product_name,
         variant_label: l.variant_label, modifiers: l.modifiers, note: l.note, qty: l.qty, status, ready_at: null,
-        void_outcome: p.kind === 'void' ? (l.outcome ?? '') : '', unit_price: l.unit_price ?? 0,
+        void_outcome: p.kind === 'void' ? (l.outcome ?? '') : '', unit_price: l.unit_price ?? 0, answered_by_name: '',
       })
     }
     if (items.length === 0) continue
@@ -448,17 +457,19 @@ async function insertPlannedTickets(
     await tx.query(
       `INSERT INTO kitchen_tickets
          (id, tenant_id, branch_id, ticket_no, business_date, station_id, station_name, session_id, order_id, resource_id,
-          resource_name, batch_id, source, kind, status, print_count, created_by_device, active, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$16,$13,$17,0,$14,'TRUE',$15,$15)`,
+          resource_name, batch_id, source, kind, status, print_count, created_by_device, active, created_at, updated_at,
+          created_by_user, created_by_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$16,$13,$17,0,$14,'TRUE',$15,$15,$18,$19)`,
       [ticketId, tid(tx), shopId, ticketNo, businessDate, p.station.id, p.station.name, ctx.sessionId, ctx.orderId,
-        ctx.resourceId, ctx.resourceName, p.batch_id, p.kind, ctx.deviceId, now, ctx.source, ticketStatus],
+        ctx.resourceId, ctx.resourceName, p.batch_id, p.kind, ctx.deviceId, now, ctx.source, ticketStatus,
+        ctx.actor?.id ?? null, ctx.actor?.name ?? null],
     )
     if (p.kind === 'void') await voidFullyCancelledOrderLines(tx, shopId, items.map((it) => it.order_item_id))
     out.push({
       id: ticketId, ticket_no: ticketNo, business_date: businessDate, station_id: p.station.id, station_name: p.station.name,
       session_id: ctx.sessionId, order_id: ctx.orderId, resource_id: ctx.resourceId, resource_name: ctx.resourceName,
       batch_id: p.batch_id, source: ctx.source, kind: p.kind, status: ticketStatus, print_count: 0, printed_at: null,
-      created_at: now, items,
+      created_at: now, created_by_name: ctx.actor?.name ?? '', items,
     })
   }
   return out
@@ -526,7 +537,7 @@ export async function closeKitchenTicketsForTable(
 export async function voidKitchenForCancelledTable(
   connector: TxConnector,
   shopId: string,
-  ref: { sessionId?: string; orderId?: string; reason?: string; deviceId?: string },
+  ref: { sessionId?: string; orderId?: string; reason?: string; deviceId?: string; actor?: KitchenActor },
 ): Promise<KitchenTicket[]> {
   const sessionId = ref.sessionId || ''
   const orderId = ref.orderId || ''
@@ -593,6 +604,7 @@ export async function voidKitchenForCancelledTable(
       resourceName: first.resource_name || '',
       deviceId: ref.deviceId || '',
       source: 'cancel',
+      actor: ref.actor,
     })
     const closed = await tx.query(
       `UPDATE kitchen_tickets SET status = 'done', updated_at = NOW()
@@ -647,6 +659,7 @@ function mapItem(r: any): KitchenTicketItem {
     note: r.note || '', qty: Number(r.qty) || 0, status: r.status, ready_at: r.ready_at || null,
     void_outcome: r.void_outcome === 'made' || r.void_outcome === 'stopped' ? r.void_outcome : '',
     unit_price: Number(r.unit_price) || 0,
+    answered_by_name: r.answered_by_name || '',
   }
 }
 
@@ -658,6 +671,7 @@ function mapTicket(r: any, items: KitchenTicketItem[]): KitchenTicket {
     source: r.source || '', kind: r.kind, status: r.status, print_count: Number(r.print_count) || 0,
     printed_at: r.printed_at || null,
     created_at: r.created_at instanceof Date ? getGMT7Time(r.created_at) : String(r.created_at ?? ''),
+    created_by_name: r.created_by_name || '',
     items,
   }
 }
@@ -782,13 +796,19 @@ export async function setVoidOutcome(
   shopId: string,
   itemId: string,
   outcome: KitchenVoidOutcome | null,
+  actor?: KitchenActor,
 ): Promise<KitchenTicket | null> {
   const hit = await connector.withTransaction(async (tx) => {
+    // Only cancel lines (kind 'void'): order lines struck by a full cancel are 'voided' too.
     const rows = await tx.query(
-      `UPDATE kitchen_ticket_items SET void_outcome = $1, updated_at = NOW()
-        WHERE tenant_id = $2 AND branch_id = $3 AND id = $4 AND status = 'voided'
-        RETURNING ticket_id, product_name`,
-      [outcome, tid(tx), shopId, itemId],
+      `UPDATE kitchen_ticket_items i
+          SET void_outcome = $1, answered_by_user = $5, answered_by_name = $6, answered_at = $7, updated_at = NOW()
+         FROM kitchen_tickets t
+        WHERE t.id = i.ticket_id AND t.tenant_id = i.tenant_id AND t.kind = 'void'
+          AND i.tenant_id = $2 AND i.branch_id = $3 AND i.id = $4 AND i.status = 'voided'
+        RETURNING i.ticket_id, i.product_name`,
+      [outcome, tid(tx), shopId, itemId,
+        outcome ? actor?.id ?? null : null, outcome ? actor?.name ?? null : null, outcome ? getGMT7Time() : null],
     )
     if (!rows[0]) return null
     await tx.query(
@@ -829,11 +849,28 @@ export interface VoidReportLine {
   outcome: '' | KitchenVoidOutcome
   unit_price: number
   value: number
+  /** who cancelled (signed-in user of the request that made the cancel ticket); '' = unknown */
+  cancelled_by_user: string
+  cancelled_by_name: string
+  /** who answered at the station */
+  answered_by_user: string
+  answered_by_name: string
+}
+
+export interface VoidReportActor {
+  user_id: string
+  name: string
+  lines: number
+  qty: number
+  value: number
+  waste_value: number
 }
 
 export interface VoidReport {
   lines: VoidReportLine[]
   totals: { lines: number; qty: number; value: number; made_qty: number; waste_value: number; stopped_qty: number; unanswered_qty: number }
+  /** per person who cancelled, most waste first ('' user = before audit / system) */
+  by_actor: VoidReportActor[]
 }
 
 /** "YYYY-MM-DD HH:mm" in GMT+7 from a timestamp column (Date or string). */
@@ -848,7 +885,8 @@ export async function listVoidReport(connector: TxConnector, shopId: string, ran
   const rows = await connector.withTransaction((tx) =>
     tx.query(
       `SELECT i.id, i.product_name, i.variant_label, i.qty, i.note, i.void_outcome, i.unit_price, i.created_at,
-              t.ticket_no, t.business_date, t.station_name, t.resource_name
+              i.answered_by_user, i.answered_by_name,
+              t.ticket_no, t.business_date, t.station_name, t.resource_name, t.created_by_user, t.created_by_name
          FROM kitchen_ticket_items i
          JOIN kitchen_tickets t ON t.id = i.ticket_id AND t.tenant_id = i.tenant_id
         WHERE i.tenant_id = $1 AND i.branch_id = $2 AND t.kind = 'void'
@@ -876,9 +914,27 @@ export async function listVoidReport(connector: TxConnector, shopId: string, ran
       station_name: r.station_name || '', resource_name: r.resource_name || '', product_name: r.product_name || '',
       variant_label: r.variant_label || '', qty, reason: String(r.note || '').replace(/^Lý do:\s*/, ''), outcome,
       unit_price: unit, value: qty * unit,
+      cancelled_by_user: r.created_by_user || '', cancelled_by_name: r.created_by_name || '',
+      answered_by_user: r.answered_by_user || '', answered_by_name: r.answered_by_name || '',
     }
   })
-  return { lines, totals }
+  return { lines, totals, by_actor: summariseByActor(lines) }
+}
+
+/** Per person who cancelled: count, value and waste (made) value, most waste first. */
+export function summariseByActor(lines: VoidReportLine[]): VoidReportActor[] {
+  const by = new Map<string, VoidReportActor>()
+  for (const l of lines) {
+    const key = l.cancelled_by_user
+    const a = by.get(key) ?? { user_id: key, name: l.cancelled_by_name, lines: 0, qty: 0, value: 0, waste_value: 0 }
+    if (!a.name && l.cancelled_by_name) a.name = l.cancelled_by_name
+    a.lines += 1
+    a.qty += l.qty
+    a.value += l.value
+    if (l.outcome === 'made') a.waste_value += l.value
+    by.set(key, a)
+  }
+  return [...by.values()].sort((x, y) => y.waste_value - x.waste_value || y.value - x.value || y.lines - x.lines)
 }
 
 // ── "Hết món" (sold out) ────────────────────────────────────────────────────

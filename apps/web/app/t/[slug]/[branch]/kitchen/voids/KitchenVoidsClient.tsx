@@ -23,6 +23,19 @@ interface VoidLine {
   outcome: '' | 'stopped' | 'made';
   unit_price: number;
   value: number;
+  cancelled_by_user: string;
+  cancelled_by_name: string;
+  answered_by_user: string;
+  answered_by_name: string;
+}
+
+interface VoidActor {
+  user_id: string;
+  name: string;
+  lines: number;
+  qty: number;
+  value: number;
+  waste_value: number;
 }
 
 interface VoidReport {
@@ -30,7 +43,11 @@ interface VoidReport {
   to: string;
   lines: VoidLine[];
   totals: { lines: number; qty: number; value: number; made_qty: number; waste_value: number; stopped_qty: number; unanswered_qty: number };
+  by_actor: VoidActor[];
 }
+
+/** '' = cancels recorded before the audit (or by the system) */
+const actorLabel = (name: string, id: string) => name || (id ? 'Nhân viên' : 'Chưa ghi nhận');
 
 const vnd = (n: number) => `${Math.round(n).toLocaleString('vi-VN')}đ`;
 const todayGMT7 = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
@@ -68,6 +85,12 @@ export function KitchenVoidsClient({ shopId, shopName }: { shopId: string; shopN
     },
   });
   const t = q.data?.totals;
+  /** filter by who cancelled: null = everyone */
+  const [who, setWho] = useState<string | null>(null);
+  const shown = useMemo(
+    () => (q.data?.lines ?? []).filter((l) => who === null || l.cancelled_by_user === who),
+    [q.data, who],
+  );
 
   return (
     <div className="space-y-4">
@@ -83,7 +106,7 @@ export function KitchenVoidsClient({ shopId, shopName }: { shopId: string; shopN
           {PRESETS.map((p) => (
             <button
               key={p.key}
-              onClick={() => setPreset(p.key)}
+              onClick={() => { setPreset(p.key); setWho(null); }}
               className={`rounded-lg px-3 py-1.5 text-sm cursor-pointer ${preset === p.key ? 'bg-slate-900 font-semibold text-white' : 'text-slate-600 hover:bg-slate-50'}`}
             >
               {p.label}
@@ -99,32 +122,63 @@ export function KitchenVoidsClient({ shopId, shopName }: { shopId: string; shopN
         <Tile label="Bếp chưa trả lời" value={t ? `${t.unanswered_qty}` : '–'} hint="hỏi lại bếp/bar" />
       </section>
 
+      {q.data && q.data.by_actor.length > 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+            <h2 className="text-sm font-semibold text-slate-900">Theo người huỷ</h2>
+            {who !== null && (
+              <button onClick={() => setWho(null)} className="text-xs font-medium text-primary hover:underline cursor-pointer">
+                Xem tất cả
+              </button>
+            )}
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {q.data.by_actor.map((a) => (
+              <li key={a.user_id || '-'}>
+                <button
+                  onClick={() => setWho(who === a.user_id ? null : a.user_id)}
+                  className={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm cursor-pointer ${who === a.user_id ? 'bg-slate-50' : 'hover:bg-slate-50'}`}
+                >
+                  <span className={`flex-1 truncate ${a.user_id ? 'font-medium text-slate-800' : 'italic text-slate-400'}`}>{actorLabel(a.name, a.user_id)}</span>
+                  <span className="w-24 text-right tabular-nums text-slate-500">{a.qty} món</span>
+                  <span className="w-28 text-right tabular-nums text-slate-500">{vnd(a.value)}</span>
+                  <span className={`w-32 text-right tabular-nums ${a.waste_value > 0 ? 'font-semibold text-amber-800' : 'text-slate-400'}`}>
+                    hao hụt {vnd(a.waste_value)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         {q.isLoading ? (
           <p className="p-6 text-sm text-slate-400 animate-pulse">Đang tải...</p>
         ) : q.isError ? (
           <p className="p-6 text-sm text-rose-600">{(q.error as Error).message}</p>
-        ) : !q.data || q.data.lines.length === 0 ? (
+        ) : !q.data || shown.length === 0 ? (
           <div className="p-8 text-center">
             <Ban className="mx-auto h-8 w-8 text-slate-300" />
             <p className="mt-2 text-sm text-slate-500">Không có món nào bị huỷ sau khi báo bếp trong khoảng này.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[860px] text-sm">
               <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
                 <tr>
                   <th className="px-4 py-2">Giờ</th>
                   <th className="px-4 py-2">Bàn · Trạm</th>
                   <th className="px-4 py-2">Món</th>
                   <th className="px-4 py-2 text-right">SL</th>
+                  <th className="px-4 py-2">Người huỷ</th>
                   <th className="px-4 py-2">Lý do</th>
                   <th className="px-4 py-2">Bếp/Bar</th>
                   <th className="px-4 py-2 text-right">Giá trị</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {q.data.lines.map((l) => (
+                {shown.map((l) => (
                   <tr key={l.id}>
                     <td className="whitespace-nowrap px-4 py-2 text-slate-500 tabular-nums">{timeOf(l.created_at)}</td>
                     <td className="px-4 py-2">
@@ -136,11 +190,15 @@ export function KitchenVoidsClient({ shopId, shopName }: { shopId: string; shopN
                       {l.variant_label && <span className="block text-xs text-violet-600">{l.variant_label}</span>}
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums">{l.qty}</td>
+                    <td className={`px-4 py-2 ${l.cancelled_by_user ? 'text-slate-800' : 'italic text-slate-400'}`}>
+                      {actorLabel(l.cancelled_by_name, l.cancelled_by_user)}
+                    </td>
                     <td className="px-4 py-2 text-slate-600">{l.reason || '—'}</td>
                     <td className="px-4 py-2">
                       <span className={`whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${OUTCOME[l.outcome].cls}`}>
                         {OUTCOME[l.outcome].label}
                       </span>
+                      {l.answered_by_name && <span className="mt-0.5 block text-[11px] text-slate-400">xác nhận: {l.answered_by_name}</span>}
                     </td>
                     <td className={`px-4 py-2 text-right tabular-nums ${l.outcome === 'made' ? 'font-semibold text-amber-800' : 'text-slate-600'}`}>
                       {l.unit_price > 0 ? vnd(l.value) : '—'}
@@ -153,7 +211,8 @@ export function KitchenVoidsClient({ shopId, shopName }: { shopId: string; shopN
         )}
       </section>
       <p className="text-xs text-slate-400">
-        Chỉ gồm món đã gửi bếp/bar rồi mới huỷ. Giá trị theo giá bán lúc gọi món; món gọi trước khi có tính năng này có thể không có giá.
+        Chỉ gồm món đã gửi bếp/bar rồi mới huỷ. Người huỷ là tài khoản đã gửi lệnh huỷ lên máy chủ (món huỷ lúc mất mạng được ghi cho
+        tài khoản đăng nhập khi máy gửi lên). Giá trị theo giá bán lúc gọi món; dữ liệu trước khi có tính năng này có thể thiếu giá hoặc người huỷ.
       </p>
     </div>
   );

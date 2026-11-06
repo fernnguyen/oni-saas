@@ -450,3 +450,68 @@ test('a late send for a table already paid or cancelled reaches no kitchen', { s
   assert.deepEqual(await fireKitchenForSession(connector, BRANCH, 'KS-16'), [])
   assert.equal((await ticketsOf('KS-16')).length, 0)
 })
+
+// ── Audit: who cancelled / who answered ──────────────────────────────────────
+
+const LAN = { id: 'U-LAN', name: 'Lan thu ngân' }
+const BINH = { id: 'U-BINH', name: 'Bình bếp' }
+
+test('audit: the cancel ticket records who cancelled; the kitchen answer records who answered', { skip }, async () => {
+  await seedSession('KS-17', 'KO-17', 'KR-17')
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-17', deviceId: 'd1', ops: [fireAdd('k17-a', 'KP-PHO', 2)] }, { actor: LAN })
+  const order = (await ticketsOf('KS-17')).find((t) => t.kind === 'order')!
+  assert.equal(order.created_by_name, 'Lan thu ngân', 'who sent it to the kitchen')
+  await applyTableSessionOps(connector, BRANCH, {
+    sessionId: 'KS-17', deviceId: 'd1',
+    ops: [{ op_id: 'k17-b', type: 'change_qty', item_id: r.results[0].item_id, delta: -1, note: 'Lý do: Khách đổi ý', kitchen_fire: true } as TableOp],
+  }, { actor: LAN })
+  const v = (await voidsOf('KS-17'))[0]
+  assert.equal(v.created_by_name, 'Lan thu ngân')
+
+  const answered = await setVoidOutcome(connector, BRANCH, v.items[0].id, 'made', BINH)
+  assert.equal(answered?.items[0].answered_by_name, 'Bình bếp')
+  const { rows } = await pool.query(`SELECT answered_by_user, answered_at FROM kitchen_ticket_items WHERE id = $1`, [v.items[0].id])
+  assert.equal(rows[0].answered_by_user, 'U-BINH')
+  assert.ok(rows[0].answered_at, 'answer time kept')
+  // Clearing the answer clears who answered
+  const cleared = await setVoidOutcome(connector, BRANCH, v.items[0].id, null, BINH)
+  assert.equal(cleared?.items[0].answered_by_name, '')
+  await setVoidOutcome(connector, BRANCH, v.items[0].id, 'made', BINH)
+
+  const rep = await listVoidReport(connector, BRANCH, { from: today(), to: today() })
+  const mine = rep.lines.filter((l) => l.resource_name === 'Bàn KR-17')
+  assert.deepEqual(mine.map((l) => [l.cancelled_by_user, l.cancelled_by_name, l.answered_by_user, l.answered_by_name]), [['U-LAN', 'Lan thu ngân', 'U-BINH', 'Bình bếp']])
+  const lan = rep.by_actor.find((a) => a.user_id === 'U-LAN')!
+  assert.ok(lan.waste_value >= 30000)
+})
+
+test('audit: an order cancelled by a manager names the manager on the cancel ticket', { skip }, async () => {
+  await seedSession('KS-18', 'KO-18', 'KR-18')
+  await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-18', deviceId: 'd1', ops: [fireAdd('k18-a', 'KP-CAFE', 1)] }, { actor: LAN })
+  await pool.query(`UPDATE orders SET status = 'cancelled' WHERE id = 'KO-18' AND tenant_id = $1`, [TENANT])
+  await endTableSessionForCancelledOrder(connector, BRANCH, 'KO-18', { session_id: 'KS-18' }, { actor: { id: 'U-QL', name: 'Quản lý Hà' } })
+  assert.deepEqual((await voidsOf('KS-18')).map((t) => t.created_by_name), ['Quản lý Hà'])
+})
+
+test('audit: an "actor" smuggled in the table-cancel body is ignored (only the server sets it)', { skip }, async () => {
+  await seedSession('KS-19', 'KO-19', 'KR-19')
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-19', deviceId: 'd1', ops: [fireAdd('k19-a', 'KP-PHO', 1)] }, { actor: LAN })
+  // remove WITHOUT firing: the cancel ticket is made by the table cancel below
+  await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-19', deviceId: 'd1', ops: [{ op_id: 'k19-b', type: 'remove_item', item_id: r.results[0].item_id } as TableOp] }, { actor: LAN })
+  const body = { reason: 'Khách bỏ về', actor: { id: 'U-EVIL', name: 'Giả danh' } } as unknown as { reason: string }
+  await cancelTableSession(connector, BRANCH, 'KS-19', body, { actor: BINH })
+  const names = (await ticketsOf('KS-19')).map((t) => t.created_by_name)
+  assert.ok(!names.includes('Giả danh'))
+  assert.ok(names.includes('Bình bếp'), 'the cancel ticket names the signed-in user')
+})
+
+test('audit: struck order lines are not cancel lines and take no answer', { skip }, async () => {
+  await seedSession('KS-20', 'KO-20', 'KR-20')
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-20', deviceId: 'd1', ops: [fireAdd('k20-a', 'KP-PHO', 1)] })
+  await applyTableSessionOps(connector, BRANCH, {
+    sessionId: 'KS-20', deviceId: 'd1', ops: [{ op_id: 'k20-b', type: 'remove_item', item_id: r.results[0].item_id, note: 'Lý do: Nhập nhầm', kitchen_fire: true } as TableOp],
+  })
+  const order = (await ticketsOf('KS-20')).find((t) => t.kind === 'order')!
+  assert.equal(order.items[0].status, 'voided')
+  assert.equal(await setVoidOutcome(connector, BRANCH, order.items[0].id, 'made', BINH), null)
+})

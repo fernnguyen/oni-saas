@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireShopAccess } from '@/lib/server/shopAccess'
+import { kitchenActorOf } from '@/lib/server/kitchen/actor'
 import { kitchenErrorResponse, requireKitchenConnector } from '@/lib/server/kitchen/stations'
 import { markTicketItemUnavailable, setTicketItemStatus, setVoidOutcome } from '@/lib/server/kitchen/tickets'
 import { handleApiError } from '../../../../_helpers'
@@ -19,11 +20,11 @@ const schema = z.union([
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ shopId: string; itemId: string }> }) {
   try {
     const { shopId, itemId } = await params
-    const { connector } = await requireShopAccess(shopId, 'pos.use')
+    const { connector, user } = await requireShopAccess(shopId, 'pos.use')
     const body = schema.parse(await req.json())
     const tx = requireKitchenConnector(connector)
     const ticket = 'void_outcome' in body
-      ? await setVoidOutcome(tx, shopId, itemId, body.void_outcome)
+      ? await setVoidOutcome(tx, shopId, itemId, body.void_outcome, kitchenActorOf(user))
       : 'unavailable' in body
         ? await markTicketItemUnavailable(tx, shopId, itemId, { soldOutToday: body.sold_out_today })
         : await setTicketItemStatus(tx, shopId, itemId, body.ready)

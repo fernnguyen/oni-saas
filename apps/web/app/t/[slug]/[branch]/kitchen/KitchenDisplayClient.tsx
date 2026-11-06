@@ -43,6 +43,8 @@ interface Ticket {
   status: 'open' | 'done';
   print_count: number;
   created_at: string;
+  /** who sent it (cancels: who cancelled) */
+  created_by_name?: string;
   items: TicketItem[];
 }
 
@@ -496,6 +498,7 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
                     </div>
                     <p className="text-xs text-slate-500">
                       #{t.ticket_no} · {t.station_name} · {kitchenTime(t.created_at)}
+                      {isVoid && t.created_by_name ? ` · huỷ bởi ${t.created_by_name}` : ''}
                     </p>
                   </div>
                   {view === 'open' && (

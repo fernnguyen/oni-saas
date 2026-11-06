@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
+import { kitchenActorOf } from '@/lib/server/kitchen/actor'
 import { requireTableSyncV2 } from '@/lib/server/tableSync/service'
 import { fireKitchenForSession, getSessionKitchenStatus } from '@/lib/server/kitchen/tickets'
 import { tableSyncErrorResponse } from '../../_respond'
@@ -23,7 +24,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 export async function POST(req: NextRequest, { params }: Ctx) {
   try {
     const { shopId, sessionId } = await params
-    const { connector } = await requireShopAccess(shopId, 'orders.create')
+    const { connector, user } = await requireShopAccess(shopId, 'orders.create')
     const tx = await requireTableSyncV2(shopId, connector)
     const body = await req.json().catch(() => ({}))
     const tickets = await fireKitchenForSession(tx, shopId, sessionId, {
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       notes: body?.notes && typeof body.notes === 'object' && !Array.isArray(body.notes)
         ? Object.fromEntries(Object.entries(body.notes as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')]))
         : undefined,
+      actor: kitchenActorOf(user),
     })
     return NextResponse.json({ tickets, status: await getSessionKitchenStatus(tx, shopId, sessionId) })
   } catch (e) {

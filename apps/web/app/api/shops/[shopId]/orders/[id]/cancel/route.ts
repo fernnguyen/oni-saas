@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireShopAccess } from '@/lib/server/shopAccess'
+import { kitchenActorOf } from '@/lib/server/kitchen/actor'
 import { invalidate } from '@/lib/server/cache'
 import { handleApiError } from '../../../../_helpers'
 import { dispatchNotification } from '@/lib/server/notifications'
@@ -237,7 +238,7 @@ export async function POST(
     if (parseMetadataSafe((order as Record<string, any>).metadata).session_id) {
       try {
         const { endTableSessionForCancelledOrder } = await import('@/lib/server/tableSync/service')
-        await endTableSessionForCancelledOrder(connector, shopId, id, (order as Record<string, any>).metadata)
+        await endTableSessionForCancelledOrder(connector, shopId, id, (order as Record<string, any>).metadata, { actor: kitchenActorOf(user) })
       } catch (err) {
         console.error('[cancel] Failed to end table sync v2 session:', err)
       }
@@ -245,7 +246,7 @@ export async function POST(
       // Bar/Bếp: an order without a table session (QR order) may still have dishes at the kitchen
       try {
         const { voidKitchenForCancelledTable } = await import('@/lib/server/kitchen/tickets')
-        await voidKitchenForCancelledTable(connector as Parameters<typeof voidKitchenForCancelledTable>[0], shopId, { orderId: id, reason: 'Huỷ đơn' })
+        await voidKitchenForCancelledTable(connector as Parameters<typeof voidKitchenForCancelledTable>[0], shopId, { orderId: id, reason: 'Huỷ đơn', actor: kitchenActorOf(user) })
       } catch (err) {
         console.error('[cancel] Failed to send the cancel to the kitchen:', err)
       }

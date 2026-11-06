@@ -939,6 +939,9 @@ export const kitchen_tickets = pgTable('kitchen_tickets', {
   print_count: integer('print_count').notNull().default(0),
   printed_at: varchar('printed_at', { length: 50 }),
   created_by_device: varchar('created_by_device', { length: 255 }),
+  // signed-in user whose request made this ticket (audit of cancels); name = snapshot at that time
+  created_by_user: varchar('created_by_user', { length: 255 }),
+  created_by_name: varchar('created_by_name', { length: 255 }),
 }, (table) => ({
   branchStatusIdx: index('idx_kitchen_tickets_branch_status').on(table.tenant_id, table.branch_id, table.status, table.created_at),
   sessionIdx: index('idx_kitchen_tickets_session').on(table.tenant_id, table.session_id),
@@ -1002,6 +1005,10 @@ export const kitchen_ticket_items = pgTable('kitchen_ticket_items', {
   // 'made' = already cooked (counted as waste). Empty = no answer yet.
   void_outcome: varchar('void_outcome', { length: 20 }),
   unit_price: varchar('unit_price', { length: 50 }),                 // for the waste value of void lines
+  // who answered the cancel at the station (audit); name = snapshot at that time
+  answered_by_user: varchar('answered_by_user', { length: 255 }),
+  answered_by_name: varchar('answered_by_name', { length: 255 }),
+  answered_at: varchar('answered_at', { length: 50 }),
 }, (table) => ({
   opIdx: uniqueIndex('uq_kitchen_ticket_items_op').on(table.tenant_id, table.op_id),
   ticketIdx: index('idx_kitchen_ticket_items_ticket').on(table.tenant_id, table.ticket_id),
