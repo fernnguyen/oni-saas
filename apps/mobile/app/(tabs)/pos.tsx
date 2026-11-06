@@ -62,6 +62,10 @@ export type CartItem = {
 };
 
 
+/** The default walk-in customer ("Khách lẻ") counts as no customer chosen: the picker stays visible. */
+const isWalkInCustomer = (c: any): boolean =>
+  !c || c.id === 'C-DEFAULT-RETAIL' || (String(c.name || '').trim().toLowerCase() === 'khách lẻ' && !c.phone);
+
 export default function PosScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ restore_barcode_scanner?: string }>();
@@ -3153,13 +3157,22 @@ export default function PosScreen() {
                   })()}
 
                   {/* CHỌN KHÁCH HÀNG CRM (Premium component replicated) */}
-                  <Text className="text-tiny text-slate-400 font-medium mb-2">Thông tin Khách hàng (CRM):</Text>
+                  <View className="flex-row justify-between items-center mb-2">
+                    <Text className="text-tiny text-slate-400 font-medium">Thông tin Khách hàng (CRM):</Text>
+                    {isWalkInCustomer(selectedCustomer) && (
+                      <View className="bg-slate-200/60 px-2 py-0.5 rounded">
+                        <Text className="text-[9.5px] font-bold text-slate-600">Khách lẻ</Text>
+                      </View>
+                    )}
+                  </View>
                   <View className="mb-4">
-                    {selectedCustomer ? (
+                    {!isWalkInCustomer(selectedCustomer) ? (
                       <View className="flex-row justify-between items-center bg-slate-50 border border-slate-200 p-3 rounded-xl">
                         <View className="flex-1 mr-4">
                           <Text className="text-xs font-semibold text-slate-800">{selectedCustomer.name}</Text>
-                          <Text className="text-tiny text-slate-500 font-medium mt-0.5">📞 {selectedCustomer.phone}</Text>
+                          {selectedCustomer.phone ? (
+                            <Text className="text-tiny text-slate-500 font-medium mt-0.5">📞 {selectedCustomer.phone}</Text>
+                          ) : null}
                           {selectedCustomer.address ? (
                             <Text className="text-[9.5px] text-slate-400 font-semibold mt-1">📍 {selectedCustomer.address}</Text>
                           ) : null}
@@ -3600,7 +3613,7 @@ export default function PosScreen() {
                 {activeTableTab === 'billing' || shopVertical !== 'lodging' ? (
                   <View>
                     {/* GIAO DIỆN KHÁCH HÀNG CRM TRONG CHI TIẾT PHÒNG */}
-                    {tableCustomers[activeTable.id] ? (
+                    {!isWalkInCustomer(tableCustomers[activeTable.id]) ? (
                       <View className="mb-4 bg-slate-50 border border-slate-200 p-3 rounded-xl flex-row items-center justify-between">
                         <View className="flex-1">
                           <Text className="text-[10px] text-slate-400 font-semibold mb-1">Khách hàng đại diện:</Text>
@@ -3972,24 +3985,13 @@ export default function PosScreen() {
                               : []),
                             { label: 'Tạm tính bị huỷ', value: formatCurrency(cancelTimeCost + cancelItemsCost), tone: 'danger', strong: true },
                           ];
-                          const confirmCancel = (await dialog.confirm({
-                              title: `Hủy đơn ${cancelName}?`,
-                              message: `Đơn sẽ bị huỷ, không thu tiền. ${resNouns.noun.charAt(0).toUpperCase()}${resNouns.noun.slice(1)} được trả về trạng thái trống.`,
-                              details: cancelDetails,
-                              tone: 'danger',
-                              icon: 'x-circle',
-                              actions: [
-                                { key: 'no', label: 'Không', style: 'secondary' },
-                                { key: 'yes', label: 'Hủy đơn', style: 'destructive' },
-                              ],
-                            })) === 'yes';
-
-                          if (!confirmCancel) return;
-
+                          // The cancel runs inside the dialog's "Hủy đơn" button (spinner, other buttons locked,
+                          // dialog kept open on failure so the cashier can retry); the sheet closes after.
+                          let cancelToast: { msg: string; kind: 'success' | 'info' } | null = null;
+                          const runCancel = async (): Promise<void> => {
                           try {
                             const shopId = await AsyncStorage.getItem('active_shop_id') || 'default-shop';
                             let syncSucceeded = false;
-
                             let cleanedCancelledMeta = '{}';
                             try {
                               const parsedMeta = typeof activeTable.metadata === 'string'
@@ -4022,11 +4024,9 @@ export default function PosScreen() {
                             // Table sync v2: online-only cancel through the order cancel endpoint (ends the session)
                             if (isV2Table(activeTable)) {
                               const cancelled = await cancelV2Table(activeTable, cleanedCancelledMeta);
-                              if (cancelled) {
-                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-                                setActiveTable(null);
-                                showToast(`Đã hủy đơn & giải phóng ${getResourceDisplayName(activeTable, shopVertical)}!`, "success");
-                              }
+                              // cancelV2Table already explained a failure with a toast: keep the dialog open
+                              if (!cancelled) throw new Error('cancel_failed');
+                              cancelToast = { msg: `Đã hủy đơn & giải phóng ${getResourceDisplayName(activeTable, shopVertical)}!`, kind: 'success' };
                               return;
                             }
 
@@ -4116,18 +4116,34 @@ export default function PosScreen() {
                               return copy;
                             });
 
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-                            setActiveTable(null);
-
-                            if (syncSucceeded) {
-                              showToast(`Đã hủy đơn & giải phóng ${getResourceDisplayName(activeTable, shopVertical)}!`, "success");
-                            } else {
-                              showToast(`Đã giải phóng ${getResourceDisplayName(activeTable, shopVertical)} (ngoại tuyến)!`, "info");
-                            }
+                            cancelToast = syncSucceeded
+                              ? { msg: `Đã hủy đơn & giải phóng ${getResourceDisplayName(activeTable, shopVertical)}!`, kind: 'success' }
+                              : { msg: `Đã giải phóng ${getResourceDisplayName(activeTable, shopVertical)} (ngoại tuyến)!`, kind: 'info' };
                           } catch (err) {
+                            if ((err as Error)?.message === 'cancel_failed') throw err;
                             console.error('Không thể hủy ca hoạt động:', err);
                             showToast("Có lỗi xảy ra khi hủy ca!", "error");
+                            throw err;
                           }
+                          };
+                          const confirmCancel = (await dialog.confirm({
+                              title: `Hủy đơn ${cancelName}?`,
+                              message: `Đơn sẽ bị huỷ, không thu tiền. ${resNouns.noun.charAt(0).toUpperCase()}${resNouns.noun.slice(1)} được trả về trạng thái trống.`,
+                              details: cancelDetails,
+                              tone: 'danger',
+                              icon: 'x-circle',
+                              actions: [
+                                { key: 'no', label: 'Không', style: 'secondary' },
+                                { key: 'yes', label: 'Hủy đơn', style: 'destructive', loadingLabel: 'Đang huỷ…', onPress: runCancel },
+                              ],
+                            })) === 'yes';
+
+                          // (assigned inside runCancel: TS cannot see that through the closure)
+                          const cancelDone = cancelToast as { msg: string; kind: 'success' | 'info' } | null;
+                          if (!confirmCancel || !cancelDone) return;
+                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+                          setActiveTable(null);
+                          showToast(cancelDone.msg, cancelDone.kind);
                         }}
                       >
                         <Ionicons name="close-circle-outline" size={16} color="#e11d48" />

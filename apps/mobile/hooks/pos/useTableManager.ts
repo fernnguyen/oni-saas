@@ -2034,12 +2034,22 @@ export function useTableManager(props: UseTableManagerProps) {
     const targetGuestCount = roomGuestCount;
     const targetRoomRentalType = roomRentalType;
 
-    // Dialog xác nhận an toàn trước khi cập nhật
-    const confirmUpdate = Platform.OS === 'web'
-      ? window.confirm("Bạn có chắc chắn muốn cập nhật thông tin khách lưu trú này?")
-      : (await dialog.confirm({
+    // Dialog xác nhận an toàn trước khi cập nhật (app dialog on every platform: window.confirm is
+    // blocked in embedded browsers / PWAs and made the button do nothing on web)
+    const guestNames = targetGuests.map(g => String(g.name || '').trim()).filter(Boolean);
+    const confirmUpdate = (await dialog.confirm({
         title: 'Xác nhận cập nhật',
         message: `Cập nhật danh sách khách lưu trú của ${getResourceDisplayName(targetTable, shopVertical, false)} lên hệ thống?`,
+        details: [
+          { label: 'Số khách', value: String(targetGuestCount || guestNames.length || 0) },
+          {
+            label: 'Khách lưu trú',
+            value: guestNames.length > 0
+              ? `${guestNames.slice(0, 3).join(', ')}${guestNames.length > 3 ? ` +${guestNames.length - 3}` : ''}`
+              : 'Chưa nhập tên',
+            tone: guestNames.length > 0 ? 'default' : 'warning',
+          },
+        ],
         tone: 'info',
         icon: 'users',
         actions: [
