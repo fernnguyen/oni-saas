@@ -42,3 +42,4 @@ CLAUDE.md
 .agents/
 .cursor/
 .gemini/
+.env.development.local
