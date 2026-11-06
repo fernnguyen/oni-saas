@@ -55,6 +55,7 @@ import {
   Settings2,
   Clock,
   Banknote,
+  ChefHat,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -323,6 +324,7 @@ export function buildNavGroups(options: BuildNavOptions, permissions: string[]):
         { href: options.settingsHref ?? '#',   label: 'Cài đặt',         icon: Settings, permission: 'settings.view', exact: true },
         { href: joinPath(base, '/settings/tax'), label: 'Thuế & Khóa sổ', icon: Receipt, permission: 'settings.view' },
         { href: joinPath(base, '/settings/departments'), label: 'Phòng ban', icon: Network, permission: 'departments.view' },
+        { href: joinPath(base, '/settings/kitchen'), label: 'Bar / Bếp', icon: ChefHat, permission: 'settings.view', featureGate: 'kitchen_display' },
         { href: joinPath(base, '/settings/employees'),  label: 'Nhân viên',   icon: Contact,     permission: 'dashboard.view' },
         { href: joinPath(base, '/settings/cost-allocation'), label: 'Phân bổ chi phí', icon: Percent, permission: 'settings.view' },
         { href: joinPath(base, '/settings/assets'), label: 'Tài sản', icon: Landmark, permission: 'assets.view' },

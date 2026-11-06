@@ -15,6 +15,7 @@
     "test:hrm": "node tests/hrm/run.mjs unit",
     "test:reports": "TZ=Asia/Ho_Chi_Minh TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx --test --test-force-exit tests/reports/*.test.ts",
     "test:table-sync": "TZ=Asia/Ho_Chi_Minh TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx --test --test-force-exit tests/table-sync/*.test.ts",
+    "test:kitchen": "TZ=Asia/Ho_Chi_Minh node --import tsx --test --test-force-exit tests/kitchen/*.test.ts",
     "test:hrm:integration": "node tests/hrm/run.mjs integration",
     "test:hrm:regression": "node tests/hrm/run.mjs regression",
     "db:push": "pnpm -C packages/adapters run db:push",

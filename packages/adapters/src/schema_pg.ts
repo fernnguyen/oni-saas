@@ -888,4 +888,34 @@ export const table_sync_events = pgTable('table_sync_events', {
   branchSeqIdx: index('idx_table_sync_events_branch_seq').on(table.tenant_id, table.branch_id, table.seq),
 }));
 
+// ── Bar/Bếp (docs/KITCHEN-BAR-PLAN.md, K0) ───────────────────────────────
+// Additive only: orders / order_items are untouched. A branch with no active station
+// behaves exactly as before (feature off).
+export const prep_stations = pgTable('prep_stations', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),             // Bếp, Bar, Quầy nước…
+  kind: varchar('kind', { length: 20 }).notNull().default('kitchen'),   // 'kitchen' | 'bar' | 'other'
+  output: varchar('output', { length: 20 }).notNull().default('print'), // 'print' | 'screen' | 'both'
+  is_default: varchar('is_default', { length: 10 }).default('FALSE'),   // catch-all for unrouted items
+  sort_order: varchar('sort_order', { length: 50 }),
+  metadata: jsonb('metadata'),                                          // printer config etc. (later phases)
+}, (table) => ({
+  tenantBranchIdx: index('idx_prep_stations_tenant_branch').on(table.tenant_id, table.branch_id),
+}));
+
+// Routing: category (MVP) or product (override, later) → station. Rows are hard-replaced
+// per branch by the routes API, so at most one row per target.
+export const prep_station_routes = pgTable('prep_station_routes', {
+  ...getBaseColumns(),
+  id: varchar('id', { length: 255 }).primaryKey(),
+  branch_id: varchar('branch_id', { length: 255 }).notNull(),
+  station_id: varchar('station_id', { length: 255 }).notNull(),
+  target_type: varchar('target_type', { length: 20 }).notNull(),  // 'category' | 'product'
+  target_id: varchar('target_id', { length: 255 }).notNull(),
+}, (table) => ({
+  targetIdx: uniqueIndex('uq_prep_station_routes_target').on(table.tenant_id, table.branch_id, table.target_type, table.target_id),
+}));
+
 export * from './hrm/schema';
