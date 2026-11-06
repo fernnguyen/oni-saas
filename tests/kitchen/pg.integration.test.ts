@@ -259,3 +259,24 @@ test('kitchen reports "hết món": line unavailable, table status shows it, pro
   assert.equal(back?.items[0].status, 'pending')
   assert.deepEqual(await setProductUnavailable(connector, BRANCH, { product_id: 'KP-PHO' }, false), [])
 })
+
+test('removing a dish the kitchen reported sold out files the cancel ticket as done; a plain "Hết món" cancel stays open', { skip }, async () => {
+  await seedSession('KS-7', 'KO-7', 'KR-7')
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-7', deviceId: 'd1', ops: [add('k7-a', 'KP-PHO', 1, { kitchen_fire: true }), add('k7-b', 'KP-CAFE', 1, { kitchen_fire: true })] })
+  const phoId = r.results[0].item_id!
+  const cafeId = r.results[1].item_id!
+  const pho = (await ticketsOf('KS-7')).find((t) => t.station_id === 'ST-K')!
+  await markTicketItemUnavailable(connector, BRANCH, pho.items[0].id, { soldOutToday: false })
+  await applyTableSessionOps(connector, BRANCH, {
+    sessionId: 'KS-7', deviceId: 'd1',
+    ops: [
+      { op_id: 'k7-c', type: 'remove_item', item_id: phoId, note: 'Lý do: Hết món', kitchen_fire: true } as TableOp,
+      { op_id: 'k7-d', type: 'remove_item', item_id: cafeId, note: 'Lý do: Hết món', kitchen_fire: true } as TableOp,
+    ],
+  })
+  const voids = (await ticketsOf('KS-7')).filter((t) => t.kind === 'void')
+  const byStation = Object.fromEntries(voids.map((t) => [t.station_id, t.status]))
+  assert.equal(byStation['ST-K'], 'done', 'kitchen asked for it: nothing to acknowledge')
+  assert.equal(byStation['ST-B'], 'open', 'bar never reported it: it must see the cancel')
+  assert.deepEqual((await getSessionKitchenStatus(connector, BRANCH, 'KS-7')).items[phoId]?.unavailable ?? 0, 0)
+})

@@ -9,6 +9,8 @@ import { broadcastKitchen } from './broadcast'
 type TxConnector = IDataConnector & { withTransaction: NonNullable<IDataConnector['withTransaction']> }
 
 const tid = (tx: TransactionClient) => tx.tenantId ?? ''
+/** Note the POS puts on a cancel line removed because the kitchen reported it sold out (see voidOpFields). */
+export const SOLD_OUT_VOID_NOTE = 'Lý do: Hết món'
 
 export interface KitchenTicketItem {
   id: string
@@ -373,6 +375,19 @@ async function insertPlannedTickets(
     }
     if (items.length === 0) continue
 
+    // A cancel the kitchen itself asked for (it reported the dish sold out, the floor removed it
+    // with reason "Hết món") needs no acknowledgement: file it as done, no chime, no print.
+    let ticketStatus: 'open' | 'done' = 'open'
+    if (p.kind === 'void' && items.every((it) => it.note === SOLD_OUT_VOID_NOTE && it.order_item_id)) {
+      const reported = await tx.query(
+        `SELECT DISTINCT order_item_id FROM kitchen_ticket_items
+          WHERE tenant_id = $1 AND branch_id = $2 AND status = 'unavailable' AND order_item_id = ANY($3::text[])`,
+        [tid(tx), shopId, items.map((it) => it.order_item_id)],
+      )
+      const ids = new Set(reported.map((r: { order_item_id: string }) => r.order_item_id))
+      if (items.every((it) => ids.has(it.order_item_id))) ticketStatus = 'done'
+    }
+
     const noRows = await tx.query(
       `SELECT COALESCE(MAX(ticket_no), 0) + 1 AS n FROM kitchen_tickets
         WHERE tenant_id = $1 AND branch_id = $2 AND business_date = $3`,
@@ -383,14 +398,14 @@ async function insertPlannedTickets(
       `INSERT INTO kitchen_tickets
          (id, tenant_id, branch_id, ticket_no, business_date, station_id, station_name, session_id, order_id, resource_id,
           resource_name, batch_id, source, kind, status, print_count, created_by_device, active, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$16,$13,'open',0,$14,'TRUE',$15,$15)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$16,$13,$17,0,$14,'TRUE',$15,$15)`,
       [ticketId, tid(tx), shopId, ticketNo, businessDate, p.station.id, p.station.name, ctx.sessionId, ctx.orderId,
-        ctx.resourceId, ctx.resourceName, p.batch_id, p.kind, ctx.deviceId, now, ctx.source],
+        ctx.resourceId, ctx.resourceName, p.batch_id, p.kind, ctx.deviceId, now, ctx.source, ticketStatus],
     )
     out.push({
       id: ticketId, ticket_no: ticketNo, business_date: businessDate, station_id: p.station.id, station_name: p.station.name,
       session_id: ctx.sessionId, order_id: ctx.orderId, resource_id: ctx.resourceId, resource_name: ctx.resourceName,
-      batch_id: p.batch_id, source: ctx.source, kind: p.kind, status: 'open', print_count: 0, printed_at: null,
+      batch_id: p.batch_id, source: ctx.source, kind: p.kind, status: ticketStatus, print_count: 0, printed_at: null,
       created_at: now, items,
     })
   }

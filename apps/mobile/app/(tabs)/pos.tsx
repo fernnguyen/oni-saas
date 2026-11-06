@@ -891,7 +891,7 @@ export default function PosScreen() {
         cancelKey: 'skip',
         actions: [
           {
-            key: 'back', label: 'Đã có hàng – gọi tiếp', style: 'primary', loadingLabel: 'Đang cập nhật…',
+            key: 'back', label: 'Đã có hàng', style: 'primary', loadingLabel: 'Đang cập nhật…',
             onPress: async () => {
               if (!(await setProductBackInStock(activeShopId, String(p.id), String(p.name || '')))) {
                 throw new Error('back_in_stock_failed');
