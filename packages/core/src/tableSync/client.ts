@@ -22,6 +22,8 @@ export interface KitchenOpFields {
   note?: string
   /** after applying, send everything unsent for this table to the kitchen ("Lưu & báo bếp") */
   kitchen_fire?: boolean
+  /** cancel op: the floor confirmed the dish was already made (cancel = waste) */
+  kitchen_made?: boolean
 }
 
 export type ClientTableOp =

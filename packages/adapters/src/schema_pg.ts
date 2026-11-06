@@ -998,6 +998,10 @@ export const kitchen_ticket_items = pgTable('kitchen_ticket_items', {
   qty: varchar('qty', { length: 50 }).notNull(),                     // negative = cancelled
   status: varchar('status', { length: 20 }).notNull().default('pending'), // 'pending' | 'ready' | 'voided' | 'unavailable'
   ready_at: varchar('ready_at', { length: 50 }),
+  // Void lines only: what the kitchen did with a cancelled dish. 'stopped' = caught in time,
+  // 'made' = already cooked (counted as waste). Empty = no answer yet.
+  void_outcome: varchar('void_outcome', { length: 20 }),
+  unit_price: varchar('unit_price', { length: 50 }),                 // for the waste value of void lines
 }, (table) => ({
   opIdx: uniqueIndex('uq_kitchen_ticket_items_op').on(table.tenant_id, table.op_id),
   ticketIdx: index('idx_kitchen_ticket_items_ticket').on(table.tenant_id, table.ticket_id),

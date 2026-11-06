@@ -8,6 +8,8 @@ export interface PrintableKitchenItem {
   modifiers?: string
   note?: string
   qty: number
+  /** cancel lines: 'made' = already cooked (printed so nobody serves it), 'stopped' = never made */
+  void_outcome?: string
 }
 
 export interface PrintableKitchenTicket {
@@ -54,7 +56,7 @@ export function buildKitchenTicketHtml(ticket: PrintableKitchenTicket, opts: { p
       const qty = Math.abs(Number(it.qty) || 0)
       return `<tr>
   <td class="q">${isVoid ? '−' : 'x'}${qty}</td>
-  <td class="n">${esc(it.product_name)}${detail ? `<div class="d">${esc(detail)}</div>` : ''}${it.note ? `<div class="note">» ${esc(it.note)}</div>` : ''}</td>
+  <td class="n">${esc(it.product_name)}${detail ? `<div class="d">${esc(detail)}</div>` : ''}${it.note ? `<div class="note">» ${esc(it.note)}</div>` : ''}${isVoid && it.void_outcome === 'made' ? '<div class="note">ĐÃ LÀM – KHÔNG RA MÓN</div>' : ''}</td>
 </tr>`
     })
     .join('')

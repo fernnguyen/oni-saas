@@ -29,6 +29,8 @@ interface TicketItem {
   note: string;
   qty: number;
   status: 'pending' | 'ready' | 'voided' | 'unavailable';
+  /** cancel lines: '' = not answered, 'stopped' = caught in time, 'made' = already cooked (waste) */
+  void_outcome?: '' | 'stopped' | 'made';
 }
 
 interface Ticket {
@@ -252,6 +254,19 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
       })),
     );
 
+  /** Cancel line answer: "Dừng kịp" / "Đã làm rồi" (waste); null = undo the answer. */
+  const answerVoid = (item: TicketItem, outcome: 'stopped' | 'made' | null) =>
+    run(
+      `i:${item.id}`,
+      () => api(`/api/shops/${shopId}/kitchen/items/${item.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ void_outcome: outcome }),
+      }),
+      (list) => list.map((t) => ({
+        ...t,
+        items: t.items.map((i) => (i.id === item.id ? { ...i, void_outcome: outcome ?? '' } : i)),
+      })),
+    );
+
   const setBackInStock = (productId: string, productName: string) =>
     run(`u:${productId}`, () => api(`/api/shops/${shopId}/kitchen/unavailable`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -310,6 +325,15 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
           <h1 className="text-xl font-bold text-slate-900">Màn hình Bar / Bếp</h1>
         </div>
         <div className="flex items-center gap-1.5">
+          {canManage && (
+            <Link
+              href={`${pathname.replace(/\/$/, '')}/voids`}
+              title="Báo cáo món huỷ sau khi đã báo bếp (hao hụt)"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              <Ban className="h-4 w-4" /> Huỷ món
+            </Link>
+          )}
           <button
             onClick={() => {
               const next = sound === 'on' ? 'off' : 'on';
@@ -492,16 +516,19 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
                     const detail = kitchenItemDetail(it.variant_label, it.modifiers);
                     const ready = it.status === 'ready';
                     const gone = it.status === 'unavailable';
+                    // an order line whose dish was cancelled entirely afterwards: do not make it
+                    const struck = !isVoid && it.status === 'voided';
                     const content = (
                       <>
                         <span className={`w-10 shrink-0 text-sm font-semibold tabular-nums ${isVoid || gone ? 'text-rose-600' : ready ? 'text-slate-400' : 'text-slate-900'}`}>
                           {isVoid ? `−${Math.abs(it.qty)}` : `x${it.qty}`}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className={`block text-sm font-medium leading-tight ${ready ? 'text-slate-400 line-through' : isVoid || gone ? 'text-rose-700 line-through' : 'text-slate-900'}`}>
+                          <span className={`block text-sm font-medium leading-tight ${ready ? 'text-slate-400 line-through' : isVoid || gone || struck ? 'text-rose-700 line-through' : 'text-slate-900'}`}>
                             {it.product_name}
                           </span>
                           {gone && <span className="mt-0.5 inline-block rounded border border-rose-200 bg-rose-50 px-1 text-[10px] font-semibold text-rose-700">Hết món · bấm để hoàn tác</span>}
+                          {struck && <span className="mt-0.5 inline-block rounded border border-rose-200 bg-rose-50 px-1 text-[10px] font-semibold text-rose-700">Đã huỷ – không làm</span>}
                           {detail && <span className="mt-0.5 block text-xs font-medium text-violet-600">{detail}</span>}
                           {it.note && <span className="mt-0.5 block text-xs font-medium italic text-amber-700">» {it.note}</span>}
                         </span>
@@ -516,12 +543,58 @@ export function KitchenDisplayClient({ shopId, shopName, canManage }: Props) {
                     return (
                       <li key={it.id}>
                         {isVoid ? (
-                          <div className="flex items-center gap-2 px-4 py-2">{content}</div>
+                          <div className="px-4 py-2">
+                            <div className="flex items-center gap-2">{content}</div>
+                            {/* What happened to the cancelled dish: drives the waste report */}
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-12">
+                              {it.void_outcome ? (
+                                <>
+                                  <span
+                                    className={`rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${
+                                      it.void_outcome === 'made'
+                                        ? 'border-amber-300 bg-amber-50 text-amber-800'
+                                        : 'border-slate-200 bg-white text-slate-600'
+                                    }`}
+                                  >
+                                    {it.void_outcome === 'made' ? 'Đã làm – ghi hao hụt' : 'Dừng kịp – không làm'}
+                                  </span>
+                                  {view === 'open' && (
+                                    <button
+                                      onClick={() => answerVoid(it, null)}
+                                      disabled={busy[`i:${it.id}`]}
+                                      className="text-[11px] text-slate-400 underline hover:text-slate-600 disabled:opacity-50 cursor-pointer"
+                                    >
+                                      Sửa
+                                    </button>
+                                  )}
+                                </>
+                              ) : view === 'open' ? (
+                                <>
+                                  <button
+                                    onClick={() => answerVoid(it, 'stopped')}
+                                    disabled={busy[`i:${it.id}`]}
+                                    className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+                                  >
+                                    Dừng kịp
+                                  </button>
+                                  <button
+                                    onClick={() => answerVoid(it, 'made')}
+                                    disabled={busy[`i:${it.id}`]}
+                                    className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50 cursor-pointer"
+                                  >
+                                    Đã làm rồi
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="text-[11px] text-slate-400">Chưa trả lời</span>
+                              )}
+                            </div>
+                          </div>
                         ) : (
                           <div className="flex items-center">
                             <button
                               onClick={() => toggleItem(it)}
-                              disabled={busy[`i:${it.id}`]}
+                              disabled={busy[`i:${it.id}`] || struck}
                               className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4 pr-2 text-left hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
                             >
                               {content}

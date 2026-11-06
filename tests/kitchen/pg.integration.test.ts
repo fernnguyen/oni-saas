@@ -6,10 +6,13 @@ import type { Pool as PgPool } from 'pg'
 
 import { PostgresConnector } from '../../packages/adapters/src/postgresAdapter'
 import type { TableOp } from '../../apps/web/lib/server/tableSync/engine'
-import { applyTableSessionOps, cancelTableSession, transferTableSession } from '../../apps/web/lib/server/tableSync/service'
 import {
-  fireKitchenForSession, generateKitchenTicketsForQr, getSessionKitchenStatus, listKitchenTickets, listUnavailableProducts,
-  markTicketItemUnavailable, markTicketPrinted, setProductUnavailable, setTicketDone, setTicketItemStatus,
+  applyTableSessionOps, cancelTableSession, closeTableSessionForOrder, endTableSessionForCancelledOrder, transferTableSession,
+} from '../../apps/web/lib/server/tableSync/service'
+import {
+  fireKitchenForSession, generateKitchenTicketsForQr, getSessionKitchenStatus, listKitchenTickets, listUnavailableProducts, listVoidReport,
+  markTicketItemUnavailable, markTicketPrinted, setProductUnavailable, setTicketDone, setTicketItemStatus, setVoidOutcome,
+  voidKitchenForCancelledTable,
 } from '../../apps/web/lib/server/kitchen/tickets'
 import { getKitchenSettings, saveKitchenSettings } from '../../apps/web/lib/server/kitchen/settings'
 
@@ -113,7 +116,7 @@ test('saving never prints; "Gửi bếp" sends per station, idempotent; voids; s
   assert.notEqual(barT.ticket_no, kitT.ticket_no)
   st = await getSessionKitchenStatus(connector, BRANCH, 'KS-1')
   assert.equal(st.unsent_lines, 0)
-  assert.deepEqual(st.items[barT.items[0].order_item_id], { sent: 2, ready: 0, unavailable: 0 })
+  assert.deepEqual(st.items[barT.items[0].order_item_id], { sent: 2, ready: 0, unavailable: 0, station_id: 'ST-B', station_name: 'Bar', station_kind: 'bar' })
 
   // Double tap / two devices: nothing new
   await Promise.all([fireKitchenForSession(connector, BRANCH, 'KS-1'), fireKitchenForSession(connector, BRANCH, 'KS-1')])
@@ -147,7 +150,8 @@ test('saving never prints; "Gửi bếp" sends per station, idempotent; voids; s
   // Whole ticket done, then reprint counter
   t = await setTicketDone(connector, BRANCH, barT.id, true)
   assert.equal(t?.status, 'done')
-  assert.ok(t?.items.every((i) => i.status === 'ready'))
+  // the coffee was cancelled down to nothing above: struck, never "made"
+  assert.deepEqual(t?.items.map((i) => i.status), ['voided'])
   // Two print stations race to auto-print: only one claims it; a manual reprint always counts
   const [c1, c2] = await Promise.all([
     markTicketPrinted(connector, BRANCH, barT.id, { claim: true }),
@@ -206,14 +210,16 @@ test('table moved → tickets show the new table; table cancelled → open ticke
   let t = await ticketsOf('KS-3')
   assert.deepEqual(t.map((x) => [x.resource_id, x.resource_name]), [['KR-3B', 'Bàn mới']])
 
-  // Remove the item (prints a void), then cancel the now-empty table: everything open is closed
+  // Remove the item (prints a void), then cancel the now-empty table: the order ticket closes, the
+  // cancel ticket stays for the kitchen to see, and no second cancel is made for the same dish.
   await applyTableSessionOps(connector, BRANCH, {
     sessionId: 'KS-3', deviceId: 'd1', ops: [{ op_id: 'k3-b', type: 'remove_item', item_id: r.results[0].item_id, kitchen_fire: true } as TableOp],
   })
-  assert.equal((await ticketsOf('KS-3')).filter((x) => x.status === 'open').length, 2)
+  // the only dish is cancelled: its order ticket closes (struck line), the cancel ticket is open
+  assert.deepEqual((await ticketsOf('KS-3')).filter((x) => x.status === 'open').map((x) => x.kind), ['void'])
   await cancelTableSession(connector, BRANCH, 'KS-3')
   t = await ticketsOf('KS-3')
-  assert.ok(t.every((x) => x.status === 'done'), 'no open ticket left for a cancelled table')
+  assert.deepEqual(t.map((x) => [x.kind, x.status]).sort(), [['order', 'done'], ['void', 'open']])
 })
 
 test('kitchen screen ignores open tickets older than yesterday', { skip }, async () => {
@@ -252,7 +258,7 @@ test('kitchen reports "hết món": line unavailable, table status shows it, pro
   assert.equal(t?.items[0].status, 'unavailable')
   assert.equal(t?.status, 'done', 'nothing left to cook on that ticket')
   const st = await getSessionKitchenStatus(connector, BRANCH, 'KS-6')
-  assert.deepEqual(st.items[phoId], { sent: 2, ready: 0, unavailable: 2 })
+  assert.deepEqual(st.items[phoId], { sent: 2, ready: 0, unavailable: 2, station_id: 'ST-K', station_name: 'Bếp', station_kind: 'kitchen' })
   assert.deepEqual(st.unavailable_products, ['KP-PHO'])
   assert.deepEqual((await listUnavailableProducts(connector, BRANCH)).map((p) => p.product_id), ['KP-PHO'])
   // Kitchen found more after all: undo, and take it off the list
@@ -292,4 +298,155 @@ test('kitchen settings: auto send defaults on, is saved per branch, and shows in
   assert.deepEqual(await getKitchenSettings(connector, 'other-branch'), { auto_send: true })
   await saveKitchenSettings(connector, BRANCH, { auto_send: true })
   assert.equal((await getKitchenSettings(connector, BRANCH)).auto_send, true)
+})
+
+// ── Cancels while the kitchen is cooking ────────────────────────────────────
+
+const fireAdd = (op_id: string, product_id: string, qty = 1) => add(op_id, product_id, qty, { kitchen_fire: true })
+const voidsOf = async (sessionId: string) => (await ticketsOf(sessionId)).filter((t) => t.kind === 'void')
+const today = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10)
+
+test('order cancelled while cooking: the kitchen gets a cancel ticket, ticked dishes count as waste, answers close it', { skip }, async () => {
+  await seedSession('KS-9', 'KO-9', 'KR-9')
+  const before = await listVoidReport(connector, BRANCH, { from: today(), to: today() })
+  await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-9', deviceId: 'd1', ops: [fireAdd('k9-a', 'KP-PHO', 2), fireAdd('k9-b', 'KP-CAFE', 1)] })
+  const barOrder = (await ticketsOf('KS-9')).find((t) => t.station_id === 'ST-B')!
+  await setTicketItemStatus(connector, BRANCH, barOrder.items[0].id, true) // bar already made the coffee
+
+  await pool.query(`UPDATE orders SET status = 'cancelled' WHERE id = 'KO-9' AND tenant_id = $1`, [TENANT])
+  await endTableSessionForCancelledOrder(connector, BRANCH, 'KO-9', { session_id: 'KS-9' })
+
+  const voids = await voidsOf('KS-9')
+  const barVoid = voids.find((t) => t.station_id === 'ST-B')!
+  const kitVoid = voids.find((t) => t.station_id === 'ST-K')!
+  assert.deepEqual(barVoid.items.map((i) => [i.product_name, i.qty, i.void_outcome, i.note]), [['Cà phê', -1, 'made', 'Lý do: Huỷ đơn']])
+  assert.equal(barVoid.status, 'done', 'made already: nothing for the bar to stop')
+  assert.deepEqual(kitVoid.items.map((i) => [i.product_name, i.qty, i.void_outcome]), [['Phở', -2, '']])
+  assert.equal(kitVoid.status, 'open', 'still cooking: the kitchen must see it')
+  assert.ok((await ticketsOf('KS-9')).filter((t) => t.kind === 'order').every((t) => t.status === 'done'))
+
+  // Cancelling again (retry, second device) makes nothing new
+  assert.equal((await voidKitchenForCancelledTable(connector, BRANCH, { sessionId: 'KS-9', orderId: 'KO-9' })).length, 0)
+  assert.equal((await voidsOf('KS-9')).length, 2)
+
+  // The kitchen answers; clearing the answer reopens the ticket
+  const line = kitVoid.items[0]
+  assert.equal((await setVoidOutcome(connector, BRANCH, line.id, 'stopped'))?.status, 'done')
+  assert.equal((await setVoidOutcome(connector, BRANCH, line.id, null))?.status, 'open')
+  const answered = await setVoidOutcome(connector, BRANCH, line.id, 'made')
+  assert.deepEqual([answered?.status, answered?.items[0].void_outcome], ['done', 'made'])
+  // Only cancel lines take an answer
+  assert.equal(await setVoidOutcome(connector, BRANCH, barOrder.items[0].id, 'made'), null)
+
+  const after = await listVoidReport(connector, BRANCH, { from: today(), to: today() })
+  assert.equal(after.totals.made_qty - before.totals.made_qty, 3)
+  assert.equal(after.totals.waste_value - before.totals.waste_value, 3 * 30000)
+  const mine = after.lines.filter((l) => l.resource_name === 'Bàn KR-9')
+  assert.deepEqual(mine.map((l) => [l.product_name, l.qty, l.outcome, l.reason, l.value]).sort(), [
+    ['Cà phê', 1, 'made', 'Huỷ đơn', 30000], ['Phở', 2, 'made', 'Huỷ đơn', 60000],
+  ])
+})
+
+test('cancel after an earlier partial cancel and a sold-out report: only what is left, sold out = stopped', { skip }, async () => {
+  await seedSession('KS-10', 'KO-10', 'KR-10')
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-10', deviceId: 'd1', ops: [fireAdd('k10-a', 'KP-PHO', 3)] })
+  const phoId = r.results[0].item_id!
+  await applyTableSessionOps(connector, BRANCH, {
+    sessionId: 'KS-10', deviceId: 'd1',
+    ops: [{ op_id: 'k10-b', type: 'change_qty', item_id: phoId, delta: -1, note: 'Lý do: Khách đổi ý', kitchen_fire: true } as TableOp],
+  })
+  const order = (await ticketsOf('KS-10')).find((t) => t.kind === 'order')!
+  await markTicketItemUnavailable(connector, BRANCH, order.items[0].id, { soldOutToday: false })
+
+  const created = await voidKitchenForCancelledTable(connector, BRANCH, { sessionId: 'KS-10', orderId: 'KO-10', reason: 'Khách bỏ về' })
+  assert.equal(created.length, 1)
+  assert.deepEqual(created[0].items.map((i) => [i.qty, i.void_outcome, i.note]), [[-2, 'stopped', 'Lý do: Khách bỏ về']])
+  assert.equal(created[0].status, 'done', 'the kitchen already knows it cannot make it')
+})
+
+test('paying keeps dishes not ticked yet on the kitchen screen (pay-first cafés)', { skip }, async () => {
+  await seedSession('KS-11', 'KO-11', 'KR-11')
+  await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-11', deviceId: 'd1', ops: [fireAdd('k11-a', 'KP-CAFE', 2)] })
+  await pool.query(`UPDATE orders SET status = 'completed' WHERE id = 'KO-11' AND tenant_id = $1`, [TENANT])
+  await closeTableSessionForOrder(connector, BRANCH, { orderId: 'KO-11', orderMetadata: { session_id: 'KS-11' } })
+  const { rows } = await pool.query(`SELECT status FROM table_sessions WHERE id = 'KS-11' AND tenant_id = $1`, [TENANT])
+  assert.equal(rows[0].status, 'closed')
+  assert.deepEqual((await ticketsOf('KS-11')).map((t) => [t.kind, t.status]), [['order', 'open']])
+  assert.equal((await voidsOf('KS-11')).length, 0, 'paying is not a cancel')
+})
+
+test('POS cancels a dish the kitchen already made ("Vẫn huỷ – ghi hao hụt"): waste line, no alarm', { skip }, async () => {
+  await seedSession('KS-12', 'KO-12', 'KR-12')
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-12', deviceId: 'd1', ops: [fireAdd('k12-a', 'KP-PHO', 2)] })
+  const order = (await ticketsOf('KS-12')).find((t) => t.kind === 'order')!
+  await setTicketItemStatus(connector, BRANCH, order.items[0].id, true)
+  await applyTableSessionOps(connector, BRANCH, {
+    sessionId: 'KS-12', deviceId: 'd1',
+    ops: [{ op_id: 'k12-b', type: 'change_qty', item_id: r.results[0].item_id, delta: -1, note: 'Lý do: Khách đổi ý', kitchen_fire: true, kitchen_made: true } as TableOp],
+  })
+  const v = (await voidsOf('KS-12'))[0]
+  assert.deepEqual(v.items.map((i) => [i.qty, i.void_outcome, i.unit_price]), [[-1, 'made', 30000]])
+  assert.equal(v.status, 'done')
+  // Without the flag (dish still cooking) the cancel opens for the kitchen
+  await applyTableSessionOps(connector, BRANCH, {
+    sessionId: 'KS-12', deviceId: 'd1',
+    ops: [{ op_id: 'k12-c', type: 'change_qty', item_id: r.results[0].item_id, delta: -1, note: 'Lý do: Nhập nhầm', kitchen_fire: true } as TableOp],
+  })
+  const open = (await voidsOf('KS-12')).filter((t) => t.status === 'open')
+  assert.deepEqual(open.map((t) => t.items.map((i) => [i.qty, i.void_outcome])), [[[-1, '']]])
+})
+
+test('nothing sent yet → cancelling the table tells the kitchen nothing', { skip }, async () => {
+  await seedSession('KS-13', 'KO-13', 'KR-13')
+  await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-13', deviceId: 'd1', ops: [add('k13-a', 'KP-PHO', 1)] })
+  assert.equal((await voidKitchenForCancelledTable(connector, BRANCH, { sessionId: 'KS-13', orderId: 'KO-13' })).length, 0)
+  assert.equal((await ticketsOf('KS-13')).length, 0)
+})
+
+test('QR order cancelled (no table session): cancel ticket per station by order id', { skip }, async () => {
+  await generateKitchenTicketsForQr(connector, BRANCH, {
+    requestId: 'QR-REQ-9', orderId: 'KO-QR9', resourceId: 'KR-QR9', resourceName: 'Bàn QR9',
+    items: [{ product_id: 'KP-CAFE', product_name: 'Cà phê', qty: 2, order_item_id: 'OI-QR9-1' }, { product_id: 'KP-PHO', product_name: 'Phở', qty: 1, order_item_id: 'OI-QR9-2' }],
+  })
+  const created = await voidKitchenForCancelledTable(connector, BRANCH, { orderId: 'KO-QR9' })
+  assert.deepEqual(created.map((t) => [t.station_id, t.resource_name, t.items.map((i) => i.qty)]).sort(), [
+    ['ST-B', 'Bàn QR9', [-2]], ['ST-K', 'Bàn QR9', [-1]],
+  ])
+  assert.ok(created.every((t) => t.status === 'open'))
+})
+
+test('table status names the station of each dish and where the next send goes', { skip }, async () => {
+  await seedSession('KS-14', 'KO-14', 'KR-14')
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-14', deviceId: 'd1', ops: [fireAdd('k14-a', 'KP-CAFE', 1)] })
+  await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-14', deviceId: 'd1', ops: [add('k14-b', 'KP-PHO', 1)] })
+  const st = await getSessionKitchenStatus(connector, BRANCH, 'KS-14')
+  assert.deepEqual([st.items[r.results[0].item_id!].station_name, st.items[r.results[0].item_id!].station_kind], ['Bar', 'bar'])
+  assert.deepEqual(st.unsent_stations.map((s) => s.name), ['Bếp'])
+  assert.deepEqual(st.stations.map((s) => s.name).sort(), ['Bar', 'Bếp'])
+})
+
+test('a dish cancelled down to nothing is struck on its order ticket; a partial cancel is not', { skip }, async () => {
+  await seedSession('KS-15', 'KO-15', 'KR-15')
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-15', deviceId: 'd1', ops: [fireAdd('k15-a', 'KP-PHO', 2), fireAdd('k15-b', 'KP-CAFE', 2)] })
+  const [phoId, cafeId] = [r.results[0].item_id!, r.results[1].item_id!]
+  await applyTableSessionOps(connector, BRANCH, {
+    sessionId: 'KS-15', deviceId: 'd1',
+    ops: [
+      { op_id: 'k15-c', type: 'remove_item', item_id: phoId, note: 'Lý do: Nhập nhầm', kitchen_fire: true } as TableOp,
+      { op_id: 'k15-d', type: 'change_qty', item_id: cafeId, delta: -1, note: 'Lý do: Khách đổi ý', kitchen_fire: true } as TableOp,
+    ],
+  })
+  const orders = (await ticketsOf('KS-15')).filter((t) => t.kind === 'order')
+  const pho = orders.find((t) => t.station_id === 'ST-K')!
+  const cafe = orders.find((t) => t.station_id === 'ST-B')!
+  assert.deepEqual([pho.items[0].status, pho.status], ['voided', 'done'], 'nothing left to cook: struck and closed')
+  assert.deepEqual([cafe.items[0].status, cafe.status], ['pending', 'open'], '1 of 2 still to make')
+})
+
+test('a late send for a table already paid or cancelled reaches no kitchen', { skip }, async () => {
+  await seedSession('KS-16', 'KO-16', 'KR-16')
+  await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-16', deviceId: 'd1', ops: [add('k16-a', 'KP-PHO', 1)] })
+  await pool.query(`UPDATE table_sessions SET status = 'cancelled' WHERE id = 'KS-16' AND tenant_id = $1`, [TENANT])
+  assert.deepEqual(await fireKitchenForSession(connector, BRANCH, 'KS-16'), [])
+  assert.equal((await ticketsOf('KS-16')).length, 0)
 })

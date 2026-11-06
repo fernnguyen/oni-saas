@@ -15,7 +15,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { formatCurrency, maskCurrencyInput, parseCurrencyToNumber } from '../../lib/utils/format';
 import { formatResourceStartTime, getResourceBillingPresentationForResource } from '../../lib/utils/resource-billing-presentation';
-import { allowsProductNegativeStock, buildQuickCreateMetadata, calculateHourlyBilling, isKitchenEligibleIndustry, isTimeChargeProduct, isSystemTimeChargeProduct } from '@oni/core';
+import { allowsProductNegativeStock, buildQuickCreateMetadata, calculateHourlyBilling, isKitchenEligibleIndustry, isTimeChargeProduct, isSystemTimeChargeProduct, kitchenDestinationLabel } from '@oni/core';
 
 // Import hệ thống component dùng chung
 import { Header } from '../../components/layout/Header';
@@ -47,7 +47,7 @@ import { useTableSyncV2 } from '../../hooks/pos/useTableSyncV2';
 import TableSyncInboxModal from '../../components/pos/TableSyncInboxModal';
 import { usePosToast } from '../../hooks/pos/usePosToast';
 import { usePermissions } from '../../lib/auth/PermissionsContext';
-import { useTableKitchen, sentQtyOf, soldOutQtyOf, kitchenBadge, fetchSoldOutProducts, setProductBackInStock } from '../../hooks/pos/useTableKitchen';
+import { useTableKitchen, sentQtyOf, soldOutQtyOf, kitchenBadge, fetchSoldOutProducts, setProductBackInStock, kitchenDest, itemStationName, madeQtyOf } from '../../hooks/pos/useTableKitchen';
 import { withoutKitchenNotes } from '../../lib/pos/tableCartV2';
 import { useRealtimeSync } from '../../hooks/pos/useRealtimeSync';
 export type SelectedModifier = { option: string; price_adj: number };
@@ -432,6 +432,9 @@ export default function PosScreen() {
   // from the table detail's kitchen bar.
   const [kitchenAutoSend, setKitchenAutoSend] = useState(true);
   const kitchenSendOnSave = kitchenEnabled && kitchenAutoSend;
+  /** Station names of the branch: "Lưu & báo Bar" instead of a hard-coded "bếp" */
+  const [kitchenStationNames, setKitchenStationNames] = useState<{ name: string }[]>([]);
+  const kitchenWhere = kitchenDestinationLabel(kitchenStationNames);
   useEffect(() => {
     if (!activeShopId || !isKitchenEligibleIndustry(shopVertical || 'retail') || !isOnline) return;
     let alive = true;
@@ -442,6 +445,7 @@ export default function PosScreen() {
         if (alive) {
           setKitchenEnabled(Array.isArray(json?.data) && json.data.length > 0);
           setKitchenAutoSend(json?.settings?.auto_send !== false);
+          setKitchenStationNames(Array.isArray(json?.data) ? json.data.map((st: { name?: string }) => ({ name: String(st?.name || '') })) : []);
         }
       } catch {
         /* offline / unsupported: keep the last known value */
@@ -634,7 +638,7 @@ export default function PosScreen() {
   // "Lưu & báo bếp" only where the save really reaches the kitchen (v2 table + stations).
   const tableSaveLabel = (table: { id: string; name: string }) => {
     const live = tables.find(t => t.id === table.id) || table;
-    return kitchenSendOnSave && isV2Table(live as any) ? 'Lưu & báo bếp' : `Lưu vào ${table.name}`;
+    return kitchenSendOnSave && isV2Table(live as any) ? `Lưu & báo ${kitchenWhere}` : `Lưu vào ${table.name}`;
   };
 
   const saveTableOrderDraft = async () => {
@@ -680,9 +684,9 @@ export default function PosScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
         showToast(
           sessionState === 'offline'
-            ? `Đã lưu ${count} món trên máy cho ${target.name}, sẽ gửi${kitchenSendOnSave ? ' và báo bếp' : ''} khi có mạng`
+            ? `Đã lưu ${count} món trên máy cho ${target.name}, sẽ gửi${kitchenSendOnSave ? ` và báo ${kitchenWhere}` : ''} khi có mạng`
             : kitchenSendOnSave
-              ? `Đã lưu ${count} món vào ${target.name} và báo bếp`
+              ? `Đã lưu ${count} món vào ${target.name} và báo ${kitchenWhere}`
               : `Đã lưu ${count} món vào ${target.name}`,
           'success',
           { silent: true }
@@ -852,29 +856,54 @@ export default function PosScreen() {
   const canVoidSentDish = hasPermission(['orders.delete', 'owner', 'admin']);
 
   /** Before cutting a table line: dishes already sent need permission + a reason (cancel ticket). */
-  const guardKitchenReduce = async (item: any, newQty: number): Promise<{ ok: boolean; reason?: string }> => {
+  const guardKitchenReduce = async (item: any, newQty: number): Promise<{ ok: boolean; reason?: string; made?: boolean }> => {
     const sent = sentQtyOf(tableKitchen.status, item?._serverItemId);
     const voidQty = sent - Math.max(0, newQty);
     if (sent <= 0 || voidQty <= 0) return { ok: true };
     // The kitchen itself reported it sold out: removing that part is not the floor's fault.
     if (voidQty <= soldOutQtyOf(tableKitchen.status, item?._serverItemId)) return { ok: true, reason: 'Hết món' };
+    const name = item?.name || 'Món';
+    const where = itemStationName(tableKitchen.status, item?._serverItemId) || kitchenDest(tableKitchen.status);
+    // Part the station already made (ticked "Xong"): cancelling it is waste, not a plain cancel.
+    const madeQty = madeQtyOf(tableKitchen.status, item?._serverItemId, voidQty);
     if (!canVoidSentDish) {
-      await dialog.alert('Món đã báo bếp', `"${item?.name || 'Món'}" đã gửi xuống bếp. Cần quyền huỷ đơn để bớt hoặc huỷ món này.`, 'warning');
+      await dialog.alert(
+        madeQty > 0 ? `${where} đã làm xong` : `Món đã gửi ${where}`,
+        `"${name}" đã gửi ${where}${madeQty > 0 ? ' và đã làm xong' : ''}. Cần quyền huỷ đơn để bớt hoặc huỷ món này.`,
+        'warning',
+      );
       return { ok: false };
     }
-    const choice = await dialog.confirm({
-      title: 'Huỷ món đã báo bếp',
-      message: `${item?.name || 'Món'}: huỷ ${voidQty} phần đã gửi xuống bếp. Bếp sẽ nhận phiếu huỷ kèm lý do.`,
-      tone: 'warning',
-      icon: 'x-circle',
-      cancelKey: 'keep',
-      actions: [
-        { key: 'Khách đổi ý', label: 'Khách đổi ý', style: 'destructive' },
-        { key: 'Nhập nhầm', label: 'Nhập nhầm', style: 'destructive' },
-        { key: 'keep', label: 'Giữ món', style: 'secondary' },
-      ],
-    });
-    return choice && choice !== 'keep' ? { ok: true, reason: choice } : { ok: false };
+    const choice = madeQty > 0
+      ? await dialog.confirm({
+        title: `${where} đã làm xong món này`,
+        message: `Huỷ bây giờ sẽ ghi hao hụt (vẫn mất nguyên liệu). Nếu khách vẫn nhận món, hãy giữ món và tính tiền.`,
+        details: [
+          { label: 'Món', value: name },
+          { label: 'Đã làm xong', value: madeQty === voidQty ? `${voidQty} phần` : `${madeQty}/${voidQty} phần`, tone: 'warning' },
+        ],
+        tone: 'warning',
+        icon: 'alert-triangle',
+        cancelKey: 'keep',
+        actions: [
+          { key: 'keep', label: 'Giữ món – vẫn tính tiền', style: 'primary' },
+          { key: 'Khách đổi ý', label: 'Vẫn huỷ – khách đổi ý', style: 'destructive' },
+          { key: 'Nhập nhầm', label: 'Vẫn huỷ – nhập nhầm', style: 'destructive' },
+        ],
+      })
+      : await dialog.confirm({
+        title: `Huỷ món đã gửi ${where}`,
+        message: `${name}: huỷ ${voidQty} phần đã gửi ${where}. ${where} sẽ nhận phiếu huỷ kèm lý do và báo lại đã dừng kịp hay đã làm.`,
+        tone: 'warning',
+        icon: 'x-circle',
+        cancelKey: 'keep',
+        actions: [
+          { key: 'Khách đổi ý', label: 'Khách đổi ý', style: 'destructive' },
+          { key: 'Nhập nhầm', label: 'Nhập nhầm', style: 'destructive' },
+          { key: 'keep', label: 'Giữ món', style: 'secondary' },
+        ],
+      });
+    return choice && choice !== 'keep' ? { ok: true, reason: choice, made: madeQty > 0 } : { ok: false };
   };
 
   // "Tạm hết" list while ordering for a table (refreshed every 30 s)
@@ -919,9 +948,10 @@ export default function PosScreen() {
   };
 
   const sendTableToKitchen = async () => {
+    const where = kitchenDest(tableKitchen.status); // before the send: where the unsent dishes go
     const n = await tableKitchen.send();
-    if (n === null) showToast('Chưa gửi được xuống bếp (mất mạng?). Thử lại khi có mạng.', 'error');
-    else showToast(n > 0 ? `Đã gửi ${n} phiếu xuống bar/bếp` : 'Không có món mới để gửi', n > 0 ? 'success' : 'info', { silent: true });
+    if (n === null) showToast(`Chưa gửi được xuống ${where} (mất mạng?). Thử lại khi có mạng.`, 'error');
+    else showToast(n > 0 ? `Đã gửi ${n} phiếu xuống ${where}` : 'Không có món mới để gửi', n > 0 ? 'success' : 'info', { silent: true });
   };
 
   const [isTransferModalVisible, setIsTransferModalVisible] = useState(false);
@@ -3757,7 +3787,7 @@ export default function PosScreen() {
                           if (gone.length === 0) return null;
                           return (
                             <View className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 mb-2">
-                              <Text className="text-xs font-semibold text-rose-800">Bếp báo hết món – báo khách và bỏ món:</Text>
+                              <Text className="text-xs font-semibold text-rose-800">Báo hết món – báo khách và bỏ món:</Text>
                               {gone.map(({ key, it, n }) => (
                                 <View key={key} className="flex-row items-center mt-1.5">
                                   <Text className="flex-1 text-xs text-rose-700" numberOfLines={1}>{it.name} · hết {n}</Text>
@@ -3786,17 +3816,17 @@ export default function PosScreen() {
                             <View className={`flex-row items-center rounded-xl border px-3 py-2 mb-2 ${unsentQty > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
                               <Feather name="coffee" size={14} color={unsentQty > 0 ? '#d97706' : '#94a3b8'} />
                               <Text className={`flex-1 ml-2 text-xs font-medium ${unsentQty > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
-                                {unsentQty > 0 ? `Món chưa báo bếp: ${unsentQty}` : 'Đã báo bếp đủ món'}
+                                {unsentQty > 0 ? `Chưa báo ${kitchenDest(tableKitchen.status)}: ${unsentQty} món` : 'Đã báo đủ món'}
                               </Text>
                               {unsentQty > 0 && (
                                 <TouchableOpacity
                                   onPress={() => { void sendTableToKitchen(); }}
                                   disabled={tableKitchen.sending}
                                   className={`flex-row items-center rounded-lg px-3 py-1.5 ${tableKitchen.sending ? 'bg-orange-300' : 'bg-orange-500 active:bg-orange-600'}`}
-                                  accessibilityLabel="Gửi bếp"
+                                  accessibilityLabel={`Gửi ${kitchenDest(tableKitchen.status)}`}
                                 >
                                   {tableKitchen.sending ? <ActivityIndicator size="small" color="white" /> : <Feather name="send" size={12} color="white" />}
-                                  <Text className="text-xs font-semibold text-white ml-1.5">Gửi bếp</Text>
+                                  <Text className="text-xs font-semibold text-white ml-1.5">Gửi {kitchenDest(tableKitchen.status)}</Text>
                                 </TouchableOpacity>
                               )}
                             </View>
@@ -3835,7 +3865,7 @@ export default function PosScreen() {
                                 <TouchableOpacity
                                   onPress={async () => {
                                     const g = await guardKitchenReduce(item, Math.max(1, (Number(item.quantity) || 0) - 1));
-                                    if (g.ok) handleDecreaseTableItemQty(activeTable.id, cartItemId, g.reason ? { voidReason: g.reason } : undefined);
+                                    if (g.ok) handleDecreaseTableItemQty(activeTable.id, cartItemId, g.reason ? { voidReason: g.reason, kitchenMade: g.made } : undefined);
                                   }}
                                   className="w-7 h-7 bg-slate-100 rounded-lg justify-center items-center active:bg-slate-200"
                                 >
@@ -3888,7 +3918,7 @@ export default function PosScreen() {
                                 <TouchableOpacity
                                   onPress={async () => {
                                     const g = await guardKitchenReduce(item, 0);
-                                    if (g.ok) handleRemoveTableItem(activeTable.id, cartItemId, g.reason ? { voidReason: g.reason } : undefined);
+                                    if (g.ok) handleRemoveTableItem(activeTable.id, cartItemId, g.reason ? { voidReason: g.reason, kitchenMade: g.made } : undefined);
                                   }}
                                   className="p-1 ml-1"
                                 >
@@ -3988,7 +4018,7 @@ export default function PosScreen() {
                                 : 'Chưa gọi món',
                             },
                             ...(cancelSentQty > 0
-                              ? [{ label: 'Đã báo bếp', value: `${cancelSentQty} món – bếp sẽ nhận phiếu huỷ`, tone: 'warning' as const }]
+                              ? [{ label: `Đã gửi ${kitchenDest(tableKitchen.status)}`, value: `${cancelSentQty} món – sẽ nhận phiếu huỷ`, tone: 'warning' as const }]
                               : []),
                             { label: 'Tạm tính bị huỷ', value: formatCurrency(cancelTimeCost + cancelItemsCost), tone: 'danger', strong: true },
                           ];

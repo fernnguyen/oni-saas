@@ -7,7 +7,7 @@ import { cleanResourceSessionMetadata, parseMetadataSafe } from '@/lib/server/ta
 import { applyTableOps, isTimeChargeLine, TableSyncError, type ApplyOpsResult, type TableOp } from './engine'
 import { createPgTableSyncRepo, mapSessionRow } from './pgRepository'
 import { broadcastTableSync } from './broadcast'
-import { closeKitchenTicketsForTable, fireKitchenForSession, kitchenBestEffort, retargetKitchenTickets } from '../kitchen/tickets'
+import { fireKitchenForSession, kitchenBestEffort, retargetKitchenTickets, voidKitchenForCancelledTable } from '../kitchen/tickets'
 
 // Table sync v2 service (docs/TABLE-SESSION-SYNC-PLAN.md Phase 1): sessions, idempotent ops,
 // change feed. On by default for every shop whose connector supports transactions (Postgres);
@@ -257,8 +257,9 @@ export async function endTableSessionForCancelledOrder(connector: IDataConnector
   })
   if (healed) {
     void broadcastTableSync(shopId, { session_id: sessionId, kind: 'session_cancelled' })
-    await kitchenBestEffort('close tickets (order cancelled)', () =>
-      closeKitchenTicketsForTable(connector as TxConnector, shopId, { sessionId, orderId }))
+    // The kitchen is told: dishes still at a station get a cancel ticket (see voidKitchenForCancelledTable)
+    await kitchenBestEffort('cancel tickets (order cancelled)', () =>
+      voidKitchenForCancelledTable(connector as TxConnector, shopId, { sessionId, orderId, reason: 'Huỷ đơn' }))
   }
   return healed
 }
@@ -506,8 +507,8 @@ export async function closeTableSessionForOrder(connector: IDataConnector, shopI
       console.warn(`[tableSync] billing discrepancy on session ${sessionId}:`, outcome.billing)
     }
     void broadcastTableSync(shopId, { session_id: sessionId, resource_id: outcome.session.resource_id, kind: 'session_closed' })
-    await kitchenBestEffort('close tickets (table paid)', () =>
-      closeKitchenTicketsForTable(connector as TxConnector, shopId, { sessionId, orderId: outcome.session.order_id }))
+    // Paying does not touch the kitchen: dishes not ticked yet stay on the screen (pay-first cafes
+    // pay before the drinks are made); the kitchen ticks them when done.
   }
   return outcome
 }
@@ -553,8 +554,8 @@ export async function cancelTableSession(connector: TxConnector, shopId: string,
     invalidate(shopId, 'orders')
     invalidate(shopId, 'location-resources')
     void broadcastTableSync(shopId, { session_id: sessionId, resource_id: outcome.session.resource_id, kind: 'session_cancelled' })
-    await kitchenBestEffort('close tickets (table cancelled)', () =>
-      closeKitchenTicketsForTable(connector, shopId, { sessionId, orderId: outcome.session.order_id }))
+    await kitchenBestEffort('cancel tickets (table cancelled)', () =>
+      voidKitchenForCancelledTable(connector, shopId, { sessionId, orderId: outcome.session.order_id, reason: input.reason || 'Huỷ bàn', deviceId: input.device_id }))
   }
   return { session_id: sessionId, status: 'cancelled' as const }
 }

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  getPrepStationPresets, isKitchenEligibleIndustry, resolvePrepStation, toPrepStation,
+  getPrepStationPresets, isKitchenEligibleIndustry, kitchenDestinationLabel, resolvePrepStation, toPrepStation,
   type PrepStation, type PrepStationRoute,
 } from '../../packages/core/src/kitchen'
 
@@ -36,4 +36,13 @@ test('resolvePrepStation: product › category › default › null', () => {
   assert.equal(resolvePrepStation({ category_id: 'ghost' }, [kitchen, bar], routes)?.id, 'k') // route to deleted station
   assert.equal(resolvePrepStation({ category_id: 'food' }, [bar], routes), null)               // no default
   assert.equal(resolvePrepStation({ category_id: 'drinks' }, [], routes), null)
+})
+
+test('labels name the station the shop chose, never a hard-coded "bếp"', () => {
+  assert.equal(kitchenDestinationLabel([{ name: 'Bar' }]), 'Bar')
+  assert.equal(kitchenDestinationLabel([{ name: 'Quầy nước' }]), 'Quầy nước')
+  assert.equal(kitchenDestinationLabel([{ name: 'Bếp' }, { name: 'Bar' }, { name: 'Bar' }]), 'Bếp + Bar')
+  assert.equal(kitchenDestinationLabel([{ name: 'Bếp' }, { name: 'Bar' }, { name: 'Bếp nướng' }]), 'Bếp/Bar')
+  assert.equal(kitchenDestinationLabel([]), 'Bếp/Bar')
+  assert.equal(kitchenDestinationLabel([{ name: '  ' }], 'Bếp'), 'Bếp')
 })

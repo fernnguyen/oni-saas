@@ -122,3 +122,31 @@ test('mergeSameItemLines: same item + note + sign → one line', async () => {
     ['a', 'cafe', 2, ''], ['c', 'cafe', 1, 'ít đá'], ['d', 'pho', 2, ''],
   ])
 })
+
+test('void of a dish the floor says is already made carries outcome "made" and the price', () => {
+  const sent = new Map<string, SentInfo>([
+    ['i1', { net_qty: 2, station_id: 'k', product_id: 'P-PHO', product_name: 'Phở', variant_label: '', modifiers: '', unit_price: 45000 }],
+  ])
+  const t = planKitchenTickets(base({
+    ops: [
+      { op_id: 'v1', type: 'change_qty', item_id: 'i1', delta: -1, kitchen_made: true },
+      { op_id: 'v2', type: 'change_qty', item_id: 'i1', delta: -1 },
+    ],
+    results: [ok('v1', 'i1'), ok('v2', 'i1')],
+    sent,
+  }))
+  assert.deepEqual(t[0].lines.map((l) => [l.qty, l.outcome ?? '', l.unit_price]), [[-1, 'made', 45000], [-1, '', 45000]])
+})
+
+test('order lines keep the unit price of the op (waste value later)', () => {
+  const t = planKitchenTickets(base({ ops: [addOp('o1', 'P-PHO', 1, { unit_price: 45000 }), addOp('o2', 'P-PHO')], results: [ok('o1', 'i1'), ok('o2', 'i2')] }))
+  assert.deepEqual(t[0].lines.map((l) => l.unit_price), [45000, undefined])
+})
+
+test('mergeSameItemLines never merges a made cancel with a not-made one', async () => {
+  const { mergeSameItemLines } = await import('../../apps/web/lib/server/kitchen/ticketPlanner')
+  const line = (op_id: string, qty: number, outcome?: 'made') =>
+    ({ op_id, order_item_id: 'pho', product_id: 'P', product_name: 'Phở', variant_label: '', modifiers: '', note: 'Lý do: Khách đổi ý', qty, ...(outcome ? { outcome } : {}) })
+  const out = mergeSameItemLines([{ station: kitchen, kind: 'void', batch_id: 'b', lines: [line('a', -1, 'made'), line('b', -1), line('c', -1, 'made')] }])
+  assert.deepEqual(out[0].lines.map((l) => [l.op_id, l.qty, l.outcome ?? '']), [['a', -2, 'made'], ['b', -1, '']])
+})

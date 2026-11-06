@@ -854,7 +854,7 @@ export function useTableManager(props: UseTableManagerProps) {
     cartItems: any,
     tableId?: string,
     baseCart?: any,
-    opts?: { kitchenFire?: boolean; voidReason?: string },
+    opts?: { kitchenFire?: boolean; voidReason?: string; kitchenMade?: boolean },
   ) => {
     // Table sync v2: send only the DIFFERENCE between the cart the user started from and the cart
     // they saved, through the persistent outbox (no SQLite rows, no absolute PUT/POST/DELETE).
@@ -874,7 +874,7 @@ export function useTableManager(props: UseTableManagerProps) {
           for (let i = 0; i < ops.length; i++) {
             const op = ops[i] as any;
             if (op.type === 'remove_item' || (op.type === 'change_qty' && Number(op.delta) < 0)) {
-              ops[i] = { ...op, note: `Lý do: ${opts.voidReason}`, kitchen_fire: true };
+              ops[i] = { ...op, note: `Lý do: ${opts.voidReason}`, kitchen_fire: true, ...(opts.kitchenMade ? { kitchen_made: true } : {}) };
             }
           }
         }
@@ -2623,14 +2623,14 @@ export function useTableManager(props: UseTableManagerProps) {
   const applyV2TableCartEdit = (
     tableId: string,
     edit: (cart: Record<string, any>) => Record<string, any> | null,
-    opts?: { voidReason?: string },
+    opts?: { voidReason?: string; kitchenMade?: boolean },
   ) => {
     const base = tableCartsRef.current[tableId] || {};
     const next = edit(base);
     if (!next) return;
     tableCartsRef.current = { ...tableCartsRef.current, [tableId]: next };
     setTableCarts(prev => ({ ...prev, [tableId]: next }));
-    void syncOrderItemsOnline('', next, tableId, base, opts?.voidReason ? { voidReason: opts.voidReason } : undefined);
+    void syncOrderItemsOnline('', next, tableId, base, opts?.voidReason ? { voidReason: opts.voidReason, kitchenMade: opts.kitchenMade } : undefined);
   };
 
   const handleIncreaseTableItemQty = (tableId: string, cartItemId: string) => {
@@ -2666,7 +2666,7 @@ export function useTableManager(props: UseTableManagerProps) {
     });
   };
 
-  const handleDecreaseTableItemQty = (tableId: string, cartItemId: string, opts?: { voidReason?: string }) => {
+  const handleDecreaseTableItemQty = (tableId: string, cartItemId: string, opts?: { voidReason?: string; kitchenMade?: boolean }) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     if (getV2Session(tableId)) {
       applyV2TableCartEdit(tableId, (cart) => {
@@ -2702,7 +2702,7 @@ export function useTableManager(props: UseTableManagerProps) {
     });
   };
 
-  const handleRemoveTableItem = (tableId: string, cartItemId: string, opts?: { voidReason?: string }) => {
+  const handleRemoveTableItem = (tableId: string, cartItemId: string, opts?: { voidReason?: string; kitchenMade?: boolean }) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => { });
     if (getV2Session(tableId)) {
       applyV2TableCartEdit(tableId, (cart) => {

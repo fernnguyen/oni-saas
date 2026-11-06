@@ -241,6 +241,14 @@ export async function POST(
       } catch (err) {
         console.error('[cancel] Failed to end table sync v2 session:', err)
       }
+    } else if (typeof (connector as { withTransaction?: unknown }).withTransaction === 'function') {
+      // Bar/Bếp: an order without a table session (QR order) may still have dishes at the kitchen
+      try {
+        const { voidKitchenForCancelledTable } = await import('@/lib/server/kitchen/tickets')
+        await voidKitchenForCancelledTable(connector as Parameters<typeof voidKitchenForCancelledTable>[0], shopId, { orderId: id, reason: 'Huỷ đơn' })
+      } catch (err) {
+        console.error('[cancel] Failed to send the cancel to the kitchen:', err)
+      }
     }
 
     // 4. Auto-release physical resource if this cancelled order was occupying a table/room

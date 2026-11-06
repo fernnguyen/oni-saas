@@ -5,13 +5,17 @@
 import { env } from '../../env'
 
 export interface KitchenBroadcast {
-  kind: 'ticket_created' | 'ticket_updated' | 'item_unavailable' | 'unavailable_changed'
+  kind: 'ticket_created' | 'ticket_updated' | 'item_unavailable' | 'unavailable_changed' | 'void_answered'
   ticket_id?: string
   station_id?: string
   /** item_unavailable: what to tell the floor ("Bếp báo hết: Mì tôm – Bàn 2") */
   product_name?: string
   resource_name?: string
+  /** station the message is about ("Bar báo hết: ...") */
+  station_name?: string
   session_id?: string
+  /** void_answered: 'stopped' ("Dừng kịp") | 'made' ("Đã làm rồi" = waste) | '' (answer cleared) */
+  outcome?: string
 }
 
 export function kitchenChannel(shopId: string) {
