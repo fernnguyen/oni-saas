@@ -18,7 +18,8 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   }
 }
 
-// POST { batch_id?, device_id? } – "Gửi bếp": ticket everything still unsent for this table.
+// POST { batch_id?, device_id?, notes?: { [order_item_id]: note } } – "Gửi bếp": ticket everything
+// still unsent for this table.
 export async function POST(req: NextRequest, { params }: Ctx) {
   try {
     const { shopId, sessionId } = await params
@@ -28,6 +29,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     const tickets = await fireKitchenForSession(tx, shopId, sessionId, {
       deviceId: String(body?.device_id || ''),
       batchId: body?.batch_id ? String(body.batch_id) : undefined,
+      notes: body?.notes && typeof body.notes === 'object' && !Array.isArray(body.notes)
+        ? Object.fromEntries(Object.entries(body.notes as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')]))
+        : undefined,
     })
     return NextResponse.json({ tickets, status: await getSessionKitchenStatus(tx, shopId, sessionId) })
   } catch (e) {

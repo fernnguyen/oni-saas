@@ -110,3 +110,15 @@ test('netPlannedTickets keeps only the net change per item', async () => {
     ['void', [['r3', -1]]],
   ])
 })
+
+test('mergeSameItemLines: same item + note + sign → one line', async () => {
+  const { mergeSameItemLines } = await import('../../apps/web/lib/server/kitchen/ticketPlanner')
+  const line = (op_id: string, item: string, qty: number, note = '') =>
+    ({ op_id, order_item_id: item, product_id: 'P', product_name: item, variant_label: '', modifiers: '', note, qty })
+  const out = mergeSameItemLines([
+    { station: kitchen, kind: 'order', batch_id: 'b', lines: [line('a', 'cafe', 1), line('b', 'cafe', 1), line('c', 'cafe', 1, 'ít đá'), line('d', 'pho', 2)] },
+  ])
+  assert.deepEqual(out[0].lines.map((l) => [l.op_id, l.order_item_id, l.qty, l.note]), [
+    ['a', 'cafe', 2, ''], ['c', 'cafe', 1, 'ít đá'], ['d', 'pho', 2, ''],
+  ])
+})

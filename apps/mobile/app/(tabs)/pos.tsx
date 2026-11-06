@@ -47,6 +47,8 @@ import { useTableSyncV2 } from '../../hooks/pos/useTableSyncV2';
 import TableSyncInboxModal from '../../components/pos/TableSyncInboxModal';
 import { usePosToast } from '../../hooks/pos/usePosToast';
 import { usePermissions } from '../../lib/auth/PermissionsContext';
+import { useTableKitchen, sentQtyOf, kitchenBadge } from '../../hooks/pos/useTableKitchen';
+import { withoutKitchenNotes } from '../../lib/pos/tableCartV2';
 import { useRealtimeSync } from '../../hooks/pos/useRealtimeSync';
 export type SelectedModifier = { option: string; price_adj: number };
 export type CartItem = {
@@ -495,6 +497,7 @@ export default function PosScreen() {
     openPendingConflict,
     pendingConflictTableIds,
     isV2Table,
+    getV2Session,
     beginTableOrdering,
     takeOrderingBaseCart,
     verifyV2SessionOpen,
@@ -544,8 +547,9 @@ export default function PosScreen() {
       const qty = Number((line as any)?.quantity) || 0;
       if (qty <= 0) continue;
       const existing = next[key];
+      const note = (line as any)?.kitchen_note;
       next[key] = existing
-        ? { ...existing, quantity: (Number(existing.quantity) || 0) + qty }
+        ? { ...existing, quantity: (Number(existing.quantity) || 0) + qty, ...(note ? { kitchen_note: note } : {}) }
         : { ...(line as any) };
     }
     return next;
@@ -659,7 +663,7 @@ export default function PosScreen() {
           void dialog.alert('Chưa lưu được món', `Không ghi được món vào ${target.name}. Các món mới vẫn được giữ trong nháp, vui lòng thử lại.`, 'danger');
           return;
         }
-        setTableCarts(prev => ({ ...prev, [target.id]: next }));
+        setTableCarts(prev => ({ ...prev, [target.id]: withoutKitchenNotes(next) }));
         setIsTableTicketOpen(false);
         exitTableOrdering('saved');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
@@ -830,6 +834,41 @@ export default function PosScreen() {
   // State thêm nhanh khách hàng cho sơ đồ phòng bàn
   const { hasPermission } = usePermissions();
   const canModifyOrders = hasPermission(['orders.edit', 'orders.update', 'owner', 'admin']);
+
+  // ── Bar/Bếp on the table detail: per-dish state, "Gửi bếp" fallback, guarded cancels ──
+  const activeV2SessionId = kitchenEnabled && activeTable ? (getV2Session(activeTable)?.sessionId || '') : '';
+  const tableKitchen = useTableKitchen(activeShopId, activeV2SessionId, Boolean(activeV2SessionId), tableSync);
+  const canVoidSentDish = hasPermission(['orders.delete', 'owner', 'admin']);
+
+  /** Before cutting a table line: dishes already sent need permission + a reason (cancel ticket). */
+  const guardKitchenReduce = async (item: any, newQty: number): Promise<{ ok: boolean; reason?: string }> => {
+    const sent = sentQtyOf(tableKitchen.status, item?._serverItemId);
+    const voidQty = sent - Math.max(0, newQty);
+    if (sent <= 0 || voidQty <= 0) return { ok: true };
+    if (!canVoidSentDish) {
+      await dialog.alert('Món đã báo bếp', `"${item?.name || 'Món'}" đã gửi xuống bếp. Cần quyền huỷ đơn để bớt hoặc huỷ món này.`, 'warning');
+      return { ok: false };
+    }
+    const choice = await dialog.confirm({
+      title: 'Huỷ món đã báo bếp',
+      message: `${item?.name || 'Món'}: huỷ ${voidQty} phần đã gửi xuống bếp. Bếp sẽ nhận phiếu huỷ kèm lý do.`,
+      tone: 'warning',
+      icon: 'x-circle',
+      cancelKey: 'keep',
+      actions: [
+        { key: 'Khách đổi ý', label: 'Khách đổi ý', style: 'destructive' },
+        { key: 'Nhập nhầm', label: 'Nhập nhầm', style: 'destructive' },
+        { key: 'keep', label: 'Giữ món', style: 'secondary' },
+      ],
+    });
+    return choice && choice !== 'keep' ? { ok: true, reason: choice } : { ok: false };
+  };
+
+  const sendTableToKitchen = async () => {
+    const n = await tableKitchen.send();
+    if (n === null) showToast('Chưa gửi được xuống bếp (mất mạng?). Thử lại khi có mạng.', 'error');
+    else showToast(n > 0 ? `Đã gửi ${n} phiếu xuống bar/bếp` : 'Không có món mới để gửi', n > 0 ? 'success' : 'info', { silent: true });
+  };
 
   const [isTransferModalVisible, setIsTransferModalVisible] = useState(false);
   const [isMergeModalVisible, setIsMergeModalVisible] = useState(false);
@@ -2883,6 +2922,11 @@ export default function PosScreen() {
           previousItems={tableCarts[orderingTable.id] || {}}
           saving={isSavingTableDraft}
           saveLabel={tableSaveLabel(orderingTable)}
+          onSetNote={kitchenEnabled ? (cartItemId: string, note: string) => {
+            setCart((prev: any) => prev?.[cartItemId]
+              ? { ...prev, [cartItemId]: { ...prev[cartItemId], kitchen_note: note.trim() || undefined } }
+              : prev);
+          } : undefined}
           onClose={() => setIsTableTicketOpen(false)}
           onIncrease={increaseDraftLine}
           onDecrease={decreaseDraftLine}
@@ -3638,23 +3682,65 @@ export default function PosScreen() {
                             )}
                           </Text>
                         </View>
+                        {tableKitchen.status.enabled && (() => {
+                          const unsentQty = Object.entries(tableCarts[activeTable.id]).reduce((n, [key, it]: [string, any]) =>
+                            isTimeChargeProduct(it.productId || key, it.name)
+                              ? n
+                              : n + Math.max(0, (Number(it.quantity) || 0) - sentQtyOf(tableKitchen.status, it._serverItemId)), 0);
+                          return (
+                            <View className={`flex-row items-center rounded-xl border px-3 py-2 mb-2 ${unsentQty > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                              <Feather name="coffee" size={14} color={unsentQty > 0 ? '#d97706' : '#94a3b8'} />
+                              <Text className={`flex-1 ml-2 text-xs font-medium ${unsentQty > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
+                                {unsentQty > 0 ? `Món chưa báo bếp: ${unsentQty}` : 'Đã báo bếp đủ món'}
+                              </Text>
+                              {unsentQty > 0 && (
+                                <TouchableOpacity
+                                  onPress={() => { void sendTableToKitchen(); }}
+                                  disabled={tableKitchen.sending}
+                                  className={`flex-row items-center rounded-lg px-3 py-1.5 ${tableKitchen.sending ? 'bg-orange-300' : 'bg-orange-500 active:bg-orange-600'}`}
+                                  accessibilityLabel="Gửi bếp"
+                                >
+                                  {tableKitchen.sending ? <ActivityIndicator size="small" color="white" /> : <Feather name="send" size={12} color="white" />}
+                                  <Text className="text-xs font-semibold text-white ml-1.5">Gửi bếp</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          );
+                        })()}
                         <View className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                           {Object.entries(tableCarts[activeTable.id]).map(([cartItemId, item]) => (
                             <View 
                               key={cartItemId} 
                               className="flex-row justify-between items-center py-2 border-b border-slate-100 last:border-0"
                             >
-                              <Text className="text-xs font-semibold text-slate-700 flex-1 mr-2" numberOfLines={1}>
-                                {item.name}
-                                {((item as any).original_price != null && Number(item.price) !== Number((item as any).original_price) || Number((item as any).discount_amount || 0) > 0) && (
-                                  <Text className="text-orange-500 font-bold ml-1 text-[10px]"> *</Text>
-                                )}
-                              </Text>
+                              <View className="flex-1 mr-2">
+                                <Text className="text-xs font-semibold text-slate-700" numberOfLines={1}>
+                                  {item.name}
+                                  {((item as any).original_price != null && Number(item.price) !== Number((item as any).original_price) || Number((item as any).discount_amount || 0) > 0) && (
+                                    <Text className="text-orange-500 font-bold ml-1 text-[10px]"> *</Text>
+                                  )}
+                                </Text>
+                                {(() => {
+                                  if (isTimeChargeProduct((item as any).productId || cartItemId, item.name)) return null;
+                                  const b = kitchenBadge(tableKitchen.status, (item as any)._serverItemId, Number(item.quantity) || 0);
+                                  if (!b) return null;
+                                  const cls = b.tone === 'emerald' ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                    : b.tone === 'sky' ? 'bg-sky-50 border-sky-200 text-sky-700' : 'bg-amber-50 border-amber-200 text-amber-700';
+                                  return (
+                                    <View className="flex-row mt-0.5">
+                                      <Text className={`text-[10px] font-semibold border rounded px-1 ${cls}`}>{b.label}</Text>
+                                    </View>
+                                  );
+                                })()}
+                              </View>
 
                               <View className="flex-row items-center gap-2">
                                 {/* Nút giảm số lượng */}
                                 <TouchableOpacity
-                                  onPress={() => handleDecreaseTableItemQty(activeTable.id, cartItemId)}
+                                  onPress={async () => {
+                                    const g = await guardKitchenReduce(item, Math.max(1, (Number(item.quantity) || 0) - 1));
+                                    if (g.ok) handleDecreaseTableItemQty(activeTable.id, cartItemId, g.reason ? { voidReason: g.reason } : undefined);
+                                  }}
                                   className="w-7 h-7 bg-slate-100 rounded-lg justify-center items-center active:bg-slate-200"
                                 >
                                   <Text className="text-slate-600 font-bold text-sm">-</Text>
@@ -3704,7 +3790,10 @@ export default function PosScreen() {
 
                                 {/* Nút Xóa món */}
                                 <TouchableOpacity
-                                  onPress={() => handleRemoveTableItem(activeTable.id, cartItemId)}
+                                  onPress={async () => {
+                                    const g = await guardKitchenReduce(item, 0);
+                                    if (g.ok) handleRemoveTableItem(activeTable.id, cartItemId, g.reason ? { voidReason: g.reason } : undefined);
+                                  }}
                                   className="p-1 ml-1"
                                 >
                                   <Ionicons name="close" size={16} color="#94a3b8" />

@@ -7,7 +7,7 @@ import { cleanResourceSessionMetadata, parseMetadataSafe } from '@/lib/server/ta
 import { applyTableOps, isTimeChargeLine, TableSyncError, type ApplyOpsResult, type TableOp } from './engine'
 import { createPgTableSyncRepo, mapSessionRow } from './pgRepository'
 import { broadcastTableSync } from './broadcast'
-import { fireKitchenForSession } from '../kitchen/tickets'
+import { closeKitchenTicketsForTable, fireKitchenForSession, kitchenBestEffort, retargetKitchenTickets } from '../kitchen/tickets'
 
 // Table sync v2 service (docs/TABLE-SESSION-SYNC-PLAN.md Phase 1): sessions, idempotent ops,
 // change feed. On by default for every shop whose connector supports transactions (Postgres);
@@ -255,7 +255,11 @@ export async function endTableSessionForCancelledOrder(connector: IDataConnector
     )
     return row ? healSessionIfOrderClosed(tx, row) : false
   })
-  if (healed) void broadcastTableSync(shopId, { session_id: sessionId, kind: 'session_cancelled' })
+  if (healed) {
+    void broadcastTableSync(shopId, { session_id: sessionId, kind: 'session_cancelled' })
+    await kitchenBestEffort('close tickets (order cancelled)', () =>
+      closeKitchenTicketsForTable(connector as TxConnector, shopId, { sessionId, orderId }))
+  }
   return healed
 }
 
@@ -502,6 +506,8 @@ export async function closeTableSessionForOrder(connector: IDataConnector, shopI
       console.warn(`[tableSync] billing discrepancy on session ${sessionId}:`, outcome.billing)
     }
     void broadcastTableSync(shopId, { session_id: sessionId, resource_id: outcome.session.resource_id, kind: 'session_closed' })
+    await kitchenBestEffort('close tickets (table paid)', () =>
+      closeKitchenTicketsForTable(connector as TxConnector, shopId, { sessionId, orderId: outcome.session.order_id }))
   }
   return outcome
 }
@@ -547,6 +553,8 @@ export async function cancelTableSession(connector: TxConnector, shopId: string,
     invalidate(shopId, 'orders')
     invalidate(shopId, 'location-resources')
     void broadcastTableSync(shopId, { session_id: sessionId, resource_id: outcome.session.resource_id, kind: 'session_cancelled' })
+    await kitchenBestEffort('close tickets (table cancelled)', () =>
+      closeKitchenTicketsForTable(connector, shopId, { sessionId, orderId: outcome.session.order_id }))
   }
   return { session_id: sessionId, status: 'cancelled' as const }
 }
@@ -604,6 +612,8 @@ export async function transferTableSession(connector: TxConnector, shopId: strin
     invalidate(shopId, 'orders')
     invalidate(shopId, 'location-resources')
     void broadcastTableSync(shopId, { session_id: sessionId, resource_id: targetId, kind: 'session_transferred' })
+    await kitchenBestEffort('retarget tickets (table moved)', () =>
+      retargetKitchenTickets(connector, shopId, sessionId, { resourceId: targetId, resourceName: String(target?.name || '') }))
   }
   return { session_id: sessionId, resource_id: targetId }
 }

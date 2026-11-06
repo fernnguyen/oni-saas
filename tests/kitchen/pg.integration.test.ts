@@ -6,7 +6,7 @@ import type { Pool as PgPool } from 'pg'
 
 import { PostgresConnector } from '../../packages/adapters/src/postgresAdapter'
 import type { TableOp } from '../../apps/web/lib/server/tableSync/engine'
-import { applyTableSessionOps } from '../../apps/web/lib/server/tableSync/service'
+import { applyTableSessionOps, cancelTableSession, transferTableSession } from '../../apps/web/lib/server/tableSync/service'
 import {
   fireKitchenForSession, generateKitchenTicketsForQr, getSessionKitchenStatus, listKitchenTickets, markTicketPrinted, setTicketDone, setTicketItemStatus,
 } from '../../apps/web/lib/server/kitchen/tickets'
@@ -189,4 +189,54 @@ test('QR accept: accepted items ticketed per station, idempotent per request', {
   const first = await generateKitchenTicketsForQr(connector, BRANCH, input)
   assert.deepEqual(first.map((t) => [t.station_id, t.source, t.resource_name]).sort(), [['ST-B', 'qr', 'Bàn QR'], ['ST-K', 'qr', 'Bàn QR']])
   assert.equal((await generateKitchenTicketsForQr(connector, BRANCH, input)).length, 0)
+})
+
+test('table moved → tickets show the new table; table cancelled → open tickets leave the screen', { skip }, async () => {
+  await seedSession('KS-3', 'KO-3', 'KR-3')
+  await pool.query(
+    `INSERT INTO location_resources (id, tenant_id, branch_id, name, status, hourly_rate) VALUES ('KR-3B', $1, $2, 'Bàn mới', 'available', '0')`,
+    [TENANT, BRANCH],
+  )
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-3', deviceId: 'd1', ops: [add('k3-a', 'KP-PHO', 1, { kitchen_fire: true })] })
+  assert.equal((await ticketsOf('KS-3')).length, 1)
+
+  await transferTableSession(connector, BRANCH, 'KS-3', { target_resource_id: 'KR-3B' })
+  let t = await ticketsOf('KS-3')
+  assert.deepEqual(t.map((x) => [x.resource_id, x.resource_name]), [['KR-3B', 'Bàn mới']])
+
+  // Remove the item (prints a void), then cancel the now-empty table: everything open is closed
+  await applyTableSessionOps(connector, BRANCH, {
+    sessionId: 'KS-3', deviceId: 'd1', ops: [{ op_id: 'k3-b', type: 'remove_item', item_id: r.results[0].item_id, kitchen_fire: true } as TableOp],
+  })
+  assert.equal((await ticketsOf('KS-3')).filter((x) => x.status === 'open').length, 2)
+  await cancelTableSession(connector, BRANCH, 'KS-3')
+  t = await ticketsOf('KS-3')
+  assert.ok(t.every((x) => x.status === 'done'), 'no open ticket left for a cancelled table')
+})
+
+test('kitchen screen ignores open tickets older than yesterday', { skip }, async () => {
+  await seedSession('KS-4', 'KO-4', 'KR-4')
+  await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-4', deviceId: 'd1', ops: [add('k4-a', 'KP-PHO', 1, { kitchen_fire: true })] })
+  const [ticket] = await ticketsOf('KS-4')
+  const visible = async () => (await listKitchenTickets(connector, BRANCH, { status: 'open' })).some((x) => x.id === ticket.id)
+  assert.equal(await visible(), true)
+  await pool.query(`UPDATE kitchen_tickets SET business_date = '2026-01-01' WHERE id = $1`, [ticket.id])
+  assert.equal(await visible(), false)
+})
+
+test('notes typed at send time land on the order lines; void reason rides the op note', { skip }, async () => {
+  await seedSession('KS-5', 'KO-5', 'KR-5')
+  const r = await applyTableSessionOps(connector, BRANCH, { sessionId: 'KS-5', deviceId: 'd1', ops: [add('k5-a', 'KP-CAFE', 2), add('k5-b', 'KP-PHO', 1, { note: 'không hành' })] })
+  const cafeId = r.results[0].item_id!
+  const phoId = r.results[1].item_id!
+  await fireKitchenForSession(connector, BRANCH, 'KS-5', { notes: { [cafeId]: 'ít đá', [phoId]: 'ignored: op note wins' } })
+  const lines = (await ticketsOf('KS-5')).flatMap((t) => t.items.map((i) => [i.product_name, i.note]))
+  assert.deepEqual(lines.sort(), [['Cà phê', 'ít đá'], ['Phở', 'không hành']])
+
+  await applyTableSessionOps(connector, BRANCH, {
+    sessionId: 'KS-5', deviceId: 'd1',
+    ops: [{ op_id: 'k5-c', type: 'change_qty', item_id: cafeId, delta: -1, note: 'Lý do: Khách đổi ý', kitchen_fire: true } as TableOp],
+  })
+  const v = (await ticketsOf('KS-5')).find((t) => t.kind === 'void')!
+  assert.deepEqual(v.items.map((i) => [i.qty, i.note]), [[-1, 'Lý do: Khách đổi ý']])
 })

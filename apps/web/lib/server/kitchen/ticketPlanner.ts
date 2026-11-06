@@ -192,3 +192,19 @@ export function netPlannedTickets(planned: PlannedTicket[]): PlannedTicket[] {
     .map((t) => ({ ...t, lines: t.lines.filter((l) => keep.has(l)).map((l) => ({ ...l, qty: keep.get(l)! })) }))
     .filter((t) => t.lines.length > 0)
 }
+
+/**
+ * One send should read "Cafe Nâu x2", not two "x1" lines: merge lines of the same order item,
+ * note and sign inside each ticket (first op id kept; the send marks every op as fired anyway).
+ */
+export function mergeSameItemLines(planned: PlannedTicket[]): PlannedTicket[] {
+  return planned.map((t) => {
+    const out: PlannedLine[] = []
+    for (const l of t.lines) {
+      const prev = out.find((x) => x.order_item_id === l.order_item_id && x.note === l.note && Math.sign(x.qty) === Math.sign(l.qty))
+      if (prev) prev.qty += l.qty
+      else out.push({ ...l })
+    }
+    return { ...t, lines: out }
+  })
+}

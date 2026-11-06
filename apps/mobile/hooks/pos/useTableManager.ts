@@ -854,7 +854,7 @@ export function useTableManager(props: UseTableManagerProps) {
     cartItems: any,
     tableId?: string,
     baseCart?: any,
-    opts?: { kitchenFire?: boolean },
+    opts?: { kitchenFire?: boolean; voidReason?: string },
   ) => {
     // Table sync v2: send only the DIFFERENCE between the cart the user started from and the cart
     // they saved, through the persistent outbox (no SQLite rows, no absolute PUT/POST/DELETE).
@@ -868,6 +868,15 @@ export function useTableManager(props: UseTableManagerProps) {
         // table once it applies. Rides the outbox, so it also works after an offline save.
         if (opts?.kitchenFire && ops.length > 0) {
           ops[ops.length - 1] = { ...ops[ops.length - 1], kitchen_fire: true } as (typeof ops)[number];
+        }
+        // Bar/Bếp: an approved cut into dishes already sent → cancel ticket with its reason, now
+        if (opts?.voidReason) {
+          for (let i = 0; i < ops.length; i++) {
+            const op = ops[i] as any;
+            if (op.type === 'remove_item' || (op.type === 'change_qty' && Number(op.delta) < 0)) {
+              ops[i] = { ...op, note: `Lý do: ${opts.voidReason}`, kitchen_fire: true };
+            }
+          }
         }
         if (ops.length > 0) await v2.enqueueOps(v2Session.sessionId, ops);
         lastV2CartRef.current[tableId] = next;
@@ -2601,13 +2610,17 @@ export function useTableManager(props: UseTableManagerProps) {
 
   // Thay đổi số lượng món ăn/dịch vụ của phòng bàn trực tiếp
   /** v2: apply an edit to a table cart and enqueue its delta (no side effects inside setState) */
-  const applyV2TableCartEdit = (tableId: string, edit: (cart: Record<string, any>) => Record<string, any> | null) => {
+  const applyV2TableCartEdit = (
+    tableId: string,
+    edit: (cart: Record<string, any>) => Record<string, any> | null,
+    opts?: { voidReason?: string },
+  ) => {
     const base = tableCartsRef.current[tableId] || {};
     const next = edit(base);
     if (!next) return;
     tableCartsRef.current = { ...tableCartsRef.current, [tableId]: next };
     setTableCarts(prev => ({ ...prev, [tableId]: next }));
-    void syncOrderItemsOnline('', next, tableId, base);
+    void syncOrderItemsOnline('', next, tableId, base, opts?.voidReason ? { voidReason: opts.voidReason } : undefined);
   };
 
   const handleIncreaseTableItemQty = (tableId: string, cartItemId: string) => {
@@ -2643,7 +2656,7 @@ export function useTableManager(props: UseTableManagerProps) {
     });
   };
 
-  const handleDecreaseTableItemQty = (tableId: string, cartItemId: string) => {
+  const handleDecreaseTableItemQty = (tableId: string, cartItemId: string, opts?: { voidReason?: string }) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
     if (getV2Session(tableId)) {
       applyV2TableCartEdit(tableId, (cart) => {
@@ -2651,7 +2664,7 @@ export function useTableManager(props: UseTableManagerProps) {
         if (!item) return null;
         const newQty = Math.max(1, item.quantity - 1);
         return newQty === item.quantity ? null : { ...cart, [cartItemId]: { ...item, quantity: newQty } };
-      });
+      }, opts);
       return;
     }
     setTableCarts(prev => {
@@ -2679,7 +2692,7 @@ export function useTableManager(props: UseTableManagerProps) {
     });
   };
 
-  const handleRemoveTableItem = (tableId: string, cartItemId: string) => {
+  const handleRemoveTableItem = (tableId: string, cartItemId: string, opts?: { voidReason?: string }) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => { });
     if (getV2Session(tableId)) {
       applyV2TableCartEdit(tableId, (cart) => {
@@ -2687,7 +2700,7 @@ export function useTableManager(props: UseTableManagerProps) {
         const next = { ...cart };
         delete next[cartItemId];
         return next;
-      });
+      }, opts);
       return;
     }
     setTableCarts(prev => {
@@ -4314,6 +4327,7 @@ export function useTableManager(props: UseTableManagerProps) {
     pendingConflictTableIds,
     // Table sync v2
     isV2Table,
+    getV2Session,
     beginTableOrdering,
     takeOrderingBaseCart,
     verifyV2SessionOpen,

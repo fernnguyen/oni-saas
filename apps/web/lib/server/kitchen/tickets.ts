@@ -3,7 +3,7 @@
 import crypto from 'crypto'
 import type { IDataConnector, TransactionClient } from '@oni/adapters'
 import { getGMT7Time, toPrepStation, type PrepStation, type PrepStationRoute } from '@oni/core'
-import { netPlannedTickets, planKitchenTickets, type OrderLineInfo, type PlannedTicket, type PlannerOp, type PlannerOpResult, type SentInfo } from './ticketPlanner'
+import { mergeSameItemLines, netPlannedTickets, planKitchenTickets, type OrderLineInfo, type PlannedTicket, type PlannerOp, type PlannerOpResult, type SentInfo } from './ticketPlanner'
 import { broadcastKitchen } from './broadcast'
 
 type TxConnector = IDataConnector & { withTransaction: NonNullable<IDataConnector['withTransaction']> }
@@ -171,9 +171,24 @@ async function planSession(tx: TransactionClient, shopId: string, sessionId: str
   // One send = one ticket per station, whatever batch the individual ops came from.
   const batched = ops.map((o) => ({ ...o, batch_id: batchId }))
   return {
-    planned: netPlannedTickets(planKitchenTickets({ ops: batched, results, ...ctx })),
+    planned: mergeSameItemLines(netPlannedTickets(planKitchenTickets({ ops: batched, results, ...ctx }))),
     hasStations: true,
     opIds: ops.map((o) => o.op_id),
+  }
+}
+
+/**
+ * Dish notes typed on the POS at send time (order_item_id → "ít đá"). They go on the new order
+ * lines of that item; a note already carried by the op (mobile draft) wins.
+ */
+function applyLineNotes(planned: PlannedTicket[], notes?: Record<string, string>) {
+  if (!notes) return
+  for (const t of planned) {
+    if (t.kind !== 'order') continue
+    for (const l of t.lines) {
+      const n = String(notes[l.order_item_id] ?? '').trim().slice(0, 500)
+      if (n && !l.note) l.note = n
+    }
   }
 }
 
@@ -196,7 +211,7 @@ export async function fireKitchenForSession(
   connector: TxConnector,
   shopId: string,
   sessionId: string,
-  opts: { deviceId?: string; batchId?: string } = {},
+  opts: { deviceId?: string; batchId?: string; notes?: Record<string, string> } = {},
 ): Promise<KitchenTicket[]> {
   const batchId = (opts.batchId || crypto.randomUUID()).slice(0, 255)
   const created = await connector.withTransaction(async (tx) => {
@@ -214,6 +229,7 @@ export async function fireKitchenForSession(
       )
     }
     if (planned.length === 0) return []
+    applyLineNotes(planned, opts.notes)
     const session = await loadSessionInfo(tx, sessionId)
     return insertPlannedTickets(tx, shopId, planned, {
       sessionId,
@@ -372,6 +388,63 @@ async function insertPlannedTickets(
   return out
 }
 
+// ── Table lifecycle hooks (best-effort, called by table sync service) ─────────
+
+/**
+ * The table was paid/closed or cancelled: its open tickets leave the kitchen screen (status done).
+ * Matches by session and by order (QR tickets carry the order but no session).
+ */
+export async function closeKitchenTicketsForTable(
+  connector: TxConnector,
+  shopId: string,
+  ref: { sessionId?: string; orderId?: string },
+): Promise<number> {
+  const sessionId = ref.sessionId || ''
+  const orderId = ref.orderId || ''
+  if (!sessionId && !orderId) return 0
+  const rows = await connector.withTransaction((tx) =>
+    tx.query(
+      `UPDATE kitchen_tickets SET status = 'done', updated_at = NOW()
+        WHERE tenant_id = $1 AND branch_id = $2 AND status = 'open'
+          AND ((session_id <> '' AND session_id = $3) OR (order_id <> '' AND order_id = $4))
+        RETURNING id, station_id`,
+      [tid(tx), shopId, sessionId, orderId],
+    ),
+  )
+  for (const r of rows) void broadcastKitchen(shopId, { kind: 'ticket_updated', ticket_id: r.id, station_id: r.station_id })
+  return rows.length
+}
+
+/** The table moved: every ticket of the session now shows the new table. */
+export async function retargetKitchenTickets(
+  connector: TxConnector,
+  shopId: string,
+  sessionId: string,
+  target: { resourceId: string; resourceName: string },
+): Promise<number> {
+  const rows = await connector.withTransaction((tx) =>
+    tx.query(
+      `UPDATE kitchen_tickets SET resource_id = $1, resource_name = $2, updated_at = NOW()
+        WHERE tenant_id = $3 AND branch_id = $4 AND session_id = $5
+        RETURNING id, station_id, status`,
+      [target.resourceId, target.resourceName, tid(tx), shopId, sessionId],
+    ),
+  )
+  for (const r of rows) {
+    if (r.status === 'open') void broadcastKitchen(shopId, { kind: 'ticket_updated', ticket_id: r.id, station_id: r.station_id })
+  }
+  return rows.length
+}
+
+/** Best-effort wrapper: kitchen bookkeeping must never fail a table operation. */
+export async function kitchenBestEffort(label: string, fn: () => Promise<unknown>): Promise<void> {
+  try {
+    await fn()
+  } catch (err) {
+    console.error(`[kitchen] ${label} failed (table operation already done):`, err)
+  }
+}
+
 // ── Queries / mutations for the kitchen API ────────────────────────────────
 
 function mapItem(r: any): KitchenTicketItem {
@@ -422,6 +495,13 @@ export async function listKitchenTickets(
     if (status !== 'all') {
       params.push(status)
       where += ` AND status = $${params.length}`
+    }
+    if (status === 'open') {
+      // Forgotten tickets (never bumped, table never closed) must not crowd out new ones:
+      // the kitchen screen only works on yesterday + today (GMT+7 business dates).
+      const y = new Date(Date.now() - 24 * 3600 * 1000)
+      params.push(getGMT7Time(y).slice(0, 10))
+      where += ` AND business_date >= $${params.length}`
     }
     params.push(limit)
     // Open tickets oldest first (kitchen works FIFO); history newest first.

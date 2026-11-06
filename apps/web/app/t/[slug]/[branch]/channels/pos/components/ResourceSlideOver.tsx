@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CustomerSearch } from './CustomerSearch'
 import { SlideProductSearch } from './SlideProductSearch'
-import { KitchenItemBadge, TableKitchenBar, useTableKitchen } from './TableKitchenBar'
+import { KitchenItemBadge, KitchenItemNote, TableKitchenBar, useTableKitchen, voidOpFields } from './TableKitchenBar'
 import { getVerticalConfig, calculateHourlyBilling, generateClientId, isTimeChargeProduct, projectTableLines, tableSyncLineKey } from '@oni/core'
 import type { TableSyncV2Api } from '@/hooks/useTableSyncV2'
 import { CheckoutModal } from './CheckoutModal'
@@ -256,7 +256,7 @@ export function ResourceSlideOver({
   mergeV2ItemsRef.current = mergeV2Items
 
   // Bar/Bếp K3: kitchen state + "Gửi bếp" for this table (inert without stations / v2).
-  const kitchen = useTableKitchen(shopId, v2SessionId, v2)
+  const kitchen = useTableKitchen(shopId, v2SessionId, v2, { canVoid: permissions.includes('orders.delete') })
 
   const v2LineRef = (i: OrderItem): { item_id?: string; line_key?: string } => {
     const id = String(i.id || '')
@@ -1029,6 +1029,10 @@ export function ResourceSlideOver({
       return
     }
 
+    // Bar/Bếp: cutting into qty already sent to the kitchen needs permission + reason
+    const kitchenCheck = delta < 0 ? await kitchen.confirmReduce(clone[idx], newQty) : { ok: true as const, reason: undefined }
+    if (!kitchenCheck.ok) return
+
     const p = clone[idx]
     const up = Number(p.unit_price)
     const newLineTotal = newQty * up
@@ -1036,7 +1040,7 @@ export function ResourceSlideOver({
     setExistingItems(clone)
 
     if (v2 && v2SessionId) {
-      await v2Enqueue([{ type: 'change_qty', ...v2LineRef(p), delta }])
+      await v2Enqueue([{ type: 'change_qty', ...v2LineRef(p), delta, ...voidOpFields(kitchenCheck.reason) }])
       return
     }
     localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(clone))
@@ -1076,10 +1080,14 @@ export function ResourceSlideOver({
         if (!item) continue
         const server = lastServerItemsRef.current.find(i => i.id === id)
         const target = Number(item.qty) || 0
-        if (target <= 0) ops.push({ type: 'remove_item', ...v2LineRef(item) })
+        // Bar/Bếp: cutting into qty already sent to the kitchen needs permission + reason
+        const check = await kitchen.confirmReduce(item, target)
+        if (!check.ok) return
+        const extra = voidOpFields(check.reason)
+        if (target <= 0) ops.push({ type: 'remove_item', ...v2LineRef(item), ...extra })
         else {
           const delta = target - (Number(server?.qty) || 0)
-          if (delta !== 0) ops.push({ type: 'change_qty', ...v2LineRef(item), delta })
+          if (delta !== 0) ops.push({ type: 'change_qty', ...v2LineRef(item), delta, ...extra })
         }
       }
       setDirtyItems({})
@@ -1180,6 +1188,13 @@ export function ResourceSlideOver({
 
   async function handleDeleteExistingItem(itemId: string) {
     if (!order) return
+    // Bar/Bếp: removing a dish already sent to the kitchen needs permission + reason
+    const toDelete = existingItems.find(i => i.id === itemId)
+    const kitchenCheck = toDelete ? await kitchen.confirmReduce(toDelete, 0) : { ok: true as const, reason: undefined }
+    if (!kitchenCheck.ok) {
+      setConfirmDeleteId(null)
+      return
+    }
     setDeletingItemId(itemId)
 
     const updatedItems = existingItems.filter(i => i.id !== itemId)
@@ -1194,7 +1209,7 @@ export function ResourceSlideOver({
 
     if (v2 && v2SessionId) {
       const item = existingItems.find(i => i.id === itemId)
-      if (item) await v2Enqueue([{ type: 'remove_item', ...v2LineRef(item) }])
+      if (item) await v2Enqueue([{ type: 'remove_item', ...v2LineRef(item), ...voidOpFields(kitchenCheck.reason) }])
       toast.success('Đã xóa món')
       setDeletingItemId(null)
       setConfirmDeleteId(null)
@@ -2350,7 +2365,7 @@ export function ResourceSlideOver({
                             <SlideProductSearch onSelect={handleProductSelect} />
                           </div>
 
-                          <TableKitchenBar kitchen={kitchen} />
+                          <TableKitchenBar kitchen={kitchen} lines={existingItems.filter(it => !isTimeChargeProduct(it.product_id, it.product_name))} />
 
                           <div className="space-y-3 flex-1 overflow-y-auto">
                             {showOrderSkeleton && (
@@ -2374,6 +2389,7 @@ export function ResourceSlideOver({
                                       <p className="text-sm font-medium text-slate-900 truncate leading-tight">{item.product_name}</p>
                                       <KitchenItemBadge status={kitchen.status} itemId={item.id} qty={Number(item.qty) || 0} />
                                     </div>
+                                    <KitchenItemNote kitchen={kitchen} itemId={item.id} qty={Number(item.qty) || 0} />
                                     <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                                       <span 
                                         className="hover:text-primary cursor-pointer underline underline-offset-4 decoration-dashed decoration-slate-300 hover:decoration-primary transition-colors"
