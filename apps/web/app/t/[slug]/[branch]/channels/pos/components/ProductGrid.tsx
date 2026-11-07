@@ -1,9 +1,10 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import { liveQuery } from 'dexie'
 import { toast } from 'sonner'
 import { localDb, type LocalCategory, type LocalProduct } from '@/lib/localDb/schema'
-import { usePOSProductSearch } from '@/hooks/usePOSProductSearch'
+import { usePOSProductSearch, findProductsByCode, searchPOSProducts, isConfidentTextPick } from '@/hooks/usePOSProductSearch'
 import { IconBox } from '@/app/components/layout/nav'
 import type { CartItem } from '@/hooks/useCart'
 import { VariantPickerModal } from './VariantPickerModal'
@@ -11,13 +12,14 @@ import { ModifierPickerModal } from './ModifierPickerModal'
 import { CameraScannerModal } from './CameraScannerModal'
 import { QuickCreateProductDialog } from './QuickCreateProductDialog'
 import { cleanSku } from '@/lib/sku'
-import { allowsProductNegativeStock, isSystemTimeChargeProduct } from '@oni/core'
+import { allowsProductNegativeStock } from '@oni/core'
 
 interface Props {
   branchId: string
   inventory: Map<string, number>
   mutePosSound: boolean
-  onAddToCart: (product: LocalProduct) => void
+  /** May resolve false when the cart refuses the add (stock) */
+  onAddToCart: (product: LocalProduct) => void | Promise<boolean | void>
   onAddToCartWithOptions: (item: CartItem) => void
   allowNegativeStock?: boolean
   planCode?: string
@@ -60,7 +62,14 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
   const [variantParent, setVariantParent] = useState<LocalProduct | null>(null)
   const [modifierProduct, setModifierProduct] = useState<LocalProduct | null>(null)
 
-  const { results, isLoading } = usePOSProductSearch(search, categoryId)
+  const { results, isLoading, resultsKey, isStale } = usePOSProductSearch(search, categoryId)
+  // Latest input value, read after async lookups so a second scan typed meanwhile isn't wiped
+  const searchRef = useRef(search)
+  searchRef.current = search
+  // Enter lookups run strictly in order (continuous-mode scanners fire codes back to back)
+  const enterQueueRef = useRef<Promise<void>>(Promise.resolve())
+  // Cashier moved the highlight (arrows / hover) since the last text change → trust that pick
+  const navigatedRef = useRef(false)
 
   // Helper to check if a product is out of stock
   const isOOS = (p: LocalProduct) => {
@@ -68,7 +77,10 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
     if (allowNegativeStock || allowsProductNegativeStock(p as any)) return false
     const stock = inventory.get(p.product_id) ?? 0
     const type = (p as any).product_type ?? 'simple'
-    return type !== 'variant_parent' && type !== 'modifier' && stock <= 0
+    if (type === 'variant_parent' || type === 'modifier') return false
+    // Unit rows (Thùng = 24 lon) need a full unit of base stock
+    const rate = Number((p as any).conversion_rate) || 1
+    return rate > 1 ? stock < rate : stock <= 0
   }
 
   // Filtered results
@@ -76,12 +88,14 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
     ? results
     : results.filter((p) => !isOOS(p))
 
-  // Reset highlight index ONLY when search query, category, or stock toggle changes
-  // This solves the issue where highlight focus freezes on the first item during keyboard navigation
+  // Reset highlight when a NEW result set arrives (query/category) or the stock toggle changes.
+  // Keyed on resultsKey, not `search`: results lag the input by the debounce, so resetting on
+  // `search` computed the index against the previous query's list.
   useEffect(() => {
     const firstActive = filteredResults.findIndex((p) => !isOOS(p))
     setHighlightedIndex(firstActive >= 0 ? firstActive : 0)
-  }, [search, categoryId, showOutOfStock])
+    navigatedRef.current = false
+  }, [resultsKey, showOutOfStock])
 
   useEffect(() => {
     const subscription = liveQuery(() =>
@@ -92,6 +106,77 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
     })
     return () => subscription.unsubscribe()
   }, [database, branchId])
+
+  /** Clear the search box only if it still holds `code` (don't eat a scan typed meanwhile). */
+  function clearSearchIf(code: string) {
+    setSearch((prev) => (prev.trim() === code ? '' : prev))
+    setPendingScannedBarcode('')
+  }
+
+  /** Same CartItem shape as VariantPickerModal, so scanned and picked variants merge. */
+  async function addVariantChild(child: LocalProduct) {
+    const parent = child.parent_id ? await localDb.products.get(child.parent_id) : undefined
+    let opts: Record<string, unknown> = {}
+    try {
+      const raw = (child as any).variant_options
+      opts = (typeof raw === 'string' ? JSON.parse(raw) : raw) ?? {}
+    } catch {}
+    const label = Object.entries(opts).map(([k, v]) => `${k}: ${v}`).join(' / ') || child.name
+    if (!mutePosSound) playBeep()
+    onAddToCartWithOptions({
+      product_id: child.product_id,
+      product_name: parent?.name ?? child.name,
+      sku: child.sku,
+      unit_price: Number(child.sell_price),
+      cost_price: Number(child.cost_price),
+      qty: 1,
+      discount_amount: 0,
+      modifier_total: 0,
+      variant_label: label,
+      line_total: Number(child.sell_price),
+    })
+  }
+
+  /**
+   * Resolve a scanned / typed code to exactly one product and add it.
+   * Returns 'added' | 'blocked' (found but out of stock / ambiguous) | 'not_found'.
+   */
+  async function addByCode(code: string): Promise<'added' | 'blocked' | 'not_found'> {
+    const matches = await findProductsByCode(code)
+    if (matches.length === 0) return 'not_found'
+    if (matches.length > 1) {
+      toast.warning(`Mã "${code}" trùng ${matches.length} sản phẩm`, {
+        description: 'Chọn đúng sản phẩm trong danh sách (↑ ↓ rồi Enter).',
+      })
+      return 'blocked'
+    }
+    const match = matches[0]
+    const type = (match as any).product_type ?? 'simple'
+    if (type === 'variant_child') {
+      const stock = inventory.get(match.product_id) ?? 0
+      if (!allowNegativeStock && !allowsProductNegativeStock(match as any) && stock <= 0) {
+        toast.error(`"${match.name}" đã hết hàng`)
+        return 'blocked'
+      }
+      await addVariantChild(match)
+    } else {
+      if (isOOS(match)) {
+        toast.error(`"${match.name}" đã hết hàng`)
+        return 'blocked'
+      }
+      if (type === 'variant_parent' || type === 'modifier') {
+        handleProductClick(match) // opens the picker; nothing is added yet
+        return 'added'
+      }
+      if (!mutePosSound) playBeep()
+      // The cart may still refuse (its stock check counts what is already in the cart)
+      const ok = await onAddToCart(match)
+      if (ok === false) return 'blocked'
+    }
+    // One toast id: continuous scanning replaces the previous toast instead of stacking them
+    toast.success(`Đã thêm: ${match.name}`, { id: 'pos-scan-added', duration: 1500 })
+    return 'added'
+  }
 
   function handleProductClick(product: LocalProduct) {
     const type = (product as any).product_type ?? 'simple'
@@ -125,52 +210,20 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
 
   // Handle successful camera scan
   async function handleScanSuccess(barcode: string) {
-    if (!barcode) return
-    setSearch(barcode)
-    toast.success(`Đã quét mã: ${barcode}`)
-    if (!mutePosSound) playBeep()
+    const code = barcode.trim()
+    if (!code) return
+    setSearch(code)
 
     try {
-      // Query active products from Dexie DB
-      const items = await localDb.products.filter((p) => p.active && (p as any).product_type !== 'variant_child' && !isSystemTimeChargeProduct(p.product_id, p.sku)).toArray()
-      
-      // Flatten units identical to search hook
-      let match: LocalProduct | null = null
-      for (const p of items) {
-        if (p.barcode === barcode || p.sku === barcode || cleanSku(p.sku) === barcode) {
-          match = p
-          break
-        }
-        if (Array.isArray(p.product_units) && p.product_units.length > 0) {
-          for (const u of p.product_units) {
-            if (u.barcode === barcode || u.sku === barcode || cleanSku(u.sku) === barcode) {
-              match = {
-                ...p,
-                product_id: p.product_id,
-                name: `${p.name} (${u.unit_name})`,
-                barcode: u.barcode || '',
-                sell_price: Number(u.sell_price || 0),
-                cost_price: Number(u.cost_price || 0),
-                unit_id: u.unit_id || u.id,
-                unit_name: u.unit_name,
-                conversion_rate: Number(u.conversion_rate || 1),
-                unit: u.unit_name,
-              } as any
-              break
-            }
-          }
-          if (match) break
-        }
-      }
-
-      if (match) {
-        handleProductClick(match)
-        setSearch('') // Clear search bar upon successful auto-add
-        toast.success(`Đã thêm vào giỏ: ${match.name}`)
+      const outcome = await addByCode(code)
+      if (outcome === 'added') {
+        clearSearchIf(code)
+      } else if (outcome === 'not_found') {
+        setIsCameraOpen(false)
+        setPendingScannedBarcode(code)
+        toast.info(`Không tìm thấy sản phẩm với mã: ${code}`)
       } else {
         setIsCameraOpen(false)
-        setPendingScannedBarcode(barcode)
-        toast.info(`Không tìm thấy sản phẩm với mã: ${barcode}`)
       }
     } catch (e) {
       console.error('Error auto-adding scanned barcode:', e)
@@ -185,11 +238,86 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
     return null
   }
 
+  /**
+   * Enter: an exact barcode/SKU match always wins (scanner path, independent of the debounced
+   * list); otherwise add the highlighted card — but only if the list belonged to this text.
+   *
+   * The code is taken and the box cleared synchronously, and lookups run one after another
+   * through a queue: a scanner in continuous mode starts typing the next code before the
+   * previous lookup resolves, which used to glue codes together ("ZT-1000ZT-1000").
+   * If nothing is added the code is put back (selected) so the next scan replaces it.
+   */
+  function handleEnter(rawValue: string) {
+    // Read the DOM value, not state: a scanner's last keystrokes may not have re-rendered yet
+    const code = rawValue.trim()
+    if (!code) return
+    // Snapshot the keyboard-highlighted card now; the list changes once the box is cleared.
+    const listIsCurrent = !isStale
+    const candidate = listIsCurrent ? filteredResults[highlightedIndex] : undefined
+    // Only a deliberate pick, or a row that really matches the text, may be added without an exact code
+    const highlighted =
+      candidate && (navigatedRef.current || isConfidentTextPick(candidate, code)) ? candidate : undefined
+    setSearch('')
+    searchRef.current = ''
+    enterQueueRef.current = enterQueueRef.current
+      .then(() => processEnteredCode(code, highlighted, listIsCurrent))
+      .catch((e) => console.error('POS code lookup failed:', e))
+  }
+
+  /** Put an unresolved code back in the box (unless the cashier already typed something new). */
+  function restoreCode(code: string, select: boolean) {
+    if (searchRef.current.trim() !== '') return
+    // Commit the value first, otherwise React writes it after select() and the selection collapses
+    flushSync(() => setSearch(code))
+    searchRef.current = code
+    const el = inputRef.current
+    if (!el) return
+    el.focus()
+    if (select) el.select()
+  }
+
+  async function processEnteredCode(code: string, highlighted: LocalProduct | undefined, listIsCurrent: boolean) {
+    const outcome = await addByCode(code)
+    if (outcome === 'added') {
+      setPendingScannedBarcode('')
+      return
+    }
+    if (outcome === 'blocked') {
+      restoreCode(code, true)
+      return
+    }
+    // No exact code match: fall back to the card highlighted when Enter was pressed.
+    if (highlighted && !isOOS(highlighted)) {
+      handleProductClick(highlighted)
+      setPendingScannedBarcode('')
+      return
+    }
+    if (!listIsCurrent) {
+      // Enter beat the debounce (always the case for scanners). If the text matches something
+      // by name, give it back unselected so the cashier can pick from the list; otherwise it is
+      // a genuine "not found" and falls through.
+      const matches = await searchPOSProducts(code, categoryId)
+      if (matches.length > 0) {
+        restoreCode(code, false)
+        return
+      }
+    }
+    restoreCode(code, true)
+    setPendingScannedBarcode(code)
+    toast.info(`Không tìm thấy sản phẩm với mã: ${code}`)
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleEnter(e.currentTarget.value)
+      return
+    }
     if (filteredResults.length === 0) return
 
     if (e.key === 'ArrowDown') {
       e.preventDefault()
+      navigatedRef.current = true
       // Skip out-of-stock (disabled) items
       let nextIndex = highlightedIndex
       for (let i = 1; i <= filteredResults.length; i++) {
@@ -202,6 +330,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
       setHighlightedIndex(nextIndex)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
+      navigatedRef.current = true
       // Skip out-of-stock (disabled) items
       let nextIndex = highlightedIndex
       for (let i = 1; i <= filteredResults.length; i++) {
@@ -212,14 +341,6 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
         }
       }
       setHighlightedIndex(nextIndex)
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      const targetProduct = filteredResults[highlightedIndex]
-      if (targetProduct) {
-        if (!isOOS(targetProduct)) {
-          handleProductClick(targetProduct)
-        }
-      }
     }
   }
 
@@ -385,7 +506,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
               const stock = inventory.get(product.product_id) ?? 0
               const type = (product as any).product_type ?? 'simple'
               // variant_parent: don't track stock by itself, always show
-              const outOfStock = !allowNegativeStock && !allowsProductNegativeStock(product as any) && type !== 'variant_parent' && type !== 'modifier' && stock <= 0
+              const outOfStock = isOOS(product)
               const badge = getTypeBadge(product)
               const isHighlighted = index === highlightedIndex
               return (
@@ -395,7 +516,10 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
                     if (!outOfStock) handleProductClick(product)
                   }}
                   onMouseEnter={() => {
-                    if (!outOfStock) setHighlightedIndex(index)
+                    if (!outOfStock) {
+                      setHighlightedIndex(index)
+                      navigatedRef.current = true
+                    }
                   }}
                   disabled={outOfStock}
                   className={[

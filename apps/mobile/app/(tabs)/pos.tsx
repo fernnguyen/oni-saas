@@ -428,6 +428,10 @@ export default function PosScreen() {
   // Bar/Bếp K3: when the branch has prep stations, saving a table draft also sends it to the
   // kitchen ("Lưu & báo bếp"). Probed once per shop; any error → off (plain "Lưu vào bàn").
   const [kitchenEnabled, setKitchenEnabled] = useState(false);
+  // Branch setting "Tự gửi bếp" (default on): off → saving is a plain save, sending is manual
+  // from the table detail's kitchen bar.
+  const [kitchenAutoSend, setKitchenAutoSend] = useState(true);
+  const kitchenSendOnSave = kitchenEnabled && kitchenAutoSend;
   useEffect(() => {
     if (!activeShopId || !isKitchenEligibleIndustry(shopVertical || 'retail') || !isOnline) return;
     let alive = true;
@@ -435,7 +439,10 @@ export default function PosScreen() {
       try {
         const res = await fetch(`${getApiBaseUrl()}/api/shops/${activeShopId}/prep-stations`, { headers: await getApiHeaders() });
         const json = res.ok ? await res.json() : null;
-        if (alive) setKitchenEnabled(Array.isArray(json?.data) && json.data.length > 0);
+        if (alive) {
+          setKitchenEnabled(Array.isArray(json?.data) && json.data.length > 0);
+          setKitchenAutoSend(json?.settings?.auto_send !== false);
+        }
       } catch {
         /* offline / unsupported: keep the last known value */
       }
@@ -627,7 +634,7 @@ export default function PosScreen() {
   // "Lưu & báo bếp" only where the save really reaches the kitchen (v2 table + stations).
   const tableSaveLabel = (table: { id: string; name: string }) => {
     const live = tables.find(t => t.id === table.id) || table;
-    return kitchenEnabled && isV2Table(live as any) ? 'Lưu & báo bếp' : `Lưu vào ${table.name}`;
+    return kitchenSendOnSave && isV2Table(live as any) ? 'Lưu & báo bếp' : `Lưu vào ${table.name}`;
   };
 
   const saveTableOrderDraft = async () => {
@@ -660,7 +667,7 @@ export default function PosScreen() {
           return;
         }
         // v2: base = món đã có trên bàn → chỉ gửi add_item / change_qty cho phần nháp
-        const ok = await syncOrderItemsOnline(latestOrderId, next, target.id, base, { kitchenFire: kitchenEnabled });
+        const ok = await syncOrderItemsOnline(latestOrderId, next, target.id, base, { kitchenFire: kitchenSendOnSave });
         if (!ok) {
           // Hộp thoại (không phải toast): toast bị phiếu gọi món (Modal) che mất
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => { });
@@ -673,8 +680,8 @@ export default function PosScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
         showToast(
           sessionState === 'offline'
-            ? `Đã lưu ${count} món trên máy cho ${target.name}, sẽ gửi${kitchenEnabled ? ' và báo bếp' : ''} khi có mạng`
-            : kitchenEnabled
+            ? `Đã lưu ${count} món trên máy cho ${target.name}, sẽ gửi${kitchenSendOnSave ? ' và báo bếp' : ''} khi có mạng`
+            : kitchenSendOnSave
               ? `Đã lưu ${count} món vào ${target.name} và báo bếp`
               : `Đã lưu ${count} món vào ${target.name}`,
           'success',

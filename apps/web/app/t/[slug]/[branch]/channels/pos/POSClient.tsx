@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { liveQuery } from 'dexie'
 import { usePOSHydration } from '@/hooks/usePOSHydration'
 import { useNetworkStatus } from '@/hooks/useNetworkStatus'
-import { useCart, type CartItem } from '@/hooks/useCart'
+import { useCart, cartLineKey, maxQtyForLine, type CartItem } from '@/hooks/useCart'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useConfirm } from '@/app/components/ui/ConfirmProvider'
 import { format } from 'date-fns'
@@ -257,11 +257,11 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
     if (cart.items.length > 0) {
       const lastItem = cart.items[cart.items.length - 1]
       if (cart.items.length > prevItemsLengthRef.current || !activeCartItemId) {
-        setActiveCartItemId(lastItem.product_id)
+        setActiveCartItemId(cartLineKey(lastItem))
       } else {
-        const exists = cart.items.some((item) => item.product_id === activeCartItemId)
+        const exists = cart.items.some((item) => cartLineKey(item) === activeCartItemId)
         if (!exists) {
-          setActiveCartItemId(lastItem.product_id)
+          setActiveCartItemId(cartLineKey(lastItem))
         }
       }
     } else {
@@ -930,12 +930,12 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
         if (!isTyping()) {
           e.preventDefault()
           if (activeCartItemId) {
-            const item = cart.items.find((i) => i.product_id === activeCartItemId)
+            const item = cart.items.find((i) => cartLineKey(i) === activeCartItemId)
             if (item) {
-              const stock = inventory.get(item.product_id)
-              const atMax = stock !== undefined && item.qty >= stock
+              const max = maxQtyForLine(cart.items, item, inventory.get(item.product_id), allowNegativeStock ?? false)
+              const atMax = max !== undefined && item.qty >= max
               if (!atMax) {
-                cart.setQty(item.product_id, item.qty + 1)
+                cart.setQty(cartLineKey(item), item.qty + 1)
                 // play audio if not muted
                 if (!mutePosSound) {
                   try {
@@ -950,10 +950,10 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
           } else if (cart.items.length > 0) {
             // Default to the last item if none is active
             const item = cart.items[cart.items.length - 1]
-            const stock = inventory.get(item.product_id)
-            const atMax = stock !== undefined && item.qty >= stock
+            const max = maxQtyForLine(cart.items, item, inventory.get(item.product_id), allowNegativeStock ?? false)
+            const atMax = max !== undefined && item.qty >= max
             if (!atMax) {
-              cart.setQty(item.product_id, item.qty + 1)
+              cart.setQty(cartLineKey(item), item.qty + 1)
               if (!mutePosSound) {
                 try {
                   const audio = new Audio('/beep.wav')
@@ -968,7 +968,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
 
     window.addEventListener('keydown', handleGlobalKeyDown)
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [checkoutOpen, cart.items, activeCartItemId, inventory, mutePosSound, customer, maxOrders, currentMonthOrdersCount, planCode])
+  }, [checkoutOpen, cart.items, activeCartItemId, inventory, mutePosSound, customer, maxOrders, currentMonthOrdersCount, planCode, allowNegativeStock])
 
   if (!lastHydratedAt && !isOnline) {
     return (
@@ -1389,6 +1389,7 @@ export function POSClient({ shopId, branchId, shopName, userEmail, backPath, aut
             mutePosSound={mutePosSound ?? false}
             activeItemId={activeCartItemId}
             onActiveItemChange={setActiveCartItemId}
+            allowNegativeStock={allowNegativeStock ?? false}
             onOpenCustomerModal={() => openCustomerModalGlobal()}
           />
         </div>

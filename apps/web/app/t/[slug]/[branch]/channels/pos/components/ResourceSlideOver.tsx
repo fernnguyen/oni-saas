@@ -256,7 +256,7 @@ export function ResourceSlideOver({
   mergeV2ItemsRef.current = mergeV2Items
 
   // Bar/Bếp K3: kitchen state + "Gửi bếp" for this table (inert without stations / v2).
-  const kitchen = useTableKitchen(shopId, v2SessionId, v2, { canVoid: permissions.includes('orders.delete') })
+  const kitchen = useTableKitchen(shopId, v2SessionId, v2, { canVoid: permissions.includes('orders.delete'), active: open })
 
   const v2LineRef = (i: OrderItem): { item_id?: string; line_key?: string } => {
     const id = String(i.id || '')
