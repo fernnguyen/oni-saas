@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from 'react'
 import { liveQuery } from 'dexie'
 import { toast } from 'sonner'
 import { localDb, type LocalCategory, type LocalProduct } from '@/lib/localDb/schema'
-import { usePOSProductSearch } from '@/hooks/usePOSProductSearch'
+import { usePOSProductSearch, findProductsByCode } from '@/hooks/usePOSProductSearch'
 import { IconBox } from '@/app/components/layout/nav'
 import type { CartItem } from '@/hooks/useCart'
 import { VariantPickerModal } from './VariantPickerModal'
@@ -11,7 +11,7 @@ import { ModifierPickerModal } from './ModifierPickerModal'
 import { CameraScannerModal } from './CameraScannerModal'
 import { QuickCreateProductDialog } from './QuickCreateProductDialog'
 import { cleanSku } from '@/lib/sku'
-import { allowsProductNegativeStock, isSystemTimeChargeProduct } from '@oni/core'
+import { allowsProductNegativeStock } from '@oni/core'
 
 interface Props {
   branchId: string
@@ -60,7 +60,12 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
   const [variantParent, setVariantParent] = useState<LocalProduct | null>(null)
   const [modifierProduct, setModifierProduct] = useState<LocalProduct | null>(null)
 
-  const { results, isLoading } = usePOSProductSearch(search, categoryId)
+  const { results, isLoading, resultsKey, isStale } = usePOSProductSearch(search, categoryId)
+  // Latest input value, read after async lookups so a second scan typed meanwhile isn't wiped
+  const searchRef = useRef(search)
+  searchRef.current = search
+  // Ignore a new Enter while the previous code lookup is still running (scanner double-send)
+  const lookupBusyRef = useRef(false)
 
   // Helper to check if a product is out of stock
   const isOOS = (p: LocalProduct) => {
@@ -76,12 +81,13 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
     ? results
     : results.filter((p) => !isOOS(p))
 
-  // Reset highlight index ONLY when search query, category, or stock toggle changes
-  // This solves the issue where highlight focus freezes on the first item during keyboard navigation
+  // Reset highlight when a NEW result set arrives (query/category) or the stock toggle changes.
+  // Keyed on resultsKey, not `search`: results lag the input by the debounce, so resetting on
+  // `search` computed the index against the previous query's list.
   useEffect(() => {
     const firstActive = filteredResults.findIndex((p) => !isOOS(p))
     setHighlightedIndex(firstActive >= 0 ? firstActive : 0)
-  }, [search, categoryId, showOutOfStock])
+  }, [resultsKey, showOutOfStock])
 
   useEffect(() => {
     const subscription = liveQuery(() =>
@@ -92,6 +98,67 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
     })
     return () => subscription.unsubscribe()
   }, [database, branchId])
+
+  /** Clear the search box only if it still holds `code` (don't eat a scan typed meanwhile). */
+  function clearSearchIf(code: string) {
+    setSearch((prev) => (prev.trim() === code ? '' : prev))
+    setPendingScannedBarcode('')
+  }
+
+  /** Same CartItem shape as VariantPickerModal, so scanned and picked variants merge. */
+  async function addVariantChild(child: LocalProduct) {
+    const parent = child.parent_id ? await localDb.products.get(child.parent_id) : undefined
+    let opts: Record<string, unknown> = {}
+    try {
+      const raw = (child as any).variant_options
+      opts = (typeof raw === 'string' ? JSON.parse(raw) : raw) ?? {}
+    } catch {}
+    const label = Object.entries(opts).map(([k, v]) => `${k}: ${v}`).join(' / ') || child.name
+    if (!mutePosSound) playBeep()
+    onAddToCartWithOptions({
+      product_id: child.product_id,
+      product_name: parent?.name ?? child.name,
+      sku: child.sku,
+      unit_price: Number(child.sell_price),
+      cost_price: Number(child.cost_price),
+      qty: 1,
+      discount_amount: 0,
+      modifier_total: 0,
+      variant_label: label,
+      line_total: Number(child.sell_price),
+    })
+  }
+
+  /**
+   * Resolve a scanned / typed code to exactly one product and add it.
+   * Returns 'added' | 'blocked' (found but out of stock / ambiguous) | 'not_found'.
+   */
+  async function addByCode(code: string): Promise<'added' | 'blocked' | 'not_found'> {
+    const matches = await findProductsByCode(code)
+    if (matches.length === 0) return 'not_found'
+    if (matches.length > 1) {
+      toast.warning(`Mã "${code}" trùng ${matches.length} sản phẩm`, {
+        description: 'Chọn đúng sản phẩm trong danh sách (↑ ↓ rồi Enter).',
+      })
+      return 'blocked'
+    }
+    const match = matches[0]
+    if ((match as any).product_type === 'variant_child') {
+      const stock = inventory.get(match.product_id) ?? 0
+      if (!allowNegativeStock && !allowsProductNegativeStock(match as any) && stock <= 0) {
+        toast.error(`"${match.name}" đã hết hàng`)
+        return 'blocked'
+      }
+      await addVariantChild(match)
+    } else {
+      if (isOOS(match)) {
+        toast.error(`"${match.name}" đã hết hàng`)
+        return 'blocked'
+      }
+      handleProductClick(match)
+    }
+    return 'added'
+  }
 
   function handleProductClick(product: LocalProduct) {
     const type = (product as any).product_type ?? 'simple'
@@ -125,52 +192,21 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
 
   // Handle successful camera scan
   async function handleScanSuccess(barcode: string) {
-    if (!barcode) return
-    setSearch(barcode)
-    toast.success(`Đã quét mã: ${barcode}`)
-    if (!mutePosSound) playBeep()
+    const code = barcode.trim()
+    if (!code) return
+    setSearch(code)
 
     try {
-      // Query active products from Dexie DB
-      const items = await localDb.products.filter((p) => p.active && (p as any).product_type !== 'variant_child' && !isSystemTimeChargeProduct(p.product_id, p.sku)).toArray()
-      
-      // Flatten units identical to search hook
-      let match: LocalProduct | null = null
-      for (const p of items) {
-        if (p.barcode === barcode || p.sku === barcode || cleanSku(p.sku) === barcode) {
-          match = p
-          break
-        }
-        if (Array.isArray(p.product_units) && p.product_units.length > 0) {
-          for (const u of p.product_units) {
-            if (u.barcode === barcode || u.sku === barcode || cleanSku(u.sku) === barcode) {
-              match = {
-                ...p,
-                product_id: p.product_id,
-                name: `${p.name} (${u.unit_name})`,
-                barcode: u.barcode || '',
-                sell_price: Number(u.sell_price || 0),
-                cost_price: Number(u.cost_price || 0),
-                unit_id: u.unit_id || u.id,
-                unit_name: u.unit_name,
-                conversion_rate: Number(u.conversion_rate || 1),
-                unit: u.unit_name,
-              } as any
-              break
-            }
-          }
-          if (match) break
-        }
-      }
-
-      if (match) {
-        handleProductClick(match)
-        setSearch('') // Clear search bar upon successful auto-add
-        toast.success(`Đã thêm vào giỏ: ${match.name}`)
+      const outcome = await addByCode(code)
+      if (outcome === 'added') {
+        clearSearchIf(code)
+        toast.success(`Đã thêm vào giỏ: ${code}`)
+      } else if (outcome === 'not_found') {
+        setIsCameraOpen(false)
+        setPendingScannedBarcode(code)
+        toast.info(`Không tìm thấy sản phẩm với mã: ${code}`)
       } else {
         setIsCameraOpen(false)
-        setPendingScannedBarcode(barcode)
-        toast.info(`Không tìm thấy sản phẩm với mã: ${barcode}`)
       }
     } catch (e) {
       console.error('Error auto-adding scanned barcode:', e)
@@ -185,7 +221,50 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
     return null
   }
 
+  /**
+   * Enter: an exact barcode/SKU match always wins (scanner path, independent of the debounced
+   * list); otherwise add the highlighted card — but only once the list belongs to this query.
+   * The box is cleared after a successful add; on "not found" the text is selected so the
+   * next scan replaces it instead of appending to it.
+   */
+  async function handleEnter(input: HTMLInputElement) {
+    const code = input.value.trim()
+    if (!code || lookupBusyRef.current) return
+    lookupBusyRef.current = true
+    try {
+      const outcome = await addByCode(code)
+      if (outcome === 'added') {
+        clearSearchIf(code)
+        return
+      }
+      if (outcome === 'blocked') {
+        input.select()
+        return
+      }
+      // No exact code match: fall back to the highlighted card if the list is current.
+      if (!isStale && searchRef.current.trim() === code) {
+        const target = filteredResults[highlightedIndex]
+        if (target && !isOOS(target)) {
+          handleProductClick(target)
+          clearSearchIf(code)
+          return
+        }
+      }
+      if (isStale) return // list still loading for this text — let the user press Enter again
+      setPendingScannedBarcode(code)
+      toast.info(`Không tìm thấy sản phẩm với mã: ${code}`)
+      input.select()
+    } finally {
+      lookupBusyRef.current = false
+    }
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      void handleEnter(e.currentTarget)
+      return
+    }
     if (filteredResults.length === 0) return
 
     if (e.key === 'ArrowDown') {
@@ -212,14 +291,6 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
         }
       }
       setHighlightedIndex(nextIndex)
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      const targetProduct = filteredResults[highlightedIndex]
-      if (targetProduct) {
-        if (!isOOS(targetProduct)) {
-          handleProductClick(targetProduct)
-        }
-      }
     }
   }
 
