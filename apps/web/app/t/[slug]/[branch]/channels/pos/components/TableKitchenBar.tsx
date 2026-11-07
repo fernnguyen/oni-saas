@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ChefHat, Send } from 'lucide-react';
+import { kitchenDestinationLabel } from '@oni/core';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowser';
 import type { TableSyncV2Api } from '@/hooks/useTableSyncV2';
 
@@ -14,10 +15,26 @@ export interface TableKitchenStatus {
   enabled: boolean;
   unsent_lines: number;
   unsent_qty: number;
-  items: Record<string, { sent: number; ready: number; unavailable?: number }>;
+  items: Record<string, { sent: number; ready: number; unavailable?: number; station_name?: string; station_kind?: string }>;
   unavailable_products?: string[];
   /** Branch setting: send new dishes without pressing "Gửi bếp" */
   auto_send?: boolean;
+  /** where the next send goes / every station of the branch (labels: "Gửi Bar") */
+  unsent_stations?: { id: string; name: string; kind: string }[];
+  stations?: { id: string; name: string; kind: string }[];
+}
+
+/** Station names for labels: the stations of the unsent dishes, else every station of the branch. */
+export function kitchenDest(status: TableKitchenStatus): string {
+  return kitchenDestinationLabel(status.unsent_stations?.length ? status.unsent_stations : status.stations ?? []);
+}
+
+/** Station of one dish ("Bar"), or the only station of the branch; '' when unknown. */
+export function itemStationName(status: TableKitchenStatus, itemId?: string): string {
+  const id = String(itemId || '');
+  const own = id ? status.items[id]?.station_name : '';
+  if (own) return own;
+  return status.stations?.length === 1 ? status.stations[0].name : '';
 }
 
 const EMPTY: TableKitchenStatus = { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {}, unavailable_products: [] };
@@ -40,7 +57,7 @@ export function useTableKitchen(
   /** Dish notes typed before "Gửi bếp" (order_item_id → note); sent with the next send. */
   const [notes, setNotes] = useState<Record<string, string>>({});
   /** Open "reason for cancelling a dish already sent" prompt, resolved by VoidReasonDialog. */
-  const [voidAsk, setVoidAsk] = useState<{ name: string; qty: number; resolve: (reason: string | null) => void } | null>(null);
+  const [voidAsk, setVoidAsk] = useState<VoidAsk | null>(null);
   const canVoid = Boolean(opts.canVoid);
   const active = opts.active !== false;
   const pendingLocal = v2 && sessionId ? v2.pendingFor(sessionId).filter((e) => e.kind === 'op').length : 0;
@@ -97,14 +114,16 @@ export function useTableKitchen(
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || 'Gửi bếp thất bại');
+      if (!res.ok) throw new Error(json?.error || 'Gửi món thất bại');
       if (json.status) setStatus(json.status);
       setNotes({});
-      const n = Array.isArray(json.tickets) ? json.tickets.length : 0;
-      if (n > 0) toast.success(opts.auto ? `Đã tự báo bếp ${n} phiếu` : `Đã gửi ${n} phiếu xuống bar/bếp`);
+      const tickets: { station_name?: string }[] = Array.isArray(json.tickets) ? json.tickets : [];
+      const n = tickets.length;
+      const where = kitchenDestinationLabel(tickets.map((t) => ({ name: t.station_name })));
+      if (n > 0) toast.success(opts.auto ? `Đã tự gửi ${where} (${n} phiếu)` : `Đã gửi ${n} phiếu xuống ${where}`);
       else if (!opts.auto) toast.info('Không có món mới để gửi');
     } catch (e) {
-      toast.error(opts.auto ? `Chưa tự báo bếp được: ${(e as Error).message}` : (e as Error).message);
+      toast.error(opts.auto ? `Chưa tự gửi món được: ${(e as Error).message}` : (e as Error).message);
     } finally {
       sendingRef.current = false;
       setSending(false);
@@ -166,7 +185,7 @@ export function useTableKitchen(
    * `note: reason` + `kitchen_fire` so the cancel ticket (with its reason) reaches the station now.
    */
   const confirmReduce = useCallback(
-    async (item: { id?: string; product_name?: string }, newQty: number): Promise<{ ok: boolean; reason?: string }> => {
+    async (item: { id?: string; product_name?: string }, newQty: number): Promise<{ ok: boolean; reason?: string; made?: boolean }> => {
       const id = String(item.id || '');
       if (!status.enabled || !id) return { ok: true };
       const sent = Math.max(0, status.items[id]?.sent ?? 0);
@@ -175,13 +194,19 @@ export function useTableKitchen(
       // The kitchen itself reported it sold out: removing that part is not the floor's fault.
       if (voidQty <= Math.max(0, status.items[id]?.unavailable ?? 0)) return { ok: true, reason: 'Hết món' };
       const name = item.product_name || 'Món';
+      const where = itemStationName(status, id) || kitchenDest(status);
+      // Cancels come off what is not made yet first; beyond that the station already made it.
+      const ready = Math.min(sent, Math.max(0, status.items[id]?.ready ?? 0));
+      const madeQty = Math.max(0, voidQty - (sent - ready));
       if (!canVoid) {
-        toast.error(`"${name}" đã báo bếp. Cần quyền huỷ đơn để bớt hoặc huỷ món này.`);
+        toast.error(`"${name}" đã gửi ${where}${madeQty > 0 ? ' và đã làm xong' : ''}. Cần quyền huỷ đơn để bớt hoặc huỷ món này.`);
         return { ok: false };
       }
-      const reason = await new Promise<string | null>((resolve) => setVoidAsk({ name, qty: voidQty, resolve }));
+      const answer = await new Promise<{ reason: string; made: boolean } | null>((resolve) =>
+        setVoidAsk({ name, qty: voidQty, madeQty, where, resolve }),
+      );
       setVoidAsk(null);
-      return reason ? { ok: true, reason } : { ok: false };
+      return answer ? { ok: true, reason: answer.reason, made: answer.made } : { ok: false };
     },
     [status, canVoid],
   );
@@ -189,9 +214,27 @@ export function useTableKitchen(
   return { status, sending, send, pendingLocal, refresh, notes, setNote, confirmReduce, voidAsk, setBackInStock, autoOn, autoAt, setNoteEditing, setVisibleUnsent };
 }
 
-/** Op fields for a reduction approved by confirmReduce: reason on the cancel ticket, sent now. */
-export function voidOpFields(reason?: string): { note?: string; kitchen_fire?: boolean } {
-  return reason ? { note: `Lý do: ${reason}`, kitchen_fire: true } : {};
+/**
+ * Op fields for a reduction approved by confirmReduce: reason on the cancel ticket, sent now;
+ * `kitchen_made` when the floor confirmed the dish was already made (cancel = waste).
+ */
+export function voidOpFields(
+  check?: string | { reason?: string; made?: boolean },
+): { note?: string; kitchen_fire?: boolean; kitchen_made?: boolean } {
+  const reason = typeof check === 'string' ? check : check?.reason;
+  const made = typeof check === 'object' && Boolean(check?.made);
+  if (!reason) return {};
+  return { note: `Lý do: ${reason}`, kitchen_fire: true, ...(made ? { kitchen_made: true } : {}) };
+}
+
+interface VoidAsk {
+  name: string;
+  qty: number;
+  /** part of qty the station already made (ticked "Xong") */
+  madeQty: number;
+  /** "Bếp", "Bar"... */
+  where: string;
+  resolve: (answer: { reason: string; made: boolean } | null) => void;
 }
 
 const VOID_REASONS = ['Khách đổi ý', 'Nhập nhầm', 'Hết món', 'Ra món chậm'];
@@ -202,17 +245,25 @@ export function outstandingUnavailable(status: TableKitchenStatus, itemId?: stri
   return status.enabled && id ? Math.max(0, status.items[id]?.unavailable ?? 0) : 0;
 }
 
-function VoidReasonDialog({ ask }: { ask: NonNullable<ReturnType<typeof useTableKitchen>['voidAsk']> }) {
+function VoidReasonDialog({ ask }: { ask: VoidAsk }) {
   const [choice, setChoice] = useState('');
   const [other, setOther] = useState('');
   const reason = choice === 'other' ? other.trim() : choice;
+  const made = ask.madeQty > 0;
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => ask.resolve(null)}>
       <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-slate-900">Huỷ món đã báo bếp</h3>
-        <p className="mt-1 text-sm text-slate-500">
-          {ask.name}: huỷ {ask.qty} phần đã gửi xuống bếp. Bếp sẽ nhận phiếu huỷ kèm lý do.
-        </p>
+        <h3 className="text-base font-semibold text-slate-900">{made ? `${ask.where} đã làm xong món này` : `Huỷ món đã gửi ${ask.where}`}</h3>
+        {made ? (
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {ask.name}: {ask.madeQty === ask.qty ? `${ask.qty} phần` : `${ask.madeQty}/${ask.qty} phần`} đã làm xong.
+            {' '}Huỷ bây giờ sẽ <b>ghi hao hụt</b> (vẫn mất nguyên liệu). Nếu khách vẫn nhận món, hãy giữ món và tính tiền.
+          </div>
+        ) : (
+          <p className="mt-1 text-sm text-slate-500">
+            {ask.name}: huỷ {ask.qty} phần đã gửi {ask.where}. {ask.where} sẽ nhận phiếu huỷ kèm lý do và báo lại đã dừng kịp hay đã làm.
+          </p>
+        )}
         <div className="mt-4 grid grid-cols-2 gap-2">
           {VOID_REASONS.map((r) => (
             <button
@@ -244,14 +295,14 @@ function VoidReasonDialog({ ask }: { ask: NonNullable<ReturnType<typeof useTable
         )}
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={() => ask.resolve(null)} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 cursor-pointer">
-            Giữ món
+            {made ? 'Giữ món – vẫn tính tiền' : 'Giữ món'}
           </button>
           <button
-            onClick={() => reason && ask.resolve(reason)}
+            onClick={() => reason && ask.resolve({ reason, made })}
             disabled={!reason}
             className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-40 cursor-pointer"
           >
-            Huỷ món
+            {made ? 'Vẫn huỷ – ghi hao hụt' : 'Huỷ món'}
           </button>
         </div>
       </div>
@@ -274,7 +325,7 @@ export function KitchenItemNote({ kitchen, itemId, qty }: { kitchen: ReturnType<
         autoFocus
         defaultValue={note}
         maxLength={200}
-        placeholder="Ghi chú cho bếp (ít đá, không hành...)"
+        placeholder="Ghi chú món (ít đá, không hành...)"
         onBlur={(e) => { kitchen.setNote(id, e.target.value); setEditing(false); }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
@@ -286,7 +337,7 @@ export function KitchenItemNote({ kitchen, itemId, qty }: { kitchen: ReturnType<
   }
   return (
     <button type="button" onClick={() => setEditing(true)} className="mt-0.5 block max-w-full truncate text-left text-[11px] font-medium cursor-pointer">
-      {note ? <span className="italic text-amber-700">» {note}</span> : <span className="text-slate-400 hover:text-primary">+ Ghi chú cho bếp</span>}
+      {note ? <span className="italic text-amber-700">» {note}</span> : <span className="text-slate-400 hover:text-primary">+ Ghi chú món</span>}
     </button>
   );
 }
@@ -317,6 +368,7 @@ export function TableKitchenBar({
 }) {
   const { status, sending, send, pendingLocal, autoOn, autoAt, setVisibleUnsent } = kitchen;
   const secondsLeft = useCountdown(autoAt);
+  const dest = kitchenDest(status);
   const visibleUnsent = status.enabled ? lines.reduce((n, l) => {
     const qty = Number(l.qty) || 0;
     const id = String(l.id || '');
@@ -335,7 +387,7 @@ export function TableKitchenBar({
     {kitchen.voidAsk && <VoidReasonDialog ask={kitchen.voidAsk} />}
     {soldOutLines.length > 0 && (
       <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2">
-        <p className="text-xs font-semibold text-rose-800">Bếp báo hết món – báo khách và bỏ món:</p>
+        <p className="text-xs font-semibold text-rose-800">Báo hết món – báo khách và bỏ món:</p>
         <ul className="mt-1 space-y-1">
           {soldOutLines.map(({ l, n }) => (
             <li key={l.id} className="flex items-center gap-2 text-xs text-rose-700">
@@ -360,10 +412,10 @@ export function TableKitchenBar({
     >
       <ChefHat className={`h-4 w-4 shrink-0 ${unsent > 0 ? 'text-amber-600' : 'text-slate-400'}`} />
       <span className={`flex-1 text-xs font-medium ${unsent > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
-        {unsent > 0 ? `Món chưa báo bếp: ${unsentQty || unsent}` : 'Đã báo bếp đủ món'}
+        {unsent > 0 ? `Chưa báo ${dest}: ${unsentQty || unsent} món` : 'Đã báo đủ món'}
         {unsent > 0 && autoOn && !sending && (
           <span className="block text-[11px] font-normal text-amber-700">
-            {secondsLeft > 0 ? `Tự báo bếp sau ${secondsLeft} giây` : 'Tự báo bếp khi đóng bàn'}
+            {secondsLeft > 0 ? `Tự gửi ${dest} sau ${secondsLeft} giây` : 'Tự gửi khi đóng bàn'}
           </span>
         )}
       </span>
@@ -373,7 +425,7 @@ export function TableKitchenBar({
         className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-dark disabled:opacity-40 cursor-pointer"
       >
         <Send className="h-3.5 w-3.5" />
-        {sending ? 'Đang gửi...' : autoOn ? 'Gửi ngay' : 'Gửi bếp'}
+        {sending ? 'Đang gửi...' : autoOn ? 'Gửi ngay' : `Gửi ${dest}`}
       </button>
     </div>
     </>
@@ -389,17 +441,18 @@ export function KitchenItemBadge({ status, itemId, qty }: { status: TableKitchen
   let label: string;
   let cls: string;
   const gone = Math.max(0, s?.unavailable ?? 0);
+  const where = itemStationName(status, itemId);
   if (gone > 0) {
     label = gone >= sent ? 'Hết món' : `Hết ${gone}/${sent}`;
     cls = 'bg-rose-50 text-rose-700 border-rose-200';
   } else if (sent === 0) {
-    label = 'Chưa báo bếp';
+    label = where ? `Chưa báo ${where}` : 'Chưa báo';
     cls = 'bg-amber-50 text-amber-700 border-amber-200';
   } else if (sent < qty) {
     label = `Chưa báo +${qty - sent}`;
     cls = 'bg-amber-50 text-amber-700 border-amber-200';
   } else if (ready >= sent) {
-    label = 'Bếp xong';
+    label = where ? `${where} xong` : 'Đã xong';
     cls = 'bg-emerald-50 text-emerald-700 border-emerald-200';
   } else {
     label = ready > 0 ? `Đang làm ${ready}/${sent}` : 'Đang làm';

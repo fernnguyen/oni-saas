@@ -471,10 +471,15 @@ export function TableMapPOS({
     if (!supabase || !vertical.features.kitchen_display) return
     const channel = supabase
       .channel(`kitchen_${shopId}`)
-      .on('broadcast', { event: 'changes' }, (msg: { payload?: { kind?: string; product_name?: string; resource_name?: string } }) => {
+      .on('broadcast', { event: 'changes' }, (msg: { payload?: { kind?: string; product_name?: string; resource_name?: string; station_name?: string; outcome?: string } }) => {
         const pl = msg?.payload
+        const where = pl?.station_name || 'Bếp'
+        const tail = `${pl?.product_name || 'món'}${pl?.resource_name ? ` – ${pl.resource_name}` : ''}`
         if (pl?.kind === 'item_unavailable') {
-          toast.error(`Bếp báo hết: ${pl.product_name || 'món'}${pl.resource_name ? ` – ${pl.resource_name}` : ''}`, { duration: 10000 })
+          toast.error(`${where} báo hết: ${tail}`, { duration: 10000 })
+        } else if (pl?.kind === 'void_answered' && pl.outcome === 'made') {
+          // A cancelled dish was already made: the floor may still sell it, else it is waste
+          toast.warning(`${where} đã làm rồi: ${tail} (món huỷ, ghi hao hụt)`, { duration: 10000 })
         }
       })
       .subscribe()

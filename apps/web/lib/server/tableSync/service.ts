@@ -7,7 +7,8 @@ import { cleanResourceSessionMetadata, parseMetadataSafe } from '@/lib/server/ta
 import { applyTableOps, isTimeChargeLine, TableSyncError, type ApplyOpsResult, type TableOp } from './engine'
 import { createPgTableSyncRepo, mapSessionRow } from './pgRepository'
 import { broadcastTableSync } from './broadcast'
-import { closeKitchenTicketsForTable, fireKitchenForSession, kitchenBestEffort, retargetKitchenTickets } from '../kitchen/tickets'
+import { fireKitchenForSession, kitchenBestEffort, retargetKitchenTickets, voidKitchenForCancelledTable } from '../kitchen/tickets'
+import type { KitchenActor } from '../kitchen/actor'
 
 // Table sync v2 service (docs/TABLE-SESSION-SYNC-PLAN.md Phase 1): sessions, idempotent ops,
 // change feed. On by default for every shop whose connector supports transactions (Postgres);
@@ -245,7 +246,14 @@ async function healSessionIfOrderClosed(tx: TransactionClient, sessionRow: any):
  * Called by the legacy cancel route (`POST /orders/:id/cancel`) so a v2 session never outlives
  * its cancelled order. No-op for orders without metadata.session_id.
  */
-export async function endTableSessionForCancelledOrder(connector: IDataConnector, shopId: string, orderId: string, orderMetadata: unknown) {
+/** `audit.actor`: the signed-in user cancelling (server-side only, never from a request body). */
+export async function endTableSessionForCancelledOrder(
+  connector: IDataConnector,
+  shopId: string,
+  orderId: string,
+  orderMetadata: unknown,
+  audit: { actor?: KitchenActor } = {},
+) {
   const sessionId = String(parseMetadataSafe(orderMetadata).session_id || '')
   if (!sessionId || typeof connector.withTransaction !== 'function') return false
   const healed = await connector.withTransaction(async (tx) => {
@@ -257,8 +265,9 @@ export async function endTableSessionForCancelledOrder(connector: IDataConnector
   })
   if (healed) {
     void broadcastTableSync(shopId, { session_id: sessionId, kind: 'session_cancelled' })
-    await kitchenBestEffort('close tickets (order cancelled)', () =>
-      closeKitchenTicketsForTable(connector as TxConnector, shopId, { sessionId, orderId }))
+    // The kitchen is told: dishes still at a station get a cancel ticket (see voidKitchenForCancelledTable)
+    await kitchenBestEffort('cancel tickets (order cancelled)', () =>
+      voidKitchenForCancelledTable(connector as TxConnector, shopId, { sessionId, orderId, reason: 'Huỷ đơn', actor: audit.actor }))
   }
   return healed
 }
@@ -266,7 +275,9 @@ export async function endTableSessionForCancelledOrder(connector: IDataConnector
 export async function applyTableSessionOps(
   connector: TxConnector,
   shopId: string,
-  input: { sessionId: string; deviceId: string; ops: TableOp[] }
+  input: { sessionId: string; deviceId: string; ops: TableOp[] },
+  /** who sent the ops (server-side only): recorded on kitchen tickets for the cancel audit */
+  audit: { actor?: KitchenActor } = {},
 ): Promise<ApplyOpsResult> {
   const result = await connector.withTransaction(async (tx) => {
     const repo = createPgTableSyncRepo(tx)
@@ -285,7 +296,7 @@ export async function applyTableSessionOps(
   const wantsFire = input.ops.some((op) => (op as { kitchen_fire?: unknown })?.kitchen_fire === true)
   if (wantsFire && result.results.some((r) => r.status === 'applied')) {
     try {
-      await fireKitchenForSession(connector, shopId, input.sessionId, { deviceId: input.deviceId })
+      await fireKitchenForSession(connector, shopId, input.sessionId, { deviceId: input.deviceId, actor: audit.actor })
     } catch (err) {
       console.error('[kitchen] send to kitchen failed (ops already applied):', err)
     }
@@ -506,8 +517,8 @@ export async function closeTableSessionForOrder(connector: IDataConnector, shopI
       console.warn(`[tableSync] billing discrepancy on session ${sessionId}:`, outcome.billing)
     }
     void broadcastTableSync(shopId, { session_id: sessionId, resource_id: outcome.session.resource_id, kind: 'session_closed' })
-    await kitchenBestEffort('close tickets (table paid)', () =>
-      closeKitchenTicketsForTable(connector as TxConnector, shopId, { sessionId, orderId: outcome.session.order_id }))
+    // Paying does not touch the kitchen: dishes not ticked yet stay on the screen (pay-first cafes
+    // pay before the drinks are made); the kitchen ticks them when done.
   }
   return outcome
 }
@@ -524,7 +535,14 @@ async function releaseResourceIfOwned(connector: IDataConnector, shopId: string,
 }
 
 /** Cancels an open session that holds nothing (no active items, no payment). Otherwise 409. */
-export async function cancelTableSession(connector: TxConnector, shopId: string, sessionId: string, input: { device_id?: string; reason?: string } = {}) {
+export async function cancelTableSession(
+  connector: TxConnector,
+  shopId: string,
+  sessionId: string,
+  input: { device_id?: string; reason?: string } = {},
+  /** server-side only (the route passes the request body as `input`) */
+  audit: { actor?: KitchenActor } = {},
+) {
   const outcome = await connector.withTransaction(async (tx) => {
     const repo = createPgTableSyncRepo(tx)
     const session = await repo.lockSession(sessionId)
@@ -553,8 +571,8 @@ export async function cancelTableSession(connector: TxConnector, shopId: string,
     invalidate(shopId, 'orders')
     invalidate(shopId, 'location-resources')
     void broadcastTableSync(shopId, { session_id: sessionId, resource_id: outcome.session.resource_id, kind: 'session_cancelled' })
-    await kitchenBestEffort('close tickets (table cancelled)', () =>
-      closeKitchenTicketsForTable(connector, shopId, { sessionId, orderId: outcome.session.order_id }))
+    await kitchenBestEffort('cancel tickets (table cancelled)', () =>
+      voidKitchenForCancelledTable(connector, shopId, { sessionId, orderId: outcome.session.order_id, reason: input.reason || 'Huỷ bàn', deviceId: input.device_id, actor: audit.actor }))
   }
   return { session_id: sessionId, status: 'cancelled' as const }
 }

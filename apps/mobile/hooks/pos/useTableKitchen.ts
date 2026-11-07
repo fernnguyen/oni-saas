@@ -3,6 +3,7 @@
 // Inert (no requests) unless the branch has stations and the table runs table sync v2.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { kitchenDestinationLabel } from '@oni/core';
 import { getApiBaseUrl, getApiHeaders } from '../../lib/api/config';
 import type { MobileTableSyncV2Api } from './useTableSyncV2';
 
@@ -10,8 +11,32 @@ export interface MobileTableKitchenStatus {
   enabled: boolean;
   unsent_lines: number;
   unsent_qty: number;
-  items: Record<string, { sent: number; ready: number; unavailable?: number }>;
+  items: Record<string, { sent: number; ready: number; unavailable?: number; station_name?: string; station_kind?: string }>;
   unavailable_products?: string[];
+  /** where the next send goes / every station of the branch (labels: "Gửi Bar") */
+  unsent_stations?: { id: string; name: string; kind: string }[];
+  stations?: { id: string; name: string; kind: string }[];
+}
+
+/** Station names for labels: the stations of the unsent dishes, else every station of the branch. */
+export function kitchenDest(status: MobileTableKitchenStatus): string {
+  return kitchenDestinationLabel(status.unsent_stations?.length ? status.unsent_stations : status.stations ?? []);
+}
+
+/** Station of one dish ("Bar"), or the only station of the branch; '' when unknown. */
+export function itemStationName(status: MobileTableKitchenStatus, serverItemId?: string): string {
+  const own = serverItemId ? status.items[serverItemId]?.station_name : '';
+  if (own) return own;
+  return status.stations?.length === 1 ? status.stations[0].name : '';
+}
+
+/** Part of a cut into sent dishes that the station already made (cancels come off the rest first). */
+export function madeQtyOf(status: MobileTableKitchenStatus, serverItemId: string | undefined, voidQty: number): number {
+  if (!status.enabled || !serverItemId || voidQty <= 0) return 0;
+  const s = status.items[serverItemId];
+  const sent = Math.max(0, s?.sent ?? 0);
+  const ready = Math.min(sent, Math.max(0, s?.ready ?? 0));
+  return Math.max(0, voidQty - (sent - ready));
 }
 
 const EMPTY: MobileTableKitchenStatus = { enabled: false, unsent_lines: 0, unsent_qty: 0, items: {}, unavailable_products: [] };
@@ -101,10 +126,11 @@ export function kitchenBadge(status: MobileTableKitchenStatus, serverItemId: str
   const sent = Math.max(0, s?.sent ?? 0);
   const ready = Math.max(0, s?.ready ?? 0);
   const gone = Math.max(0, s?.unavailable ?? 0);
+  const where = itemStationName(status, serverItemId);
   if (gone > 0) return { label: gone >= sent ? 'Hết món' : `Hết ${gone}/${sent}`, tone: 'rose' as const };
-  if (sent === 0) return { label: 'Chưa báo bếp', tone: 'amber' as const };
+  if (sent === 0) return { label: where ? `Chưa báo ${where}` : 'Chưa báo', tone: 'amber' as const };
   if (sent < qty) return { label: `Chưa báo +${qty - sent}`, tone: 'amber' as const };
-  if (ready >= sent) return { label: 'Bếp xong', tone: 'emerald' as const };
+  if (ready >= sent) return { label: where ? `${where} xong` : 'Đã xong', tone: 'emerald' as const };
   return { label: ready > 0 ? `Đang làm ${ready}/${sent}` : 'Đang làm', tone: 'sky' as const };
 }
 

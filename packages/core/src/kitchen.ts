@@ -54,6 +54,18 @@ export function isKitchenEligibleIndustry(industryType: string): boolean {
   return v.posLayout !== 'product_grid' && v.features.kitchen_display;
 }
 
+/**
+ * Where dishes go, in words the floor reads on buttons and badges ("Gửi Bar", "Chưa báo Bếp"):
+ * the station names the shop chose. One → its name, two → "Bếp + Bar", more → "Bếp/Bar".
+ * `fallback` when nothing is known yet.
+ */
+export function kitchenDestinationLabel(stations: ReadonlyArray<{ name?: string | null }>, fallback = 'Bếp/Bar'): string {
+  const names = [...new Set(stations.map((s) => String(s?.name || '').trim()).filter(Boolean))];
+  if (names.length === 0) return fallback;
+  if (names.length <= 2) return names.join(' + ');
+  return 'Bếp/Bar';
+}
+
 /** Suggested starter stations per vertical (Q3 in the plan). */
 export function getPrepStationPresets(industryType: string): PrepStationPreset[] {
   if (!isKitchenEligibleIndustry(industryType)) return [];

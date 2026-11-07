@@ -1056,7 +1056,7 @@ export function ResourceSlideOver({
     setExistingItems(clone)
 
     if (v2 && v2SessionId) {
-      await v2Enqueue([{ type: 'change_qty', ...v2LineRef(p), delta, ...voidOpFields(kitchenCheck.reason) }])
+      await v2Enqueue([{ type: 'change_qty', ...v2LineRef(p), delta, ...voidOpFields(kitchenCheck) }])
       return
     }
     localStorage.setItem(`table_order_items:${order.id}`, JSON.stringify(clone))
@@ -1099,7 +1099,7 @@ export function ResourceSlideOver({
         // Bar/Bếp: cutting into qty already sent to the kitchen needs permission + reason
         const check = await kitchen.confirmReduce(item, target)
         if (!check.ok) return
-        const extra = voidOpFields(check.reason)
+        const extra = voidOpFields(check)
         if (target <= 0) ops.push({ type: 'remove_item', ...v2LineRef(item), ...extra })
         else {
           const delta = target - (Number(server?.qty) || 0)
@@ -1206,6 +1206,8 @@ export function ResourceSlideOver({
     if (!order) return
     // Bar/Bếp: removing a dish already sent to the kitchen needs permission + reason
     const toDelete = existingItems.find(i => i.id === itemId)
+    // The generic "Xóa món" confirm is answered: close it so the kitchen prompt is the only dialog
+    setConfirmDeleteId(null)
     const kitchenCheck = toDelete ? await kitchen.confirmReduce(toDelete, 0) : { ok: true as const, reason: undefined }
     if (!kitchenCheck.ok) {
       setConfirmDeleteId(null)
@@ -1225,7 +1227,7 @@ export function ResourceSlideOver({
 
     if (v2 && v2SessionId) {
       const item = existingItems.find(i => i.id === itemId)
-      if (item) await v2Enqueue([{ type: 'remove_item', ...v2LineRef(item), ...voidOpFields(kitchenCheck.reason) }])
+      if (item) await v2Enqueue([{ type: 'remove_item', ...v2LineRef(item), ...voidOpFields(kitchenCheck) }])
       toast.success('Đã xóa món')
       setDeletingItemId(null)
       setConfirmDeleteId(null)

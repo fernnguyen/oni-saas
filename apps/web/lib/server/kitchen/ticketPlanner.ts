@@ -23,6 +23,9 @@ export interface PlannerOp {
   modifiers?: unknown
   note?: string
   batch_id?: string
+  unit_price?: number
+  /** void op: the floor confirmed the dish was already made (cancel = waste) */
+  kitchen_made?: boolean
 }
 
 export interface PlannerOpResult {
@@ -38,6 +41,7 @@ export interface OrderLineInfo {
   product_name: string
   variant_label: string
   modifiers: string
+  unit_price?: number
 }
 
 /** What a station has already received for one order item (net qty, after voids). */
@@ -55,7 +59,16 @@ export interface PlannedLine {
   modifiers: string
   note: string
   qty: number // negative for void
+  /** price of one unit when known (waste value of cancelled dishes) */
+  unit_price?: number
+  /**
+   * void line, known up front: 'made' = already cooked (waste), 'stopped' = never cooked
+   * (e.g. reported sold out). Unset = the kitchen has to say what it did.
+   */
+  outcome?: KitchenVoidOutcome
 }
+
+export type KitchenVoidOutcome = 'made' | 'stopped'
 
 export interface PlannedTicket {
   station: PrepStation
@@ -118,6 +131,7 @@ export function planKitchenTickets(input: PlanInput): PlannedTicket[] {
         product_name: String(op.product_name || ''),
         variant_label: String(op.variant_label || ''),
         modifiers: modifiersText(op.modifiers),
+        ...(op.unit_price !== undefined && Number.isFinite(Number(op.unit_price)) ? { unit_price: Number(op.unit_price) } : {}),
       }
     } else if (op.type === 'change_qty' && Number(op.delta) > 0) {
       addQty = Number(op.delta)
@@ -153,8 +167,10 @@ export function planKitchenTickets(input: PlanInput): PlannedTicket[] {
       product_name: prev.product_name,
       variant_label: prev.variant_label,
       modifiers: prev.modifiers,
+      ...(prev.unit_price !== undefined ? { unit_price: prev.unit_price } : {}),
       note,
       qty: -voidQty,
+      ...(op.kitchen_made === true ? { outcome: 'made' as const } : {}),
     })
     sent.set(itemId, { ...prev, net_qty: prev.net_qty - voidQty })
   }
@@ -201,7 +217,7 @@ export function mergeSameItemLines(planned: PlannedTicket[]): PlannedTicket[] {
   return planned.map((t) => {
     const out: PlannedLine[] = []
     for (const l of t.lines) {
-      const prev = out.find((x) => x.order_item_id === l.order_item_id && x.note === l.note && Math.sign(x.qty) === Math.sign(l.qty))
+      const prev = out.find((x) => x.order_item_id === l.order_item_id && x.note === l.note && Math.sign(x.qty) === Math.sign(l.qty) && x.outcome === l.outcome)
       if (prev) prev.qty += l.qty
       else out.push({ ...l })
     }
