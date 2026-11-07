@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { usePOSProductSearch, findProductsByCode } from '@/hooks/usePOSProductSearch'
+import { flushSync } from 'react-dom'
+import { usePOSProductSearch, findProductsByCode, searchPOSProducts, isConfidentTextPick } from '@/hooks/usePOSProductSearch'
 import type { LocalProduct } from '@/lib/localDb/schema'
 import { cleanSku } from '@/lib/sku'
 
@@ -19,48 +20,65 @@ export function SlideProductSearch({ onSelect, soldOutIds = [] }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
   const { results, isLoading, isStale } = usePOSProductSearch(query)
-  // Scanner sends code + Enter faster than the 200ms debounce; ignore a re-entrant Enter
-  const lookupBusyRef = useRef(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const queryRef = useRef(query)
+  queryRef.current = query
+  // Enter lookups run strictly in order (continuous-mode scanners fire codes back to back)
+  const enterQueueRef = useRef<Promise<void>>(Promise.resolve())
+  // Cashier moved the highlight with the arrows since the list last changed → trust that pick
+  const navigatedRef = useRef(false)
 
-  function selectAndReset(product: LocalProduct, code: string) {
+  function selectAndClose(product: LocalProduct) {
     onSelect(product)
-    // Only clear if the box still holds what was submitted (a next scan may have started)
-    setQuery((prev) => (prev.trim() === code ? '' : prev))
     setIsOpen(false)
     setHighlightedIndex(-1)
   }
 
-  async function handleEnter(input: HTMLInputElement) {
-    const code = input.value.trim()
-    if (!code || lookupBusyRef.current) return
-    lookupBusyRef.current = true
-    try {
-      // 1) Exact barcode/SKU hit wins, independent of the debounced list.
-      //    variant_child rows are left to the list/picker flow (callers expect parents).
-      const exact = (await findProductsByCode(code)).filter(
-        (p) => (p as any).product_type !== 'variant_child'
-      )
-      if (exact.length === 1) {
-        selectAndReset(exact[0], code)
-        return
-      }
-      // 2) Original behaviour — but only once the list belongs to the typed text.
-      if (isStale) return
-      let selectedProduct: LocalProduct | null = null
-      if (highlightedIndex >= 0 && highlightedIndex < displayResults.length) {
-        selectedProduct = displayResults[highlightedIndex]
-      } else if (displayResults.length === 1) {
-        selectedProduct = displayResults[0]
-      }
-      if (selectedProduct) {
-        selectAndReset(selectedProduct, code)
-      } else {
-        // Nothing to add: select the text so the next scan replaces it instead of appending
-        input.select()
-      }
-    } finally {
-      lookupBusyRef.current = false
+  /**
+   * Enter: take the code and clear the box synchronously, then resolve it in a queue —
+   * otherwise the next scan is typed onto the previous one ("ZT-1000ZT-1000").
+   * Order: exact barcode/SKU → the highlighted row (if the list belonged to this text) →
+   * the first search result (original "Enter picks the top row" behaviour) → give the
+   * text back selected so the next scan replaces it.
+   */
+  function handleEnter(rawValue: string) {
+    const code = rawValue.trim()
+    if (!code) return
+    const listIsCurrent = !isStale
+    let picked: LocalProduct | null = null
+    if (listIsCurrent) {
+      if (highlightedIndex >= 0 && highlightedIndex < displayResults.length) picked = displayResults[highlightedIndex]
+      else if (displayResults.length === 1) picked = displayResults[0]
+      // A code-like text must not add a row that merely contains it (unless picked with arrows)
+      if (picked && !navigatedRef.current && !isConfidentTextPick(picked, code)) picked = null
     }
+    setQuery('')
+    queryRef.current = ''
+    enterQueueRef.current = enterQueueRef.current
+      .then(() => processEnteredCode(code, picked, listIsCurrent))
+      .catch((e) => console.error('POS code lookup failed:', e))
+  }
+
+  async function processEnteredCode(code: string, picked: LocalProduct | null, listIsCurrent: boolean) {
+    // variant_child rows are left to the list/picker flow (callers expect parents)
+    const exact = (await findProductsByCode(code)).filter(
+      (p) => (p as any).product_type !== 'variant_child'
+    )
+    if (exact.length === 1) return selectAndClose(exact[0])
+    if (picked) return selectAndClose(picked)
+    if (!listIsCurrent) {
+      const matches = await searchPOSProducts(code)
+      if (matches.length > 0 && isConfidentTextPick(matches[0], code)) return selectAndClose(matches[0])
+    }
+    // Nothing to add: give the text back selected (unless the cashier already typed again)
+    if (queryRef.current.trim() !== '') return
+    flushSync(() => {
+      setQuery(code)
+      setIsOpen(true)
+    })
+    queryRef.current = code
+    inputRef.current?.focus()
+    inputRef.current?.select()
   }
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -69,6 +87,7 @@ export function SlideProductSearch({ onSelect, soldOutIds = [] }: Props) {
   }, [results])
 
   useEffect(() => {
+    navigatedRef.current = false
     if (displayResults.length > 0) {
       setHighlightedIndex(0)
     } else {
@@ -91,6 +110,7 @@ export function SlideProductSearch({ onSelect, soldOutIds = [] }: Props) {
     <div className="relative" ref={wrapperRef}>
       <input
         type="text"
+        ref={inputRef}
         id="pos-mobile-product-search-input"
         placeholder="Tìm tên món, mã SKU (F3)..."
         value={query}
@@ -102,11 +122,13 @@ export function SlideProductSearch({ onSelect, soldOutIds = [] }: Props) {
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') {
             e.preventDefault()
+            navigatedRef.current = true
             if (displayResults.length > 0) {
               setHighlightedIndex(prev => (prev === -1 ? 0 : (prev + 1) % displayResults.length))
             }
           } else if (e.key === 'ArrowUp') {
             e.preventDefault()
+            navigatedRef.current = true
             if (displayResults.length > 0) {
               setHighlightedIndex(prev => (prev === -1 ? displayResults.length - 1 : (prev - 1 + displayResults.length) % displayResults.length))
             }
@@ -115,7 +137,7 @@ export function SlideProductSearch({ onSelect, soldOutIds = [] }: Props) {
             setHighlightedIndex(-1)
           } else if (e.key === 'Enter') {
             e.preventDefault()
-            void handleEnter(e.currentTarget)
+            handleEnter(e.currentTarget.value)
           }
         }}
         className="w-full rounded-xl border border-slate-200 pl-3.5 pr-10 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 bg-white"

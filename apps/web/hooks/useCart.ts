@@ -267,7 +267,8 @@ export function useCart(inventory?: Map<string, number>, branchId?: string, allo
     }
   }, [branchId])
 
-  const addItem = useCallback(async (product: LocalProduct) => {
+  /** Resolves false when the stock check blocks the add, true once it is dispatched. */
+  const addItem = useCallback(async (product: LocalProduct): Promise<boolean> => {
     if (!allowNegativeStock && !allowsProductNegativeStock(product as any)) {
       const stock = inventoryRef.current?.get(product.product_id)
       if (stock !== undefined) {
@@ -279,7 +280,7 @@ export function useCart(inventory?: Map<string, number>, branchId?: string, allo
           toast.warning(`Đã đủ số lượng trong kho`, {
             description: `"${product.name}" chỉ còn ${stock} - không thể thêm`,
           })
-          return
+          return false
         }
       }
     }
@@ -308,6 +309,7 @@ export function useCart(inventory?: Map<string, number>, branchId?: string, allo
       }
     })
     void checkNearExpiryBatches(product.product_id, product.name)
+    return true
   }, [checkNearExpiryBatches, allowNegativeStock])
 
   // For variant children and modifier products — adds with full context

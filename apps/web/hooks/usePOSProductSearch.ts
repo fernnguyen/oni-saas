@@ -58,6 +58,20 @@ export function codeMatchRank(p: LocalProduct, rawQuery: string): number {
 }
 
 /**
+ * Whether Enter may add `p` for the typed text when it is NOT an exact code match.
+ * Text that looks like a code (has a digit, no spaces — "16", "HH-0030") must not pick a row
+ * that merely *contains* it: a scanned code that isn't in the catalog would otherwise add an
+ * unrelated product. Names ("bia", "cà phê") keep the old "Enter takes the top row" behaviour.
+ */
+export function isConfidentTextPick(p: LocalProduct, rawQuery: string): boolean {
+  const q = rawQuery.trim().toLowerCase()
+  if (!q) return false
+  const looksLikeCode = /\d/.test(q) && !/\s/.test(q)
+  if (!looksLikeCode) return true
+  return codeMatchRank(p, q) <= 4 || p.name.toLowerCase().startsWith(q)
+}
+
+/**
  * Exact barcode / SKU lookup against Dexie, independent of the debounced list.
  * Used by barcode scanners (keyboard wedge + camera): they type the code and
  * press Enter faster than the search debounce settles.
@@ -89,6 +103,43 @@ export async function findProductsByCode(rawCode: string): Promise<LocalProduct[
 
 const EMPTY: LocalProduct[] = []
 
+/** Same filter + ranking as the POS grid list (max 200 rows). */
+function filterAndRank(catalog: LocalProduct[], rawQuery: string, categoryId?: string): LocalProduct[] {
+  try {
+    let items = categoryId ? catalog.filter((p) => p.category_id === categoryId) : catalog.slice()
+    const q = rawQuery.trim().toLowerCase()
+    if (q) {
+      items = items.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.sku ?? '').toLowerCase().includes(q) ||
+          cleanSku(p.sku).toLowerCase().includes(q) ||
+          (p.barcode ?? '').toLowerCase().includes(q) ||
+          ((p as any).unit_sku ?? '').toLowerCase().includes(q)
+      )
+      // Exact barcode/SKU hits first, then by name
+      items.sort((a, b) => codeMatchRank(a, q) - codeMatchRank(b, q) || a.name.localeCompare(b.name, 'vi'))
+    } else {
+      items.sort((a, b) => a.name.localeCompare(b.name, 'vi'))
+    }
+    return items.slice(0, 200)
+  } catch {
+    return EMPTY
+  }
+}
+
+async function loadCatalog(): Promise<LocalProduct[]> {
+  const items = await localDb.products
+    .filter((p) => p.active && (p as any).product_type !== 'variant_child' && !isSystemTimeChargeProduct(p.product_id, p.sku))
+    .toArray()
+  return flattenUnits(items)
+}
+
+/** One-off version of the list search (used when Enter beats the debounce). */
+export async function searchPOSProducts(query: string, categoryId?: string): Promise<LocalProduct[]> {
+  return filterAndRank(await loadCatalog(), query, categoryId)
+}
+
 export function usePOSProductSearch(query: string, categoryId?: string) {
   // Catalog rows (units flattened) are loaded once and kept live; typing only filters
   // in memory instead of re-reading the whole products table on every keystroke.
@@ -97,47 +148,17 @@ export function usePOSProductSearch(query: string, categoryId?: string) {
   const database = localDb
 
   useEffect(() => {
-    const subscription = liveQuery(async () => {
-      const items = await database.products
-        .filter((p) => p.active && (p as any).product_type !== 'variant_child' && !isSystemTimeChargeProduct(p.product_id, p.sku))
-        .toArray()
-      return flattenUnits(items)
-    }).subscribe({
+    const subscription = liveQuery(() => loadCatalog()).subscribe({
       next: (rows) => setCatalog(rows),
       error: () => setCatalog((prev) => prev ?? []),
     })
     return () => subscription.unsubscribe()
   }, [database])
 
-  const results = useMemo(() => {
-    if (!catalog) return EMPTY
-    try {
-      let items = categoryId ? catalog.filter((p) => p.category_id === categoryId) : catalog.slice()
-
-      if (debouncedQuery) {
-        const q = debouncedQuery.toLowerCase()
-        items = items.filter(
-          (p) =>
-            p.name.toLowerCase().includes(q) ||
-            (p.sku ?? '').toLowerCase().includes(q) ||
-            cleanSku(p.sku).toLowerCase().includes(q) ||
-            (p.barcode ?? '').toLowerCase().includes(q) ||
-            ((p as any).unit_sku ?? '').toLowerCase().includes(q)
-        )
-        // Exact barcode/SKU hits first, then by name
-        items.sort(
-          (a, b) =>
-            codeMatchRank(a, q) - codeMatchRank(b, q) || a.name.localeCompare(b.name, 'vi')
-        )
-      } else {
-        items.sort((a, b) => a.name.localeCompare(b.name, 'vi'))
-      }
-
-      return items.slice(0, 200)
-    } catch {
-      return EMPTY
-    }
-  }, [catalog, debouncedQuery, categoryId])
+  const results = useMemo(
+    () => (catalog ? filterAndRank(catalog, debouncedQuery, categoryId) : EMPTY),
+    [catalog, debouncedQuery, categoryId]
+  )
 
   const isLoading = catalog === null
   /** Which query/category the current `results` belong to (lags `query` by the debounce). */
