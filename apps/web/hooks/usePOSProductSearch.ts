@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { liveQuery } from 'dexie'
 import { useDebounce } from 'use-debounce'
 import { localDb, type LocalProduct } from '@/lib/localDb/schema'
@@ -87,62 +87,61 @@ export async function findProductsByCode(rawCode: string): Promise<LocalProduct[
   return matches
 }
 
+const EMPTY: LocalProduct[] = []
+
 export function usePOSProductSearch(query: string, categoryId?: string) {
-  const [results, setResults] = useState<LocalProduct[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  /** Which query/category the current `results` belong to (lags `query` by the debounce). */
-  const [resultsKey, setResultsKey] = useState<string | null>(null)
+  // Catalog rows (units flattened) are loaded once and kept live; typing only filters
+  // in memory instead of re-reading the whole products table on every keystroke.
+  const [catalog, setCatalog] = useState<LocalProduct[] | null>(null)
   const [debouncedQuery] = useDebounce(query.trim(), 200)
   const database = localDb
 
   useEffect(() => {
-    const key = `${debouncedQuery}|${categoryId ?? ''}`
     const subscription = liveQuery(async () => {
-      setIsLoading(true)
-      try {
-        let items = await database.products.filter((p) => p.active && (p as any).product_type !== 'variant_child' && !isSystemTimeChargeProduct(p.product_id, p.sku)).toArray()
-
-        if (categoryId) {
-          items = items.filter((p) => p.category_id === categoryId)
-        }
-
-        // Flatten product units into pseudo-products
-        items = flattenUnits(items)
-
-        if (debouncedQuery) {
-          const q = debouncedQuery.toLowerCase()
-          items = items.filter(
-            (p) =>
-              p.name.toLowerCase().includes(q) ||
-              (p.sku ?? '').toLowerCase().includes(q) ||
-              cleanSku(p.sku).toLowerCase().includes(q) ||
-              (p.barcode ?? '').toLowerCase().includes(q) ||
-              ((p as any).unit_sku ?? '').toLowerCase().includes(q)
-          )
-          // Exact barcode/SKU hits first, then by name
-          items.sort(
-            (a, b) =>
-              codeMatchRank(a, q) - codeMatchRank(b, q) || a.name.localeCompare(b.name, 'vi')
-          )
-        } else {
-          items.sort((a, b) => a.name.localeCompare(b.name, 'vi'))
-        }
-
-        return items.slice(0, 200)
-      } catch {
-        return []
-      }
+      const items = await database.products
+        .filter((p) => p.active && (p as any).product_type !== 'variant_child' && !isSystemTimeChargeProduct(p.product_id, p.sku))
+        .toArray()
+      return flattenUnits(items)
     }).subscribe({
-      next: (items) => {
-        setResults(items)
-        setResultsKey(key)
-        setIsLoading(false)
-      },
-      error: () => setIsLoading(false),
+      next: (rows) => setCatalog(rows),
+      error: () => setCatalog((prev) => prev ?? []),
     })
     return () => subscription.unsubscribe()
-  }, [database, debouncedQuery, categoryId])
+  }, [database])
 
+  const results = useMemo(() => {
+    if (!catalog) return EMPTY
+    try {
+      let items = categoryId ? catalog.filter((p) => p.category_id === categoryId) : catalog.slice()
+
+      if (debouncedQuery) {
+        const q = debouncedQuery.toLowerCase()
+        items = items.filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            (p.sku ?? '').toLowerCase().includes(q) ||
+            cleanSku(p.sku).toLowerCase().includes(q) ||
+            (p.barcode ?? '').toLowerCase().includes(q) ||
+            ((p as any).unit_sku ?? '').toLowerCase().includes(q)
+        )
+        // Exact barcode/SKU hits first, then by name
+        items.sort(
+          (a, b) =>
+            codeMatchRank(a, q) - codeMatchRank(b, q) || a.name.localeCompare(b.name, 'vi')
+        )
+      } else {
+        items.sort((a, b) => a.name.localeCompare(b.name, 'vi'))
+      }
+
+      return items.slice(0, 200)
+    } catch {
+      return EMPTY
+    }
+  }, [catalog, debouncedQuery, categoryId])
+
+  const isLoading = catalog === null
+  /** Which query/category the current `results` belong to (lags `query` by the debounce). */
+  const resultsKey = catalog === null ? null : `${debouncedQuery}|${categoryId ?? ''}`
   const currentKey = `${query.trim()}|${categoryId ?? ''}`
   return { results, isLoading, resultsKey, isStale: resultsKey !== currentKey }
 }

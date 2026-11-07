@@ -73,7 +73,10 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
     if (allowNegativeStock || allowsProductNegativeStock(p as any)) return false
     const stock = inventory.get(p.product_id) ?? 0
     const type = (p as any).product_type ?? 'simple'
-    return type !== 'variant_parent' && type !== 'modifier' && stock <= 0
+    if (type === 'variant_parent' || type === 'modifier') return false
+    // Unit rows (Thùng = 24 lon) need a full unit of base stock
+    const rate = Number((p as any).conversion_rate) || 1
+    return rate > 1 ? stock < rate : stock <= 0
   }
 
   // Filtered results
@@ -456,7 +459,7 @@ export function ProductGrid({ branchId, inventory, mutePosSound, onAddToCart, on
               const stock = inventory.get(product.product_id) ?? 0
               const type = (product as any).product_type ?? 'simple'
               // variant_parent: don't track stock by itself, always show
-              const outOfStock = !allowNegativeStock && !allowsProductNegativeStock(product as any) && type !== 'variant_parent' && type !== 'modifier' && stock <= 0
+              const outOfStock = isOOS(product)
               const badge = getTypeBadge(product)
               const isHighlighted = index === highlightedIndex
               return (

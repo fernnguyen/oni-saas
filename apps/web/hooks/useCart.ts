@@ -2,6 +2,7 @@
 import { useCallback, useReducer, useRef } from 'react'
 import { toast } from 'sonner'
 import { localDb, type LocalProduct } from '@/lib/localDb/schema'
+import { allowsProductNegativeStock } from '@oni/core'
 
 export interface CartItem {
   product_id: string
@@ -24,6 +25,55 @@ export interface CartItem {
   unit_name?: string
   conversion_rate?: number
   image_url?: string  // product thumbnail for display
+  /** Product-level "bán âm" (quick-create inventory_policy) — cart-only, not sent to checkout */
+  allow_negative_stock?: boolean
+}
+
+/**
+ * Identity of a cart line. The same product can sit on several lines: one per unit
+ * (Lon / Thùng), per variant label, or per modifier set.
+ */
+export function cartLineKey(item: Pick<CartItem, 'product_id' | 'unit_id' | 'variant_label' | 'modifiers'>): string {
+  const sig = item.variant_label || JSON.stringify(item.modifiers || [])
+  return `${item.product_id}|${item.unit_id ?? ''}|${sig}`
+}
+
+/**
+ * Line operations accept a cartLineKey (always contains "|") or, for backward
+ * compatibility, a bare product_id (old behaviour: every line of that product).
+ */
+function matchLine(item: CartItem, key: string): boolean {
+  return key.includes('|') ? cartLineKey(item) === key : item.product_id === key
+}
+
+/** Stock is kept in base units; a "Thùng 24" line consumes qty × 24. */
+export function baseQty(item: Pick<CartItem, 'qty' | 'conversion_rate'>): number {
+  return Number(item.qty) * (Number(item.conversion_rate) || 1)
+}
+
+/** Base units of `productId` already in the cart, optionally skipping one line. */
+export function baseQtyInCart(items: CartItem[], productId: string, exceptKey?: string): number {
+  return items.reduce(
+    (s, i) => (i.product_id === productId && (!exceptKey || cartLineKey(i) !== exceptKey) ? s + baseQty(i) : s),
+    0
+  )
+}
+
+/**
+ * Highest qty this line may reach given the base-unit stock shared with the other
+ * lines of the same product. `undefined` = no limit (unknown stock / negative allowed).
+ */
+export function maxQtyForLine(
+  items: CartItem[],
+  item: CartItem,
+  stock: number | undefined,
+  allowNegativeStock = false
+): number | undefined {
+  if (allowNegativeStock || item.allow_negative_stock || stock === undefined) return undefined
+  const rate = Number(item.conversion_rate) || 1
+  const others = baseQtyInCart(items, item.product_id, cartLineKey(item))
+  // rate 1 keeps the original un-floored cap (fractional stock, e.g. kg goods)
+  return rate === 1 ? stock - others : Math.floor((stock - others) / rate)
 }
 
 // A single modifier option selected by cashier
@@ -42,10 +92,10 @@ type CartState = {
 type CartAction =
   | { type: 'ADD_ITEM'; product: LocalProduct }
   | { type: 'ADD_ITEM_WITH_OPTS'; item: CartItem }  // for variant/modifier products
-  | { type: 'REMOVE_ITEM'; product_id: string }
-  | { type: 'SET_QTY'; product_id: string; qty: number }
-  | { type: 'SET_ITEM_DISCOUNT'; product_id: string; discount: number }
-  | { type: 'SET_ITEM_PRICE_AND_DISCOUNT'; product_id: string; unit_price: number; discount_amount: number }
+  | { type: 'REMOVE_ITEM'; key: string }
+  | { type: 'SET_QTY'; key: string; qty: number }
+  | { type: 'SET_ITEM_DISCOUNT'; key: string; discount: number }
+  | { type: 'SET_ITEM_PRICE_AND_DISCOUNT'; key: string; unit_price: number; discount_amount: number }
   | { type: 'SET_ORDER_DISCOUNT'; discount: number }
   | { type: 'SET_NOTE'; note: string }
   | { type: 'RESTORE'; state: CartState }
@@ -61,12 +111,13 @@ function cartReducer(state: CartState, action: CartAction): CartState {
   switch (action.type) {
     case 'ADD_ITEM': {
       const uId = (action.product as any).unit_id
-      const existing = state.items.find((i) => i.product_id === action.product.product_id && i.unit_id === uId)
+      const key = cartLineKey({ product_id: action.product.product_id, unit_id: uId })
+      const existing = state.items.find((i) => cartLineKey(i) === key)
       if (existing) {
         return {
           ...state,
           items: state.items.map((i) =>
-            i.product_id === action.product.product_id && i.unit_id === uId
+            cartLineKey(i) === key
               ? { ...i, qty: i.qty + 1, line_total: lineTotal({ ...i, qty: i.qty + 1 }) }
               : i
           ),
@@ -88,17 +139,15 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         tax_rate: action.product.tax_rate,
         tax_group: action.product.tax_group,
         image_url: action.product.image_url,
+        allow_negative_stock: allowsProductNegativeStock(action.product as any) || undefined,
       }
       return { ...state, items: [...state.items, newItem] }
     }
     case 'ADD_ITEM_WITH_OPTS': {
       // For variant/modifier: use composite key (product_id + variant_label + modifiers signature)
       // so same base product with different variants can coexist in cart
-      const sig = action.item.variant_label || JSON.stringify(action.item.modifiers || [])
-      const existingIdx = state.items.findIndex(
-        (i) => i.product_id === action.item.product_id &&
-          (i.variant_label || JSON.stringify(i.modifiers || [])) === sig
-      )
+      const key = cartLineKey(action.item)
+      const existingIdx = state.items.findIndex((i) => cartLineKey(i) === key)
       if (existingIdx >= 0) {
         const updated = state.items.map((it, idx) =>
           idx === existingIdx
@@ -110,18 +159,18 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       return { ...state, items: [...state.items, action.item] }
     }
     case 'REMOVE_ITEM': {
-      const newItems = state.items.filter((i) => i.product_id !== action.product_id)
+      const newItems = state.items.filter((i) => !matchLine(i, action.key))
       const newSubtotal = newItems.reduce((s, i) => s + Number(i.line_total), 0)
       return { ...state, items: newItems, discount_amount: Math.min(state.discount_amount, newSubtotal) }
     }
     case 'SET_QTY': {
       if (action.qty <= 0) {
-        const newItems = state.items.filter((i) => i.product_id !== action.product_id)
+        const newItems = state.items.filter((i) => !matchLine(i, action.key))
         const newSubtotal = newItems.reduce((s, i) => s + Number(i.line_total), 0)
         return { ...state, items: newItems, discount_amount: Math.min(state.discount_amount, newSubtotal) }
       }
       const newItems = state.items.map((i) =>
-        i.product_id === action.product_id
+        matchLine(i, action.key)
           ? { ...i, qty: action.qty, line_total: lineTotal({ ...i, qty: action.qty }) }
           : i
       )
@@ -132,7 +181,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       return {
         ...state,
         items: state.items.map((i) =>
-          i.product_id === action.product_id
+          matchLine(i, action.key)
             ? { ...i, discount_amount: action.discount, line_total: lineTotal({ ...i, discount_amount: action.discount }) }
             : i
         ),
@@ -141,7 +190,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       return {
         ...state,
         items: state.items.map((i) =>
-          i.product_id === action.product_id
+          matchLine(i, action.key)
             ? { ...i, unit_price: action.unit_price, discount_amount: action.discount_amount, line_total: lineTotal({ ...i, unit_price: action.unit_price, discount_amount: action.discount_amount }) }
             : i
         ),
@@ -219,11 +268,14 @@ export function useCart(inventory?: Map<string, number>, branchId?: string, allo
   }, [branchId])
 
   const addItem = useCallback(async (product: LocalProduct) => {
-    if (!allowNegativeStock) {
+    if (!allowNegativeStock && !allowsProductNegativeStock(product as any)) {
       const stock = inventoryRef.current?.get(product.product_id)
       if (stock !== undefined) {
-        const currentQty = stateRef.current.items.find((i) => i.product_id === product.product_id)?.qty ?? 0
-        if (currentQty >= stock) {
+        // Base units across every line of this product (Lon + Thùng share one stock)
+        const inCart = baseQtyInCart(stateRef.current.items, product.product_id)
+        const rate = Number((product as any).conversion_rate) || 1
+        // rate 1 keeps the original rule (inCart >= stock) so fractional stock still sells
+        if (rate === 1 ? inCart >= stock : inCart + rate > stock) {
           toast.warning(`Đã đủ số lượng trong kho`, {
             description: `"${product.name}" chỉ còn ${stock} - không thể thêm`,
           })
@@ -290,29 +342,39 @@ export function useCart(inventory?: Map<string, number>, branchId?: string, allo
     void checkNearExpiryBatches(item.product_id, item.product_name)
   }, [checkNearExpiryBatches])
 
-  const removeItem = useCallback((product_id: string) => dispatch({ type: 'REMOVE_ITEM', product_id }), [])
+  /** `key` = cartLineKey(item); a bare product_id still works (affects every line of it). */
+  const removeItem = useCallback((key: string) => dispatch({ type: 'REMOVE_ITEM', key }), [])
 
-  const setQty = useCallback((product_id: string, qty: number) => {
+  const setQty = useCallback((key: string, qty: number) => {
     if (qty <= 0) {
-      dispatch({ type: 'SET_QTY', product_id, qty: 0 })
+      dispatch({ type: 'SET_QTY', key, qty: 0 })
       return
     }
-    if (!allowNegativeStock) {
-      const stock = inventoryRef.current?.get(product_id)
-      if (stock !== undefined && stock > 0 && qty > stock) {
-        toast.warning(`Chỉ còn ${stock} trong kho - đã điều chỉnh số lượng`)
-        dispatch({ type: 'SET_QTY', product_id, qty: stock })
+    const items = stateRef.current.items
+    const line = items.find((i) => matchLine(i, key))
+    if (line) {
+      const stock = inventoryRef.current?.get(line.product_id)
+      const max = maxQtyForLine(items, line, stock, allowNegativeStock)
+      // stock > 0 guard kept from the original behaviour (no clamping on empty/negative stock)
+      if (max !== undefined && stock !== undefined && stock > 0 && qty > max) {
+        if (max < 1) {
+          toast.warning(`Không đủ tồn kho cho "${line.product_name}"`)
+          return
+        }
+        const unit = line.unit_name ? ` ${line.unit_name}` : ''
+        toast.warning(`Chỉ còn ${max}${unit} trong kho - đã điều chỉnh số lượng`)
+        dispatch({ type: 'SET_QTY', key, qty: max })
         return
       }
     }
-    dispatch({ type: 'SET_QTY', product_id, qty })
+    dispatch({ type: 'SET_QTY', key, qty })
   }, [allowNegativeStock])
   const setItemDiscount = useCallback(
-    (product_id: string, discount: number) => dispatch({ type: 'SET_ITEM_DISCOUNT', product_id, discount }),
+    (key: string, discount: number) => dispatch({ type: 'SET_ITEM_DISCOUNT', key, discount }),
     []
   )
   const setItemPriceAndDiscount = useCallback(
-    (product_id: string, unit_price: number, discount_amount: number) => dispatch({ type: 'SET_ITEM_PRICE_AND_DISCOUNT', product_id, unit_price, discount_amount }),
+    (key: string, unit_price: number, discount_amount: number) => dispatch({ type: 'SET_ITEM_PRICE_AND_DISCOUNT', key, unit_price, discount_amount }),
     []
   )
   const setOrderDiscount = useCallback((discount: number) => dispatch({ type: 'SET_ORDER_DISCOUNT', discount }), [])

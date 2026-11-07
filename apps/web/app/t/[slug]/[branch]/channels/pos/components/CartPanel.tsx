@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import type { CartItem } from '@/hooks/useCart'
+import { cartLineKey, maxQtyForLine, type CartItem } from '@/hooks/useCart'
 import type { LocalCustomer, LocalProduct } from '@/lib/localDb/schema'
 import { CustomerSearch } from './CustomerSearch'
 import { IconClipboard, IconWarehouse, IconTrash } from '@/app/components/layout/nav'
@@ -19,10 +19,11 @@ interface Props {
   note: string
   customer: LocalCustomer | null
   onCustomerChange: (c: LocalCustomer | null) => void
-  onQtyChange: (product_id: string, qty: number) => void
-  onRemove: (product_id: string) => void
+  /** Line ops receive cartLineKey(item) (unit/variant aware), not a bare product_id */
+  onQtyChange: (lineKey: string, qty: number) => void
+  onRemove: (lineKey: string) => void
   onDiscountChange: (discount: number) => void
-  onItemPriceAndDiscountChange?: (product_id: string, unit_price: number, discount_amount: number) => void
+  onItemPriceAndDiscountChange?: (lineKey: string, unit_price: number, discount_amount: number) => void
   onNoteChange: (note: string) => void
   onHold: () => void
   onCheckout: () => void
@@ -31,9 +32,12 @@ interface Props {
   onAddToCart?: (product: LocalProduct) => void
   onAddToCartWithOptions?: (item: CartItem) => void
   mutePosSound?: boolean
+  /** cartLineKey of the selected line */
   activeItemId?: string | null
   onActiveItemChange?: (id: string | null) => void
   onOpenCustomerModal?: () => void
+  /** Shop allows selling below zero stock — disables the "Tối đa" cap */
+  allowNegativeStock?: boolean
 }
 
 function fmtVND(v: number | string | null | undefined) {
@@ -76,6 +80,7 @@ export function CartPanel({
   onActiveItemChange,
   onOpenCustomerModal,
   onItemPriceAndDiscountChange,
+  allowNegativeStock = false,
 }: Props) {
   const [discountMode, setDiscountMode] = useState<'amount' | 'percent'>('amount')
   const [discountPct, setDiscountPct] = useState('')
@@ -176,13 +181,16 @@ export function CartPanel({
         ) : (
           <div className="divide-y divide-slate-50">
             {items.map((item) => {
+              const lineKey = cartLineKey(item)
               const stock = inventory?.get(item.product_id)
-              const atMax = stock !== undefined && item.qty >= stock
-              const isItemActive = item.product_id === activeItemId
+              // Base-unit stock shared by every line of this product (Lon + Thùng)
+              const maxQty = maxQtyForLine(items, item, stock, allowNegativeStock)
+              const atMax = maxQty !== undefined && item.qty >= maxQty
+              const isItemActive = lineKey === activeItemId
               return (
                 <div
-                  key={item.product_id}
-                  onClick={() => onActiveItemChange?.(item.product_id)}
+                  key={lineKey}
+                  onClick={() => onActiveItemChange?.(lineKey)}
                   className={[
                     "px-3 py-2.5 transition-all cursor-pointer border-l-2 select-none",
                     isItemActive
@@ -237,7 +245,7 @@ export function CartPanel({
                       </p>
                     </div>
                     <button
-                      onClick={() => onRemove(item.product_id)}
+                      onClick={() => onRemove(lineKey)}
                       className="mt-0.5 shrink-0 text-slate-300 hover:text-red-400"
                     >
                       ✕
@@ -247,7 +255,7 @@ export function CartPanel({
                     {/* Qty controls */}
                     <div className="flex items-center gap-1">
                       <button
-                        onClick={() => onQtyChange(item.product_id, item.qty - 1)}
+                        onClick={() => onQtyChange(lineKey, item.qty - 1)}
                         className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-sm text-slate-600 hover:bg-slate-100"
                       >
                         −
@@ -256,10 +264,10 @@ export function CartPanel({
                         type="number"
                         value={item.qty}
                         min={1}
-                        max={stock ?? undefined}
+                        max={maxQty !== undefined ? Math.max(maxQty, item.qty) : undefined}
                         onChange={(e) => {
                           const v = parseInt(e.target.value, 10)
-                          if (!isNaN(v) && v > 0) onQtyChange(item.product_id, v)
+                          if (!isNaN(v) && v > 0) onQtyChange(lineKey, v)
                         }}
                         className={[
                           'h-6 w-10 rounded border text-center text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
@@ -269,7 +277,7 @@ export function CartPanel({
                         ].join(' ')}
                       />
                       <button
-                        onClick={() => onQtyChange(item.product_id, item.qty + 1)}
+                        onClick={() => onQtyChange(lineKey, item.qty + 1)}
                         disabled={atMax}
                         className={[
                           'flex h-6 w-6 items-center justify-center rounded border text-sm transition-colors',
@@ -430,7 +438,7 @@ export function CartPanel({
         item={editingItem ? { product_name: editingItem.product_name, qty: editingItem.qty, unit_price: editingItem.unit_price, discount_amount: editingItem.discount_amount } : null}
         onConfirm={(up, da) => {
           if (editingItem && onItemPriceAndDiscountChange) {
-            onItemPriceAndDiscountChange(editingItem.product_id, up, da)
+            onItemPriceAndDiscountChange(cartLineKey(editingItem), up, da)
           }
         }}
       />

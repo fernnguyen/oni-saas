@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { usePOSProductSearch } from '@/hooks/usePOSProductSearch'
+import { usePOSProductSearch, findProductsByCode } from '@/hooks/usePOSProductSearch'
 import type { LocalProduct } from '@/lib/localDb/schema'
 import { cleanSku } from '@/lib/sku'
 
@@ -18,7 +18,50 @@ export function SlideProductSearch({ onSelect, soldOutIds = [] }: Props) {
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
-  const { results, isLoading } = usePOSProductSearch(query)
+  const { results, isLoading, isStale } = usePOSProductSearch(query)
+  // Scanner sends code + Enter faster than the 200ms debounce; ignore a re-entrant Enter
+  const lookupBusyRef = useRef(false)
+
+  function selectAndReset(product: LocalProduct, code: string) {
+    onSelect(product)
+    // Only clear if the box still holds what was submitted (a next scan may have started)
+    setQuery((prev) => (prev.trim() === code ? '' : prev))
+    setIsOpen(false)
+    setHighlightedIndex(-1)
+  }
+
+  async function handleEnter(input: HTMLInputElement) {
+    const code = input.value.trim()
+    if (!code || lookupBusyRef.current) return
+    lookupBusyRef.current = true
+    try {
+      // 1) Exact barcode/SKU hit wins, independent of the debounced list.
+      //    variant_child rows are left to the list/picker flow (callers expect parents).
+      const exact = (await findProductsByCode(code)).filter(
+        (p) => (p as any).product_type !== 'variant_child'
+      )
+      if (exact.length === 1) {
+        selectAndReset(exact[0], code)
+        return
+      }
+      // 2) Original behaviour — but only once the list belongs to the typed text.
+      if (isStale) return
+      let selectedProduct: LocalProduct | null = null
+      if (highlightedIndex >= 0 && highlightedIndex < displayResults.length) {
+        selectedProduct = displayResults[highlightedIndex]
+      } else if (displayResults.length === 1) {
+        selectedProduct = displayResults[0]
+      }
+      if (selectedProduct) {
+        selectAndReset(selectedProduct, code)
+      } else {
+        // Nothing to add: select the text so the next scan replaces it instead of appending
+        input.select()
+      }
+    } finally {
+      lookupBusyRef.current = false
+    }
+  }
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   const displayResults = useMemo(() => {
@@ -72,19 +115,7 @@ export function SlideProductSearch({ onSelect, soldOutIds = [] }: Props) {
             setHighlightedIndex(-1)
           } else if (e.key === 'Enter') {
             e.preventDefault()
-            let selectedProduct = null
-            if (highlightedIndex >= 0 && highlightedIndex < displayResults.length) {
-              selectedProduct = displayResults[highlightedIndex]
-            } else if (displayResults.length === 1) {
-              selectedProduct = displayResults[0]
-            }
-
-            if (selectedProduct) {
-              onSelect(selectedProduct)
-              setQuery('')
-              setIsOpen(false)
-              setHighlightedIndex(-1)
-            }
+            void handleEnter(e.currentTarget)
           }
         }}
         className="w-full rounded-xl border border-slate-200 pl-3.5 pr-10 py-2.5 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 bg-white"
